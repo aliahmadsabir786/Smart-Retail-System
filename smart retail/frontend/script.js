@@ -242,6 +242,17 @@ const DB = {
   },
 };
 
+// Global safety net: any unhandled promise rejection (failed API call that
+// wasn't individually wrapped in try/catch) now surfaces as a toast instead
+// of failing silently with an empty-looking page.
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled error:', event.reason);
+  if (typeof toast === 'function') {
+    const msg = (event.reason && event.reason.message) || 'Something went wrong — check the browser console (F12) for details.';
+    toast(msg, 'error');
+  }
+});
+
 let currentUser = null;
 let cart = [];
 let selectedPayment = 'cash';
@@ -404,6 +415,7 @@ function initApp() {
   setInterval(updateClock, 1000);
   updateClock();
   updatePosCustomers();
+  SettingsAPI.getCompany().then(s => { _companySettingsCache = s; }).catch(() => {});
 }
 function updateClock() {
   const now = new Date();
@@ -416,101 +428,89 @@ function toggleNotif() {
 // ═══════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════
-function renderDashboard() {
-  const totalRevenue = DB.orders.filter(o=>o.status==='Completed').reduce((a,o)=>a+o.total,0);
-  const todayRevenue = totalRevenue + 4285;
-  document.getElementById('d-revenue').textContent = '$' + todayRevenue.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  document.getElementById('d-orders').textContent = DB.orders.length + 127;
-  document.getElementById('d-customers').textContent = DB.customers.length + 840;
-  const lowStock = DB.products.filter(p => p.stock <= p.minStock).length;
-  document.getElementById('d-lowstock').textContent = lowStock;
+async function renderDashboard() {
+  let summary;
+  try {
+    summary = await DashboardAPI.summary();
+  } catch (err) {
+    // Cashiers/salespersons don't have dashboard permissions (manager+ only) —
+    // show zeros instead of crashing the page.
+    document.getElementById('d-revenue').textContent = '—';
+    document.getElementById('d-orders').textContent = '—';
+    document.getElementById('d-customers').textContent = '—';
+    document.getElementById('d-lowstock').textContent = '—';
+    return;
+  }
+
+  document.getElementById('d-revenue').textContent = '$' + Number(summary.today_sales).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('d-orders').textContent = summary.sales_orders_count;
+  document.getElementById('d-customers').textContent = summary.total_customers;
+  document.getElementById('d-lowstock').textContent = summary.low_stock_items.length;
 
   // Recent transactions
   const tbody = document.getElementById('recent-tx');
-  const recent = [...DB.orders].reverse().slice(0,6);
-  const sampleTx = [
-    { inv: 'INV-0042', cust: 'Ahmed Hassan', items: 5, amt: 45.50, method: 'Cash', status: 'Completed' },
-    { inv: 'INV-0041', cust: 'Walk-in', items: 2, amt: 12.00, method: 'Card', status: 'Completed' },
-    { inv: 'INV-0040', cust: 'Sarah Williams', items: 8, amt: 89.25, method: 'Digital', status: 'Completed' },
-    { inv: 'INV-0039', cust: 'Walk-in', items: 1, amt: 3.50, method: 'Cash', status: 'Completed' },
-    { inv: 'INV-0038', cust: 'Muhammad Ali', items: 12, amt: 156.80, method: 'Card', status: 'Completed' },
-  ];
-  const allTx = [...recent.map(o => ({
-    inv: o.invoice, cust: o.customer || 'Walk-in', items: o.items.length, amt: o.total,
-    method: o.paymentMethod, status: o.status
-  })), ...sampleTx].slice(0,6);
-  tbody.innerHTML = allTx.map(t => `
+  const salesData = await SalesAPI.list({ ordering: '-created_at', page_size: 6 });
+  const recent = salesData.results || salesData;
+  tbody.innerHTML = recent.map(o => `
     <tr>
-      <td class="td-mono">${t.inv}</td>
-      <td>${t.cust}</td>
-      <td>${t.items}</td>
-      <td class="fw-700 text-green">$${t.amt.toFixed(2)}</td>
-      <td><span class="badge badge-blue">${t.method}</span></td>
-      <td><span class="badge badge-green">${t.status}</span></td>
+      <td class="td-mono">${o.invoice_number}</td>
+      <td>${o.customer_name || 'Walk-in'}</td>
+      <td>${o.items.length}</td>
+      <td class="fw-700 text-green">$${Number(o.total_amount).toFixed(2)}</td>
+      <td><span class="badge badge-blue">${(o.payments[0]?.method||'—').toUpperCase()}</span></td>
+      <td><span class="badge badge-green">${o.status}</span></td>
     </tr>`).join('');
 
-  // Top products
+  // Top products (real, from backend aggregation)
   const tp = document.getElementById('top-products-list');
-  const topProds = [
-    { name: 'Coca-Cola 330ml', sold: 245, rev: 306.25, pct: 100 },
-    { name: 'Lays Classic Chips', sold: 189, rev: 378.00, pct: 77 },
-    { name: 'White Bread Loaf', sold: 156, rev: 390.00, pct: 64 },
-    { name: 'Dove Soap 100g', sold: 134, rev: 201.00, pct: 55 },
-    { name: 'Orange Juice 1L', sold: 98, rev: 313.60, pct: 40 },
-  ];
-  tp.innerHTML = topProds.map(p => `
+  const maxQty = Math.max(1, ...summary.top_selling_products.map(p=>p.total_quantity));
+  tp.innerHTML = summary.top_selling_products.map(p => `
     <div style="margin-bottom:14px">
       <div class="flex-between" style="margin-bottom:5px">
-        <span style="font-size:13px;font-weight:600">${p.name}</span>
-        <span style="font-size:12px;color:var(--text-secondary)">${p.sold} units · $${p.rev}</span>
+        <span style="font-size:13px;font-weight:600">${p.product__name}</span>
+        <span style="font-size:12px;color:var(--text-secondary)">${p.total_quantity} units sold</span>
       </div>
       <div class="progress-bar">
-        <div class="progress-fill" style="width:${p.pct}%;background:var(--accent)"></div>
+        <div class="progress-fill" style="width:${(p.total_quantity/maxQty*100).toFixed(0)}%;background:var(--accent)"></div>
       </div>
-    </div>`).join('');
+    </div>`).join('') || '<div style="color:var(--text-muted);font-size:13px">No sales in the last 30 days</div>';
 
-  // Low stock table
+  // Low stock table (real, from backend)
   const lstBody = document.getElementById('low-stock-table');
-  const lowStockItems = DB.products.filter(p => p.stock <= p.minStock);
-  lstBody.innerHTML = lowStockItems.map(p => {
-    const statusColor = p.stock === 0 ? 'red' : p.stock <= p.minStock/2 ? 'red' : 'yellow';
-    const statusText = p.stock === 0 ? 'Out of Stock' : 'Low Stock';
+  lstBody.innerHTML = summary.low_stock_items.map(p => {
+    const statusColor = p.quantity === 0 ? 'red' : 'yellow';
+    const statusText = p.quantity === 0 ? 'Out of Stock' : 'Low Stock';
     return `<tr>
-      <td><div class="flex-gap"><span style="font-size:20px">${p.icon||'📦'}</span><strong>${p.name}</strong></div></td>
+      <td><div class="flex-gap"><span style="font-size:20px">📦</span><strong>${p.product_name}</strong></div></td>
       <td class="td-mono">${p.sku}</td>
-      <td>${p.category}</td>
-      <td><strong class="text-${statusColor}">${p.stock}</strong></td>
-      <td>${p.minStock}</td>
+      <td>${p.warehouse}</td>
+      <td><strong class="text-${statusColor}">${p.quantity}</strong></td>
+      <td>${p.reorder_level}</td>
       <td><span class="badge badge-${statusColor}">${statusText}</span></td>
-      <td><button class="btn btn-accent btn-xs" onclick="openStockModal(${p.id})">Restock</button></td>
+      <td><button class="btn btn-accent btn-xs" onclick="openStockModal(${p.product_id})">Restock</button></td>
     </tr>`;
   }).join('');
 
-  renderCharts();
+  await renderCharts(summary);
 }
 
-function renderCharts() {
-  // Sales chart
+async function renderCharts(summary) {
+  // Sales chart — real daily totals for the last 7 days
   if (charts.sales) charts.sales.destroy();
   const sc = document.getElementById('salesChart');
   if (sc) {
+    const chartData = await DashboardAPI.salesChart(7);
+    const series = chartData.series || [];
     charts.sales = new Chart(sc, {
       type: 'bar',
       data: {
-        labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+        labels: series.map(s => s.day),
         datasets: [{
           label: 'Revenue ($)',
-          data: [3200, 4100, 2800, 5200, 4800, 6100, 4285],
+          data: series.map(s => Number(s.total)),
           backgroundColor: 'rgba(59,130,246,0.5)',
           borderColor: 'rgba(59,130,246,1)',
           borderWidth: 2, borderRadius: 6,
-        },{
-          label: 'Orders',
-          data: [98, 120, 85, 155, 142, 188, 127],
-          backgroundColor: 'rgba(16,185,129,0.5)',
-          borderColor: 'rgba(16,185,129,1)',
-          borderWidth: 2, borderRadius: 6,
-          yAxisID: 'y1',
         }]
       },
       options: {
@@ -519,21 +519,24 @@ function renderCharts() {
         scales: {
           x: { grid: { color: '#1e2535' }, ticks: { color: '#8892a4' } },
           y: { grid: { color: '#1e2535' }, ticks: { color: '#8892a4' } },
-          y1: { position: 'right', grid: { display: false }, ticks: { color: '#8892a4' } },
         }
       }
     });
   }
 
-  // Category donut
+  // Category donut — product count per category (catalog composition, not sales)
   if (charts.cat) charts.cat.destroy();
   const cc = document.getElementById('categoryChart');
   if (cc) {
+    const prodData = await ProductsAPI.list({ page_size: 500 });
+    const products = prodData.results || prodData;
+    const catCounts = {};
+    products.forEach(p => { catCounts[p.category_name||'Uncategorized'] = (catCounts[p.category_name||'Uncategorized']||0)+1; });
     charts.cat = new Chart(cc, {
       type: 'doughnut',
       data: {
-        labels: ['Beverages','Snacks','Dairy','Bakery','Personal Care','Other'],
-        datasets: [{ data: [32,24,18,14,8,4], backgroundColor: ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ef4444'], borderWidth: 0, hoverOffset: 6 }]
+        labels: Object.keys(catCounts),
+        datasets: [{ data: Object.values(catCounts), backgroundColor: ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ef4444','#ec4899','#84cc16'], borderWidth: 0, hoverOffset: 6 }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -555,39 +558,61 @@ function initPOS() {
   updateCartUI();
 }
 
-function populatePosCategories() {
+let _posProductCache = [];
+let _posStockByProduct = {};
+
+async function _loadPosProducts() {
+  const [prodData, stockData] = await Promise.all([
+    ProductsAPI.list({ page_size: 500, status: 'active' }),
+    InventoryAPI.stockItems({ page_size: 1000 }),
+  ]);
+  _posProductCache = prodData.results || prodData;
+  _posStockByProduct = {};
+  (stockData.results || stockData).forEach(si => {
+    _posStockByProduct[si.product] = (_posStockByProduct[si.product] || 0) + si.quantity;
+  });
+}
+
+async function populatePosCategories() {
+  const data = await CategoriesAPI.list();
+  const cats = data.results || data;
   const sel = document.getElementById('pos-category');
-  sel.innerHTML = '<option value="">All Categories</option>' + DB.categories.map(c => `<option>${c}</option>`).join('');
+  sel.innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
 }
 
 function filterPosProducts() { renderPosProducts(); }
 
-function renderPosProducts() {
+async function renderPosProducts() {
+  if (!_posProductCache.length) await _loadPosProducts();
   const q = (document.getElementById('pos-search').value || '').toLowerCase();
   const cat = document.getElementById('pos-category').value;
   const grid = document.getElementById('pos-product-grid');
-  const prods = DB.products.filter(p =>
-    (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.barcode.includes(q)) &&
-    (!cat || p.category === cat)
+  const prods = _posProductCache.filter(p =>
+    (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcode||'').includes(q)) &&
+    (!cat || String(p.category) === String(cat))
   );
-  grid.innerHTML = prods.map(p => `
-    <div class="pos-product-card" onclick="addToCart(${p.id})" ${p.stock===0?'style="opacity:.4;cursor:not-allowed"':''}>
-      <div class="pos-prod-icon">${p.icon||'📦'}</div>
+  grid.innerHTML = prods.map(p => {
+    const stock = _posStockByProduct[p.id] || 0;
+    return `
+    <div class="pos-product-card" onclick="addToCart(${p.id})" ${stock===0?'style="opacity:.4;cursor:not-allowed"':''}>
+      <div class="pos-prod-icon">📦</div>
       <div class="pos-prod-name">${p.name}</div>
-      <div class="pos-prod-price">$${p.sellPrice.toFixed(2)}</div>
-      <div class="pos-prod-stock ${p.stock<=p.minStock?'text-red':''}">${p.stock>0?'In stock: '+p.stock:'Out of stock'}</div>
-    </div>`).join('');
+      <div class="pos-prod-price">$${Number(p.final_price).toFixed(2)}</div>
+      <div class="pos-prod-stock ${stock<=5?'text-red':''}">${stock>0?'In stock: '+stock:'Out of stock'}</div>
+    </div>`;
+  }).join('');
 }
 
 function addToCart(pid) {
-  const prod = DB.products.find(p => p.id === pid);
-  if (!prod || prod.stock === 0) { toast('Product out of stock!', 'error'); return; }
+  const prod = _posProductCache.find(p => p.id === pid);
+  const stock = _posStockByProduct[pid] || 0;
+  if (!prod || stock === 0) { toast('Product out of stock!', 'error'); return; }
   const existing = cart.find(c => c.id === pid);
   if (existing) {
-    if (existing.qty >= prod.stock) { toast('Insufficient stock!', 'warning'); return; }
+    if (existing.qty >= stock) { toast('Insufficient stock!', 'warning'); return; }
     existing.qty++;
   } else {
-    cart.push({ id: pid, name: prod.name, price: prod.sellPrice, qty: 1, icon: prod.icon||'📦' });
+    cart.push({ id: pid, name: prod.name, price: Number(prod.final_price), qty: 1, icon: '📦' });
   }
   updateCartUI();
 }
@@ -599,11 +624,11 @@ function removeFromCart(pid) {
 
 function changeQty(pid, delta) {
   const item = cart.find(c => c.id === pid);
-  const prod = DB.products.find(p => p.id === pid);
+  const stock = _posStockByProduct[pid] || 0;
   if (!item) return;
   item.qty += delta;
   if (item.qty <= 0) { cart = cart.filter(c => c.id !== pid); }
-  else if (item.qty > prod.stock) { item.qty = prod.stock; toast('Max stock reached','warning'); }
+  else if (item.qty > stock) { item.qty = stock; toast('Max stock reached','warning'); }
   updateCartUI();
 }
 
@@ -665,13 +690,17 @@ function clearCart() {
   if (confirm('Clear cart?')) { cart = []; updateCartUI(); }
 }
 
-function updatePosCustomers() {
+async function updatePosCustomers() {
   const sel = document.getElementById('pos-customer');
   if (!sel) return;
-  sel.innerHTML = '<option value="">Walk-in Customer</option>' + DB.customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  const data = await CustomersAPI.list({ page_size: 500 });
+  const customers = data.results || data;
+  sel.innerHTML = '<option value="">Walk-in Customer</option>' + customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
 }
 
-function processPayment() {
+const _posPaymentMethodMap = { cash: 'cash', card: 'card', digital: 'mobile_wallet' };
+
+async function processPayment() {
   if (cart.length === 0) { toast('Cart is empty!', 'error'); return; }
   const discount = parseFloat(document.getElementById('cart-discount').value)||0;
   const taxRate = parseFloat(document.getElementById('cart-tax').value)||0;
@@ -686,92 +715,85 @@ function processPayment() {
   }
 
   const custId = document.getElementById('pos-customer').value;
-  const custName = custId ? DB.customers.find(c=>c.id==custId)?.name : 'Walk-in';
-  const invoice = 'INV-' + String(invoiceCounter).padStart(4,'0');
-  invoiceCounter++;
+  const payBtn = document.querySelector('.btn-checkout, #checkout-btn') || null;
+  if (payBtn) payBtn.disabled = true;
 
-  // Deduct stock
-  cart.forEach(item => {
-    const prod = DB.products.find(p=>p.id===item.id);
-    if (prod) {
-      const before = prod.stock;
-      prod.stock = Math.max(0, prod.stock - item.qty);
-      DB.stockHistory.unshift({ date: new Date().toLocaleString(), product: prod.name, type: 'Sale', qty: -item.qty, before, after: prod.stock, ref: invoice });
-    }
-  });
+  try {
+    const warehouseId = await _ensureDefaultWarehouse();
+    const items = cart.map(i => ({
+      product: i.id,
+      quantity: i.qty,
+      unit_price: i.price,
+      tax_percent: taxRate,
+    }));
 
-  // Update customer
-  if (custId) {
-    const cust = DB.customers.find(c=>c.id==custId);
-    if (cust) { cust.totalPurchases += total; cust.loyaltyPoints += Math.floor(total); cust.lastVisit = new Date().toISOString().split('T')[0]; }
+    const sale = await SalesAPI.create({
+      warehouse: warehouseId,
+      customer: custId ? parseInt(custId) : null,
+      items,
+      discount_amount: discountAmt,
+      notes: '',
+    });
+
+    // Record the payment immediately (this UI is a cash-register checkout,
+    // not a credit-sale flow) so the invoice shows as PAID.
+    await SalesAPI.pay(sale.id, {
+      amount: sale.total_amount,
+      method: _posPaymentMethodMap[selectedPayment] || 'other',
+    });
+
+    _lastOrder = sale;
+    showReceipt(sale);
+    cart = [];
+    document.getElementById('cart-discount').value = 0;
+    document.getElementById('cart-tax').value = 8;
+    document.getElementById('cash-received').value = '';
+    updateCartUI();
+    renderPosProducts();      // refresh stock levels shown in the grid
+    toast(`Payment processed! Invoice ${sale.invoice_number}`, 'success');
+  } catch (err) {
+    toast(err.message || 'Failed to process payment', 'error');
+  } finally {
+    if (payBtn) payBtn.disabled = false;
   }
-
-  const order = {
-    id: DB.orders.length + 1,
-    invoice,
-    date: new Date().toLocaleString(),
-    customer: custName,
-    customerId: custId||null,
-    items: cart.map(i=>({...i})),
-    subtotal, discountAmt, taxAmt, total,
-    paymentMethod: selectedPayment,
-    status: 'Completed',
-  };
-  DB.orders.push(order);
-  DB.activityLog.unshift({ time: new Date().toLocaleTimeString(), user: currentUser.username, action: 'Sale', details: `${invoice} - $${total.toFixed(2)}`, ip: '192.168.1.1' });
-
-  // Add to ledger
-  DB.ledger = DB.ledger || [];
-  const runBal = (DB.ledger[0]?.balance || 0) + total;
-  DB.ledger.unshift({ date: new Date().toLocaleString(), type: 'Sale', ref: invoice, desc: `Sale to ${custName}`, debit: 0, credit: total, balance: runBal });
-
-  _lastOrder = order;
-  showReceipt(order);
-  cart = [];
-  document.getElementById('cart-discount').value = 0;
-  document.getElementById('cart-tax').value = 8;
-  document.getElementById('cash-received').value = '';
-  document.getElementById('pos-invoice').textContent = 'INV-' + String(invoiceCounter).padStart(4,'0');
-  updateCartUI();
-  toast(`Payment processed! Invoice ${invoice}`, 'success');
 }
 
-function showReceipt(order) {
-  const cashReceived = parseFloat(document.getElementById('cash-received').value)||order.total;
-  const change = Math.max(0, cashReceived - order.total);
+function showReceipt(sale) {
+  const cashReceived = parseFloat(document.getElementById('cash-received').value)||Number(sale.total_amount);
+  const change = Math.max(0, cashReceived - Number(sale.total_amount));
+  const paymentMethod = (sale.payments && sale.payments[0]) ? sale.payments[0].method : selectedPayment;
   document.getElementById('receipt-body').innerHTML = `
     <div class="receipt-preview">
       <div class="rcp-center" style="font-size:16px;font-weight:700">🏪 SmartRetail Store</div>
       <div class="rcp-center" style="font-size:11px">123 Market Street, City</div>
       <div class="rcp-center" style="font-size:11px">Tel: +1 555-000-1234</div>
       <div class="rcp-line"></div>
-      <div class="rcp-row"><span>Invoice:</span><span>${order.invoice}</span></div>
-      <div class="rcp-row"><span>Date:</span><span>${order.date}</span></div>
-      <div class="rcp-row"><span>Customer:</span><span>${(document.getElementById('bill-customer-name')?.value?.trim()) || order.customer}</span></div>
+      <div class="rcp-row"><span>Invoice:</span><span>${sale.invoice_number}</span></div>
+      <div class="rcp-row"><span>Date:</span><span>${(sale.created_at||'').replace('T',' ').slice(0,19)}</span></div>
+      <div class="rcp-row"><span>Customer:</span><span>${(document.getElementById('bill-customer-name')?.value?.trim()) || sale.customer_name || 'Walk-in'}</span></div>
       ${(document.getElementById('bill-customer-contact')?.value?.trim()) ? `<div class="rcp-row"><span>Contact:</span><span>${document.getElementById('bill-customer-contact').value.trim()}</span></div>` : ''}
-      <div class="rcp-row"><span>Cashier:</span><span>${currentUser.name}</span></div>
+      <div class="rcp-row"><span>Cashier:</span><span>${currentUser.full_name||currentUser.email}</span></div>
       <div class="rcp-line"></div>
       <div style="font-weight:700;margin-bottom:4px">ITEMS</div>
-      ${order.items.map(i=>`<div class="rcp-row"><span>${i.name} x${i.qty}</span><span>$${(i.price*i.qty).toFixed(2)}</span></div>`).join('')}
+      ${sale.items.map(i=>`<div class="rcp-row"><span>${i.product_name} x${i.quantity}</span><span>$${Number(i.line_total).toFixed(2)}</span></div>`).join('')}
       <div class="rcp-line"></div>
-      <div class="rcp-row"><span>Subtotal:</span><span>$${order.subtotal.toFixed(2)}</span></div>
-      ${order.discountAmt>0?`<div class="rcp-row"><span>Discount:</span><span>-$${order.discountAmt.toFixed(2)}</span></div>`:''}
-      <div class="rcp-row"><span>Tax:</span><span>+$${order.taxAmt.toFixed(2)}</span></div>
+      <div class="rcp-row"><span>Subtotal:</span><span>$${Number(sale.subtotal).toFixed(2)}</span></div>
+      ${Number(sale.discount_amount)>0?`<div class="rcp-row"><span>Discount:</span><span>-$${Number(sale.discount_amount).toFixed(2)}</span></div>`:''}
+      <div class="rcp-row"><span>Tax:</span><span>+$${Number(sale.tax_amount).toFixed(2)}</span></div>
       <div class="rcp-line"></div>
-      <div class="rcp-row" style="font-size:14px;font-weight:700"><span>TOTAL:</span><span>$${order.total.toFixed(2)}</span></div>
-      <div class="rcp-row"><span>Payment:</span><span>${order.paymentMethod.toUpperCase()}</span></div>
-      ${order.paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>$${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>$${change.toFixed(2)}</span></div>`:''}
+      <div class="rcp-row" style="font-size:14px;font-weight:700"><span>TOTAL:</span><span>$${Number(sale.total_amount).toFixed(2)}</span></div>
+      <div class="rcp-row"><span>Payment:</span><span>${paymentMethod.toUpperCase()}</span></div>
+      ${paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>$${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>$${change.toFixed(2)}</span></div>`:''}
       <div class="rcp-line"></div>
       <div class="rcp-center" style="font-size:11px">Thank you for shopping at SmartRetail!</div>
       <div class="rcp-center" style="font-size:10px;margin-top:4px">All sales are final. Visit us again!</div>
       <div class="rcp-center" style="font-size:10px;margin-top:4px">|||||||||||||||||||||||||||</div>
-      <div class="rcp-center" style="font-family:var(--mono);font-size:10px">${order.invoice}</div>
+      <div class="rcp-center" style="font-family:var(--mono);font-size:10px">${sale.invoice_number}</div>
     </div>`;
   openModal('receipt-modal');
-  // Pre-fill customer name from order; clear contact for fresh entry
   const billName = document.getElementById('bill-customer-name');
   const billContact = document.getElementById('bill-customer-contact');
-  if (billName && !billName.value) billName.value = (order.customer && order.customer !== 'Walk-in Customer') ? order.customer : '';
+  if (billName && !billName.value) billName.value = (sale.customer_name) || '';
   if (billContact) billContact.value = '';
 }
 
@@ -805,13 +827,24 @@ async function _findOrCreateBrand(name) {
 }
 
 async function renderProducts() {
-  await populateCategorySelects();
+  try {
+    await populateCategorySelects();
+  } catch (err) {
+    toast('Failed to load categories: ' + (err.message||'unknown error'), 'error');
+  }
   const q = (document.getElementById('prod-search')?.value||'').toLowerCase();
   const catId = document.getElementById('prod-cat-filter')?.value||'';
   const tbody = document.getElementById('products-table');
   const params = { search: q || undefined, category: catId || undefined };
-  const data = await ProductsAPI.list(params);
-  const prods = data.results || data;
+  let prods = [];
+  try {
+    const data = await ProductsAPI.list(params);
+    prods = data.results || data;
+  } catch (err) {
+    toast('Failed to load products: ' + (err.message||'unknown error'), 'error');
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--red)">Could not load products — ${err.message||'server error'}</td></tr>`;
+    return;
+  }
   tbody.innerHTML = prods.map(p => {
     const status = p.status !== 'active' ? ['badge-yellow', p.status]
       : ['badge-green', 'Active'];
@@ -944,53 +977,97 @@ async function deleteProduct(id) {
   }
 }
 
-function addCategory() {
+let _catMgmtCache = [];
+
+async function addCategory() {
   const val = document.getElementById('new-cat-name').value.trim();
   if (!val) return;
-  if (!DB.categories.includes(val)) DB.categories.push(val);
-  document.getElementById('new-cat-name').value='';
-  renderCatList();
-  toast('Category added!','success');
+  try {
+    await CategoriesAPI.create({ name: val });
+    document.getElementById('new-cat-name').value='';
+    await renderCatList();
+    if (typeof populateCategorySelects === 'function') await populateCategorySelects();
+    toast('Category added!','success');
+  } catch (err) {
+    toast(err.message || 'Failed to add category', 'error');
+  }
 }
-function renderCatList() {
-  document.getElementById('cat-list').innerHTML = DB.categories.map(c=>`
+async function renderCatList() {
+  const data = await CategoriesAPI.list({ page_size: 500 });
+  _catMgmtCache = data.results || data;
+  document.getElementById('cat-list').innerHTML = _catMgmtCache.map(c=>`
     <div class="flex-between" style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <span style="font-size:13px">${c}</span>
-      <button class="btn btn-ghost btn-xs" onclick="deleteCategory('${c}')" style="color:var(--red)"><i class="fa fa-trash"></i></button>
+      <span style="font-size:13px">${c.name}</span>
+      <button class="btn btn-ghost btn-xs" onclick="deleteCategory(${c.id})" style="color:var(--red)"><i class="fa fa-trash"></i></button>
     </div>`).join('');
 }
-function deleteCategory(name) {
-  DB.categories = DB.categories.filter(c=>c!==name);
-  renderCatList();
+async function deleteCategory(id) {
+  if (!confirm('Delete this category?')) return;
+  try {
+    await CategoriesAPI.remove(id);
+    await renderCatList();
+    if (typeof populateCategorySelects === 'function') await populateCategorySelects();
+    toast('Category deleted','success');
+  } catch (err) {
+    toast(err.message || 'Failed to delete category — it may still be used by products', 'error');
+  }
 }
 document.getElementById('cat-modal').addEventListener('click', e => { if(e.target===document.getElementById('cat-modal')) return; renderCatList(); });
 
 // ═══════════════════════════════════════════════════════
 // INVENTORY
 // ═══════════════════════════════════════════════════════
-function renderInventory() {
+let _invProductCache = [];   // full Product objects from backend (for name/sku/category/reorder_level)
+let _invStockByProduct = {}; // productId -> { quantity, is_low_stock, is_out_of_stock }
+
+async function _loadInventoryData() {
+  const [prodData, stockData] = await Promise.all([
+    ProductsAPI.list({ page_size: 500 }),
+    InventoryAPI.stockItems({ page_size: 1000 }),
+  ]);
+  _invProductCache = prodData.results || prodData;
+  _invStockByProduct = {};
+  const stockItems = stockData.results || stockData;
+  stockItems.forEach(si => {
+    const existing = _invStockByProduct[si.product] || { quantity: 0, is_low_stock: false, is_out_of_stock: false };
+    existing.quantity += si.quantity;
+    existing.is_low_stock = existing.is_low_stock || si.is_low_stock;
+    existing.is_out_of_stock = existing.quantity <= 0;
+    _invStockByProduct[si.product] = existing;
+  });
+}
+
+async function renderInventory() {
   const q = (document.getElementById('inv-search')?.value||'').toLowerCase();
-  const inStock = DB.products.filter(p=>p.stock>p.minStock).length;
-  const lowStock = DB.products.filter(p=>p.stock>0&&p.stock<=p.minStock).length;
-  const outStock = DB.products.filter(p=>p.stock===0).length;
-  document.getElementById('inv-total').textContent = DB.products.length;
+  await _loadInventoryData();
+
+  const rows = _invProductCache.map(p => {
+    const s = _invStockByProduct[p.id] || { quantity: 0, is_low_stock: true, is_out_of_stock: true };
+    return { ...p, stock: s.quantity, is_low_stock: s.is_low_stock, is_out_of_stock: s.is_out_of_stock };
+  });
+
+  const inStock = rows.filter(p=>!p.is_low_stock && !p.is_out_of_stock).length;
+  const lowStock = rows.filter(p=>p.is_low_stock && !p.is_out_of_stock).length;
+  const outStock = rows.filter(p=>p.is_out_of_stock).length;
+  document.getElementById('inv-total').textContent = rows.length;
   document.getElementById('inv-instock').textContent = inStock;
   document.getElementById('inv-low').textContent = lowStock;
   document.getElementById('inv-out').textContent = outStock;
 
   const tbody = document.getElementById('inventory-table');
-  const prods = DB.products.filter(p => p.name.toLowerCase().includes(q));
-  tbody.innerHTML = prods.map(p => {
-    const pct = Math.min(100, (p.stock / (p.minStock*2)) * 100);
-    const color = p.stock===0 ? 'var(--red)' : p.stock<=p.minStock ? 'var(--yellow)' : 'var(--green)';
-    const statusBadge = p.stock===0 ? 'badge-red' : p.stock<=p.minStock ? 'badge-yellow' : 'badge-green';
-    const statusText = p.stock===0 ? 'Out of Stock' : p.stock<=p.minStock ? 'Low Stock' : 'In Stock';
+  const filtered = rows.filter(p => (p.name||'').toLowerCase().includes(q));
+  tbody.innerHTML = filtered.map(p => {
+    const minStock = p.reorder_level || 10;
+    const pct = Math.min(100, (p.stock / (minStock*2)) * 100);
+    const color = p.is_out_of_stock ? 'var(--red)' : p.is_low_stock ? 'var(--yellow)' : 'var(--green)';
+    const statusBadge = p.is_out_of_stock ? 'badge-red' : p.is_low_stock ? 'badge-yellow' : 'badge-green';
+    const statusText = p.is_out_of_stock ? 'Out of Stock' : p.is_low_stock ? 'Low Stock' : 'In Stock';
     return `<tr>
-      <td><div class="flex-gap"><span style="font-size:18px">${p.icon||'📦'}</span><strong>${p.name}</strong></div></td>
-      <td>${p.category}</td>
+      <td><div class="flex-gap"><span style="font-size:18px">📦</span><strong>${p.name}</strong></div></td>
+      <td>${p.category_name||'—'}</td>
       <td class="fw-700" style="color:${color}">${p.stock}</td>
-      <td>${p.minStock}</td>
-      <td>${p.minStock*1.5|0}</td>
+      <td>${minStock}</td>
+      <td>${minStock*1.5|0}</td>
       <td style="min-width:120px">
         <div class="progress-bar">
           <div class="progress-fill" style="width:${pct}%;background:${color}"></div>
@@ -1003,13 +1080,21 @@ function renderInventory() {
   }).join('');
 
   const hist = document.getElementById('stock-history');
-  const allHist = [
-    ...DB.stockHistory,
-    { date: '2025-01-17 08:30', product: 'Coca-Cola 330ml', type: 'Sale', qty: -3, before: 8, after: 5, ref: 'INV-0041' },
-    { date: '2025-01-16 10:00', product: 'Whole Milk 1L', type: 'Purchase', qty: 30, before: 0, after: 30, ref: 'PO-002' },
-    { date: '2025-01-15 14:20', product: 'Lays Classic Chips', type: 'Sale', qty: -10, before: 55, after: 45, ref: 'INV-0039' },
-  ];
-  hist.innerHTML = allHist.slice(0,10).map(h => {
+  const txnData = await InventoryAPI.transactions({ page_size: 10 });
+  const allHist = (txnData.results || txnData).map(t => {
+    const positiveTypes = ['stock_in','adjustment_increase','transfer_in','purchase','sale_return'];
+    const signedQty = positiveTypes.includes(t.transaction_type) ? t.quantity : -t.quantity;
+    return {
+      date: (t.created_at||'').replace('T',' ').slice(0,16),
+      product: t.product_name,
+      type: t.transaction_type.replace(/_/g,' '),
+      qty: signedQty,
+      before: t.balance_after - signedQty,
+      after: t.balance_after,
+      ref: t.reference || '—',
+    };
+  });
+  hist.innerHTML = allHist.map(h => {
     const typeC = h.qty > 0 ? 'badge-green' : 'badge-red';
     return `<tr>
       <td class="td-mono" style="font-size:11px">${h.date}</td>
@@ -1030,7 +1115,7 @@ function adjSearchProducts(q) {
   const drop = document.getElementById('adj-search-drop');
   if (!q.trim()) { drop.style.display = 'none'; return; }
   const lc = q.toLowerCase();
-  const results = DB.products.filter(p =>
+  const results = _invProductCache.filter(p =>
     (p.name||'').toLowerCase().includes(lc) ||
     (p.sku||'').toLowerCase().includes(lc) ||
     (p.barcode||'').toLowerCase().includes(lc)
@@ -1042,17 +1127,19 @@ function adjSearchProducts(q) {
   }
   drop.style.display = '';
   drop.innerHTML = results.map(p => {
-    const stockColor = p.stock <= 0 ? 'var(--red)' : p.stock <= (p.minStock||10) ? 'var(--yellow)' : 'var(--green)';
+    const stock = (_invStockByProduct[p.id]||{}).quantity || 0;
+    const minStock = p.reorder_level || 10;
+    const stockColor = stock <= 0 ? 'var(--red)' : stock <= minStock ? 'var(--yellow)' : 'var(--green)';
     return `<div onclick="selectAdjProductById(${p.id})"
       style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .12s"
       onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
-      <span style="font-size:20px;flex-shrink:0">${p.icon||'📦'}</span>
+      <span style="font-size:20px;flex-shrink:0">📦</span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
         <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${p.sku||'—'} ${p.barcode?'• '+p.barcode:''}</div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:13px;font-weight:800;color:${stockColor}">${p.stock}</div>
+        <div style="font-size:13px;font-weight:800;color:${stockColor}">${stock}</div>
         <div style="font-size:9px;color:var(--text-muted)">in stock</div>
       </div>
     </div>`;
@@ -1060,19 +1147,20 @@ function adjSearchProducts(q) {
 }
 
 function selectAdjProductById(pid) {
-  const p = DB.products.find(x => x.id === pid);
+  const p = _invProductCache.find(x => x.id === pid);
   if (!p) return;
+  const stock = (_invStockByProduct[pid]||{}).quantity || 0;
   _adjSelectedPid = pid;
   document.getElementById('adj-product').value = pid;
   document.getElementById('adj-search').value  = p.name;
   document.getElementById('adj-search-drop').style.display = 'none';
   // Show product card
   document.getElementById('adj-product-card').style.display = '';
-  document.getElementById('adj-prod-icon').textContent = p.icon||'📦';
+  document.getElementById('adj-prod-icon').textContent = '📦';
   document.getElementById('adj-prod-name').textContent = p.name;
   document.getElementById('adj-prod-sku').textContent  = (p.sku||'—') + (p.barcode?' | '+p.barcode:'');
-  document.getElementById('adj-current-stock').textContent = p.stock;
-  document.getElementById('adj-new-stock').textContent = p.stock;
+  document.getElementById('adj-current-stock').textContent = stock;
+  document.getElementById('adj-new-stock').textContent = stock;
   document.getElementById('adj-delta-display').textContent = '±0';
   document.getElementById('adj-qty').value = '';
   updateAdjPreview();
@@ -1106,16 +1194,17 @@ function selectAdjType(type) {
 function updateAdjPreview() {
   const pid = _adjSelectedPid;
   if (!pid) return;
-  const p = DB.products.find(x => x.id === pid);
+  const p = _invProductCache.find(x => x.id === pid);
   if (!p) return;
+  const stock = (_invStockByProduct[pid]||{}).quantity || 0;
+  const minStock = p.reorder_level || 10;
   const type = document.getElementById('adj-type').value;
   const qty  = parseInt(document.getElementById('adj-qty').value) || 0;
   const increases = ['increase', 'returned'];
   const decreases = ['decrease', 'damaged'];
-  let delta = 0, newStock = p.stock;
-  if (increases.includes(type)) { delta = qty; newStock = p.stock + qty; }
-  else if (decreases.includes(type)) { delta = -qty; newStock = Math.max(0, p.stock - qty); }
-  const colors = { increase:'var(--green)', returned:'var(--cyan)', decrease:'var(--red)', damaged:'var(--yellow)' };
+  let delta = 0, newStock = stock;
+  if (increases.includes(type)) { delta = qty; newStock = stock + qty; }
+  else if (decreases.includes(type)) { delta = -qty; newStock = Math.max(0, stock - qty); }
   const deltaEl = document.getElementById('adj-delta-display');
   if (deltaEl) {
     deltaEl.textContent = (delta >= 0 ? '+' : '') + delta;
@@ -1124,15 +1213,16 @@ function updateAdjPreview() {
   const newEl = document.getElementById('adj-new-stock');
   if (newEl) {
     newEl.textContent = newStock;
-    newEl.style.color = newStock <= 0 ? 'var(--red)' : newStock <= (p.minStock||10) ? 'var(--yellow)' : 'var(--green)';
+    newEl.style.color = newStock <= 0 ? 'var(--red)' : newStock <= minStock ? 'var(--yellow)' : 'var(--green)';
   }
   const lowWarn  = document.getElementById('adj-low-warn');
   const negWarn  = document.getElementById('adj-negative-warn');
-  if (lowWarn) lowWarn.style.display  = (newStock > 0 && newStock <= (p.minStock||10)) ? '' : 'none';
-  if (negWarn) negWarn.style.display  = (decreases.includes(type) && qty > p.stock) ? '' : 'none';
+  if (lowWarn) lowWarn.style.display  = (newStock > 0 && newStock <= minStock) ? '' : 'none';
+  if (negWarn) negWarn.style.display  = (decreases.includes(type) && qty > stock) ? '' : 'none';
 }
 
-function openStockModal(pid) {
+async function openStockModal(pid) {
+  if (!_invProductCache.length) await _loadInventoryData();
   // Reset form
   clearAdjProduct();
   selectAdjType('increase');
@@ -1144,44 +1234,34 @@ function openStockModal(pid) {
   openModal('stock-modal');
 }
 
-function saveStockAdj() {
+async function saveStockAdj() {
   const pid  = parseInt(document.getElementById('adj-product').value);
   const type = document.getElementById('adj-type').value;
   const qty  = parseInt(document.getElementById('adj-qty').value) || 0;
-  const prod = DB.products.find(p => p.id === pid);
+  const prod = _invProductCache.find(p => p.id === pid);
   if (!prod) { toast('Select a product first!', 'error'); return; }
   if (qty <= 0) { toast('Enter a valid quantity!', 'error'); return; }
 
-  const before = prod.stock;
-  const increases = ['increase', 'returned'];
-  const decreases = ['decrease', 'damaged'];
-  if (increases.includes(type)) {
-    prod.stock += qty;
-  } else if (decreases.includes(type)) {
-    prod.stock = Math.max(0, prod.stock - qty);
-  }
-  const after = prod.stock;
   const reason = document.getElementById('adj-reason').value;
   const notes  = document.getElementById('adj-notes').value;
+  const increases = ['increase', 'returned'];
   const typeLabels = { increase:'Stock In', decrease:'Stock Out', damaged:'Damaged', returned:'Returned' };
 
-  DB.stockHistory.unshift({
-    date: new Date().toLocaleString(),
-    product: prod.name,
-    type: typeLabels[type] || 'Manual',
-    adjType: type,
-    qty: after - before,
-    before, after,
-    reason, notes,
-    ref: 'ADJ-' + Date.now(),
-    by: currentUser?.username || 'admin'
-  });
-
-  closeModal('stock-modal');
-  renderInventory();
-  renderProducts();
-  const delta = after - before;
-  toast(`Stock ${delta >= 0 ? 'increased' : 'decreased'} by ${Math.abs(delta)} — ${prod.name} now has ${after} units`, delta >= 0 ? 'success' : 'warning');
+  try {
+    const warehouseId = await _ensureDefaultWarehouse();
+    const fullNotes = `${typeLabels[type]}${reason ? ' — '+reason : ''}${notes ? ' | '+notes : ''}`;
+    if (increases.includes(type)) {
+      await InventoryAPI.stockIn({ product: pid, warehouse: warehouseId, quantity: qty, reference: 'ADJ-'+Date.now(), notes: fullNotes });
+    } else {
+      await InventoryAPI.stockOut({ product: pid, warehouse: warehouseId, quantity: qty, reference: 'ADJ-'+Date.now(), notes: fullNotes });
+    }
+    closeModal('stock-modal');
+    await renderInventory();
+    if (typeof renderProducts === 'function') renderProducts();
+    toast(`Stock ${increases.includes(type) ? 'increased' : 'decreased'} by ${qty} — ${prod.name}`, increases.includes(type) ? 'success' : 'warning');
+  } catch (err) {
+    toast(err.message || 'Failed to adjust stock', 'error');
+  }
 }
 
 // ── Stock adjust search — close dropdown on outside click
@@ -1191,67 +1271,65 @@ document.addEventListener('click', e => {
     if (drop) drop.style.display = 'none';
   }
 });
-function renderOrders() {
+const _orderStatusLabel = { completed:'Completed', cancelled:'Cancelled', returned:'Refunded', partially_returned:'Refunded', draft:'Pending' };
+let _orderCache = [];
+
+async function renderOrders() {
   const q = (document.getElementById('ord-search')?.value||'').toLowerCase();
   const sf = document.getElementById('ord-status-filter')?.value||'';
-  const sampleOrders = [
-    { id:100, invoice:'INV-0040', date:'2025-01-17 09:15', customer:'Ahmed Hassan', items:[{name:'Coca-Cola',qty:2,price:1.25}], total:2.50, paymentMethod:'Cash', status:'Completed' },
-    { id:101, invoice:'INV-0039', date:'2025-01-17 08:50', customer:'Walk-in', items:[{name:'Lays Chips',qty:1,price:2.00}], total:2.00, paymentMethod:'Card', status:'Completed' },
-    { id:102, invoice:'INV-0038', date:'2025-01-16 15:30', customer:'Sarah Williams', items:[{name:'Milk 1L',qty:3,price:1.80}], total:5.40, paymentMethod:'Digital', status:'Completed' },
-    { id:103, invoice:'INV-0037', date:'2025-01-16 11:00', customer:'Walk-in', items:[{name:'Bread',qty:1,price:2.50}], total:2.50, paymentMethod:'Cash', status:'Pending' },
-    { id:104, invoice:'INV-0036', date:'2025-01-15 16:45', customer:'Muhammad Ali', items:[{name:'Dove Soap',qty:2,price:1.50}], total:3.00, paymentMethod:'Card', status:'Cancelled' },
-  ];
-  const allOrders = [...DB.orders.map(o=>({...o})).reverse(), ...sampleOrders].filter((o,i,a)=>a.findIndex(x=>x.invoice===o.invoice)===i);
-  const filtered = allOrders.filter(o =>
-    (o.invoice.toLowerCase().includes(q)||o.customer.toLowerCase().includes(q)) &&
-    (!sf || o.status===sf)
-  );
+  const data = await SalesAPI.list({ search: q || undefined, ordering: '-created_at', page_size: 200 });
+  _orderCache = data.results || data;
 
-  document.getElementById('ord-completed').textContent = allOrders.filter(o=>o.status==='Completed').length;
-  document.getElementById('ord-pending').textContent = allOrders.filter(o=>o.status==='Pending').length;
-  document.getElementById('ord-cancelled').textContent = allOrders.filter(o=>o.status==='Cancelled').length;
-  document.getElementById('ord-refunded').textContent = allOrders.filter(o=>o.status==='Refunded').length;
+  const withLabel = _orderCache.map(o => ({ ...o, statusLabel: _orderStatusLabel[o.status] || o.status }));
+  const filtered = withLabel.filter(o => !sf || o.statusLabel === sf);
+
+  document.getElementById('ord-completed').textContent = withLabel.filter(o=>o.statusLabel==='Completed').length;
+  document.getElementById('ord-pending').textContent = withLabel.filter(o=>o.statusLabel==='Pending').length;
+  document.getElementById('ord-cancelled').textContent = withLabel.filter(o=>o.statusLabel==='Cancelled').length;
+  document.getElementById('ord-refunded').textContent = withLabel.filter(o=>o.statusLabel==='Refunded').length;
 
   const badges = { Completed:'badge-green', Pending:'badge-yellow', Cancelled:'badge-red', Refunded:'badge-purple' };
   document.getElementById('orders-table').innerHTML = filtered.map(o=>`
     <tr>
-      <td class="td-mono">${o.invoice}</td>
-      <td style="font-size:12px">${o.date}</td>
-      <td>${o.customer}</td>
+      <td class="td-mono">${o.invoice_number}</td>
+      <td style="font-size:12px">${(o.created_at||'').replace('T',' ').slice(0,16)}</td>
+      <td>${o.customer_name||'Walk-in'}</td>
       <td>${o.items.length} item(s)</td>
-      <td class="fw-700 text-green">$${o.total.toFixed(2)}</td>
-      <td><span class="badge badge-blue">${o.paymentMethod}</span></td>
-      <td><span class="badge ${badges[o.status]||'badge-gray'}">${o.status}</span></td>
+      <td class="fw-700 text-green">$${Number(o.total_amount).toFixed(2)}</td>
+      <td><span class="badge badge-blue">${(o.payments[0]?.method||'—').toUpperCase()}</span></td>
+      <td><span class="badge ${badges[o.statusLabel]||'badge-gray'}">${o.statusLabel}</span></td>
       <td>
         <div class="flex-gap">
-          <button class="btn btn-ghost btn-xs" onclick="viewOrder('${o.invoice}')"><i class="fa fa-eye"></i></button>
-          ${o.status==='Completed'?`<button class="btn btn-ghost btn-xs" onclick="toast('Receipt printed','success')"><i class="fa fa-print"></i></button>`:''}
+          <button class="btn btn-ghost btn-xs" onclick="viewOrder('${o.invoice_number}')"><i class="fa fa-eye"></i></button>
+          ${o.statusLabel==='Completed'?`<button class="btn btn-ghost btn-xs" onclick="toast('Receipt printed','success')"><i class="fa fa-print"></i></button>`:''}
         </div>
       </td>
     </tr>`).join('');
 }
 
-function viewOrder(inv) {
-  const allOrders = [...DB.orders, ...[
-    { invoice:'INV-0040', date:'2025-01-17 09:15', customer:'Ahmed Hassan', items:[{name:'Coca-Cola 330ml',qty:2,price:1.25},{name:'Lays Chips',qty:1,price:2.00}], subtotal:4.50, discountAmt:0, taxAmt:0.36, total:4.86, paymentMethod:'Cash', status:'Completed' },
-  ]];
-  const o = allOrders.find(x=>x.invoice===inv);
-  if (!o) return;
+async function viewOrder(inv) {
+  let o = _orderCache.find(x=>x.invoice_number===inv);
+  if (!o) {
+    // Not in the Orders History cache (e.g. opened from the Bookings list) — fetch fresh.
+    const data = await SalesAPI.list({ search: inv, page_size: 1 });
+    o = (data.results || data)[0];
+  }
+  if (!o) { toast('Order not found', 'error'); return; }
   document.getElementById('od-title').textContent = 'Order — ' + inv;
   document.getElementById('order-detail-body').innerHTML = `
     <div class="grid-2" style="margin-bottom:16px">
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">CUSTOMER</div><div style="font-weight:600">${o.customer}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">DATE</div><div style="font-weight:600">${o.date}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">PAYMENT METHOD</div><div style="font-weight:600">${o.paymentMethod}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">STATUS</div><span class="badge badge-green">${o.status}</span></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">CUSTOMER</div><div style="font-weight:600">${o.customer_name||'Walk-in'}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">DATE</div><div style="font-weight:600">${(o.created_at||'').replace('T',' ').slice(0,16)}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">PAYMENT METHOD</div><div style="font-weight:600">${(o.payments[0]?.method||'—').toUpperCase()}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">STATUS</div><span class="badge badge-green">${_orderStatusLabel[o.status]||o.status}</span></div>
     </div>
     <table><thead><tr><th>Product</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead>
-    <tbody>${o.items.map(i=>`<tr><td>${i.name}</td><td>$${i.price.toFixed(2)}</td><td>${i.qty}</td><td>$${(i.price*i.qty).toFixed(2)}</td></tr>`).join('')}</tbody></table>
+    <tbody>${o.items.map(i=>`<tr><td>${i.product_name}</td><td>$${Number(i.unit_price).toFixed(2)}</td><td>${i.quantity}</td><td>$${Number(i.line_total).toFixed(2)}</td></tr>`).join('')}</tbody></table>
     <div style="margin-top:16px;text-align:right">
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Subtotal: $${(o.subtotal||o.total).toFixed(2)}</div>
-      ${(o.discountAmt||0)>0?`<div style="font-size:13px;color:var(--red);margin-bottom:4px">Discount: -$${o.discountAmt.toFixed(2)}</div>`:''}
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Tax: +$${(o.taxAmt||0).toFixed(2)}</div>
-      <div style="font-size:18px;font-weight:800">Total: $${o.total.toFixed(2)}</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Subtotal: $${Number(o.subtotal).toFixed(2)}</div>
+      ${Number(o.discount_amount)>0?`<div style="font-size:13px;color:var(--red);margin-bottom:4px">Discount: -$${Number(o.discount_amount).toFixed(2)}</div>`:''}
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Tax: +$${Number(o.tax_amount).toFixed(2)}</div>
+      <div style="font-size:18px;font-weight:800">Total: $${Number(o.total_amount).toFixed(2)}</div>
     </div>`;
   openModal('order-detail-modal');
 }
@@ -1289,27 +1367,25 @@ function isCnicDuplicate(cnic, excludeId) {
   return DB.customers.some(c => c.cnic === cnic && c.id !== excludeId);
 }
 
-function renderCustomers() {
+let _customerCache = [];
+
+async function renderCustomers() {
   const q = (document.getElementById('cust-search')?.value||'').toLowerCase();
-  const filtered = DB.customers.filter(c =>
-    c.name.toLowerCase().includes(q) ||
-    c.phone.includes(q) ||
-    (c.email||'').toLowerCase().includes(q) ||
-    (c.accountNo||'').toLowerCase().includes(q) ||
-    (c.cnic||'').includes(q)
-  );
+  const data = await CustomersAPI.list({ search: q || undefined });
+  const filtered = data.results || data;
+  _customerCache = filtered;
   document.getElementById('customers-table').innerHTML = filtered.map(c=>`
     <tr>
-      <td><span class="badge badge-purple" style="font-family:var(--mono)">${c.accountNo||'—'}</span></td>
+      <td><span class="badge badge-purple" style="font-family:var(--mono)">ACC-${String(c.id).padStart(4,'0')}</span></td>
       <td class="td-mono">CUST-${String(c.id).padStart(3,'0')}</td>
       <td class="fw-700">${c.name}</td>
-      <td>${c.phone}</td>
-      <td style="font-family:var(--mono);font-size:12px">${c.cnic||'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td>${c.phone||'—'}</td>
+      <td style="font-family:var(--mono);font-size:12px"><span style="color:var(--text-muted)">—</span></td>
       <td>${c.email||'—'}</td>
-      <td class="fw-700 text-green">Rs.${c.totalPurchases.toFixed(2)}</td>
-      <td class="${(c.prevBalance||0)>0?'text-red':'text-green'} fw-700">Rs.${(c.prevBalance||0).toFixed(2)}</td>
-      <td><span class="badge badge-purple">⭐ ${c.loyaltyPoints}</span></td>
-      <td style="font-size:12px">${c.lastVisit}</td>
+      <td class="fw-700 text-green">Rs.${Number(c.credit_limit).toFixed(2)}</td>
+      <td class="${Number(c.outstanding_balance)>0?'text-red':'text-green'} fw-700">Rs.${Number(c.outstanding_balance).toFixed(2)}</td>
+      <td><span class="badge badge-purple">⭐ ${c.loyalty_points}</span></td>
+      <td style="font-size:12px">${(c.updated_at||'').split('T')[0]||'—'}</td>
       <td>
         <div class="flex-gap">
           <button class="btn btn-ghost btn-xs" onclick="editCustomer(${c.id})"><i class="fa fa-edit"></i></button>
@@ -1327,96 +1403,104 @@ function openCustomerModal() {
   });
   document.getElementById('cust-points').value = 0;
   document.getElementById('cust-prev-balance').value = 0;
+  document.getElementById('cust-credit-limit').value = 0;
   const errEl = document.getElementById('cust-cnic-error');
   const statusEl = document.getElementById('cust-cnic-status');
   if (errEl) errEl.style.display = 'none';
   if (statusEl) statusEl.textContent = '';
-  const nextId = Math.max(...DB.customers.map(c=>c.id), 0) + 1;
-  document.getElementById('cust-acc').value = 'ACC-' + String(nextId).padStart(4,'0');
+  document.getElementById('cust-acc').value = 'ACC-' + String((_customerCache.length||0)+1).padStart(4,'0');
   openModal('customer-modal');
 }
 
 function editCustomer(id) {
-  const c = DB.customers.find(x => x.id === id);
+  const c = _customerCache.find(x => x.id === id);
   if (!c) return;
   document.getElementById('cust-modal-title').textContent = 'Edit Customer';
   document.getElementById('cust-edit-id').value    = c.id;
   document.getElementById('cust-name').value       = c.name;
-  document.getElementById('cust-phone').value      = c.phone;
+  document.getElementById('cust-phone').value      = c.phone || '';
   document.getElementById('cust-email').value      = c.email || '';
   document.getElementById('cust-address').value    = c.address || '';
-  document.getElementById('cust-points').value     = c.loyaltyPoints || 0;
-  document.getElementById('cust-acc').value        = c.accountNo || 'ACC-' + String(c.id).padStart(4,'0');
-  document.getElementById('cust-prev-balance').value = c.prevBalance || 0;
+  document.getElementById('cust-points').value     = c.loyalty_points || 0;
+  document.getElementById('cust-acc').value        = 'ACC-' + String(c.id).padStart(4,'0');
+  document.getElementById('cust-prev-balance').value = c.outstanding_balance || 0;
+  document.getElementById('cust-credit-limit').value = c.credit_limit || 0;
   const cnicEl = document.getElementById('cust-cnic');
-  if (cnicEl) { cnicEl.value = c.cnic || ''; validateCnic(cnicEl.value); }
+  if (cnicEl) { cnicEl.value = ''; }
   openModal('customer-modal');
 }
 
-function saveCustomer() {
+async function saveCustomer() {
   const name = document.getElementById('cust-name').value.trim();
   if (!name) { toast('Customer name is required!', 'error'); return; }
 
   const cnic    = (document.getElementById('cust-cnic')?.value || '').trim();
   const editId  = parseInt(document.getElementById('cust-edit-id').value);
 
-  // CNIC validation: if provided, must match format
+  // CNIC validation kept as a client-side format check only — the backend
+  // Customer model has no CNIC field yet, so it is not persisted.
   if (cnic && !/^\d{5}-\d{7}-\d{1}$/.test(cnic)) {
     toast('Invalid CNIC format. Use: 35202-1234567-1', 'error');
     document.getElementById('cust-cnic')?.focus();
     return;
   }
-  // Duplicate CNIC check
-  if (cnic && isCnicDuplicate(cnic, editId || -1)) {
-    toast('This CNIC is already registered to another customer!', 'error');
-    return;
-  }
 
-  const newId = editId || Math.max(...DB.customers.map(c=>c.id), 0) + 1;
-  const data = {
+  const payload = {
     name,
     phone: document.getElementById('cust-phone').value,
     email: document.getElementById('cust-email').value,
     address: document.getElementById('cust-address').value,
-    loyaltyPoints: parseInt(document.getElementById('cust-points').value) || 0,
-    prevBalance:   parseFloat(document.getElementById('cust-prev-balance').value) || 0,
-    accountNo: document.getElementById('cust-acc').value || 'ACC-' + String(newId).padStart(4,'0'),
-    cnic: cnic || null,
+    loyalty_points: parseInt(document.getElementById('cust-points').value) || 0,
+    outstanding_balance: parseFloat(document.getElementById('cust-prev-balance').value) || 0,
+    credit_limit: parseFloat(document.getElementById('cust-credit-limit').value) || 0,
   };
-  if (editId) {
-    Object.assign(DB.customers.find(c => c.id === editId), data);
-    toast('Customer updated!', 'success');
-  } else {
-    DB.customers.push({ id: newId, totalPurchases: 0, lastVisit: new Date().toISOString().split('T')[0], ...data });
-    toast('Customer added!', 'success');
+
+  try {
+    if (editId) {
+      await CustomersAPI.update(editId, payload);
+      toast('Customer updated!', 'success');
+    } else {
+      await CustomersAPI.create(payload);
+      toast('Customer added!', 'success');
+    }
+    closeModal('customer-modal');
+    renderCustomers();
+    if (typeof updatePosCustomers === 'function') updatePosCustomers();
+  } catch (err) {
+    toast(err.message || 'Failed to save customer', 'error');
   }
-  closeModal('customer-modal');
-  renderCustomers();
-  updatePosCustomers();
 }
 
-function deleteCustomer(id) {
+async function deleteCustomer(id) {
   if (!confirm('Delete customer?')) return;
-  DB.customers=DB.customers.filter(c=>c.id!==id);
-  renderCustomers();
-  toast('Customer deleted','success');
+  try {
+    await CustomersAPI.remove(id);
+    renderCustomers();
+    toast('Customer deleted','success');
+  } catch (err) {
+    toast(err.message || 'Failed to delete customer', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
 // SUPPLIERS
 // ═══════════════════════════════════════════════════════
-function renderSuppliers() {
+let _supplierCache = [];
+
+async function renderSuppliers() {
   const q = (document.getElementById('sup-search')?.value||'').toLowerCase();
-  const filtered = DB.suppliers.filter(s=>s.name.toLowerCase().includes(q)||(s.email||'').toLowerCase().includes(q));
+  const data = await SuppliersAPI.list({ search: q || undefined });
+  const filtered = data.results || data;
+  _supplierCache = filtered;
   document.getElementById('suppliers-table').innerHTML = filtered.map(s=>`
     <tr>
       <td class="td-mono">SUP-${String(s.id).padStart(3,'0')}</td>
       <td class="fw-700">${s.name}</td>
-      <td>${s.phone}</td>
-      <td>${s.email}</td>
-      <td style="font-size:12px">${s.address}</td>
-      <td class="${s.balance<0?'text-red':'text-green'} fw-700">$${Math.abs(s.balance).toFixed(2)} ${s.balance<0?'(owed)':s.balance>0?'(credit)':''}</td>
-      <td><span class="badge badge-green">${s.status}</span></td>
+      <td>${s.phone||'—'}</td>
+      <td>${s.email||'—'}</td>
+      <td style="font-size:12px">${s.address||'—'}</td>
+      <td class="${Number(s.outstanding_payable)>0?'text-red':'text-green'} fw-700">$${Number(s.outstanding_payable).toFixed(2)} ${Number(s.outstanding_payable)>0?'(owed)':''}</td>
+      <td><span class="badge badge-green">${s.is_active?'Active':'Inactive'}</span></td>
       <td>
         <div class="flex-gap">
           <button class="btn btn-ghost btn-xs" onclick="editSupplier(${s.id})"><i class="fa fa-edit"></i></button>
@@ -1435,59 +1519,91 @@ function openSupplierModal() {
 }
 
 function editSupplier(id) {
-  const s=DB.suppliers.find(x=>x.id===id);
+  const s=_supplierCache.find(x=>x.id===id);
+  if (!s) return;
   document.getElementById('sup-modal-title').textContent='Edit Supplier';
   document.getElementById('sup-edit-id').value=s.id;
   document.getElementById('sup-name').value=s.name;
-  document.getElementById('sup-phone').value=s.phone;
-  document.getElementById('sup-email').value=s.email;
-  document.getElementById('sup-address').value=s.address;
-  document.getElementById('sup-balance').value=s.balance;
+  document.getElementById('sup-phone').value=s.phone||'';
+  document.getElementById('sup-email').value=s.email||'';
+  document.getElementById('sup-address').value=s.address||'';
+  document.getElementById('sup-balance').value=s.outstanding_payable;
   openModal('supplier-modal');
 }
 
-function saveSupplier() {
+async function saveSupplier() {
   const name=document.getElementById('sup-name').value.trim();
   if (!name) { toast('Name required!','error'); return; }
   const editId=parseInt(document.getElementById('sup-edit-id').value);
-  const data={name,phone:document.getElementById('sup-phone').value,email:document.getElementById('sup-email').value,address:document.getElementById('sup-address').value,balance:parseFloat(document.getElementById('sup-balance').value)||0,status:'Active'};
-  if (editId) { Object.assign(DB.suppliers.find(s=>s.id===editId),data); toast('Supplier updated!','success'); }
-  else { DB.suppliers.push({id:Math.max(...DB.suppliers.map(s=>s.id),0)+1,...data}); toast('Supplier added!','success'); }
-  closeModal('supplier-modal');
-  renderSuppliers();
+  const payload={
+    name,
+    phone: document.getElementById('sup-phone').value,
+    email: document.getElementById('sup-email').value,
+    address: document.getElementById('sup-address').value,
+    outstanding_payable: parseFloat(document.getElementById('sup-balance').value)||0,
+    is_active: true,
+  };
+  try {
+    if (editId) {
+      await SuppliersAPI.update(editId, payload);
+      toast('Supplier updated!','success');
+    } else {
+      await SuppliersAPI.create(payload);
+      toast('Supplier added!','success');
+    }
+    closeModal('supplier-modal');
+    renderSuppliers();
+  } catch (err) {
+    toast(err.message || 'Failed to save supplier', 'error');
+  }
 }
 
-function deleteSupplier(id) {
+async function deleteSupplier(id) {
   if (!confirm('Delete supplier?')) return;
-  DB.suppliers=DB.suppliers.filter(s=>s.id!==id);
-  renderSuppliers();
-  toast('Supplier deleted','success');
+  try {
+    await SuppliersAPI.remove(id);
+    renderSuppliers();
+    toast('Supplier deleted','success');
+  } catch (err) {
+    toast(err.message || 'Failed to delete supplier', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
 // PURCHASES
 // ═══════════════════════════════════════════════════════
-function renderPurchases() {
-  document.getElementById('purchases-table').innerHTML = DB.purchases.map(p=>`
+let _purchaseCache = [];
+let _purSupplierCache = [];
+let _purProductCache = [];
+
+async function renderPurchases() {
+  const data = await PurchaseAPI.list({ page_size: 200 });
+  _purchaseCache = data.results || data;
+  document.getElementById('purchases-table').innerHTML = _purchaseCache.map(p=>`
     <tr>
-      <td class="td-mono">PO-${String(p.id).padStart(4,'0')}</td>
-      <td style="font-size:12px">${p.date}</td>
-      <td>${DB.suppliers.find(s=>s.id===p.supplier)?.name||'Unknown'}</td>
+      <td class="td-mono">${p.po_number}</td>
+      <td style="font-size:12px">${(p.created_at||'').split('T')[0]}</td>
+      <td>${p.supplier_name||'Unknown'}</td>
       <td>${p.items.length} item(s)</td>
-      <td class="fw-700">$${p.total.toFixed(2)}</td>
-      <td><span class="badge ${p.payment==='Paid'?'badge-green':p.payment==='Pending'?'badge-yellow':'badge-blue'}">${p.payment}</span></td>
+      <td class="fw-700">$${Number(p.total_amount).toFixed(2)}</td>
+      <td><span class="badge ${p.status==='received'?'badge-green':p.status==='partially_received'?'badge-yellow':'badge-blue'}">${p.status.replace(/_/g,' ')}</span></td>
       <td>
         <div class="flex-gap">
           <button class="btn btn-ghost btn-xs"><i class="fa fa-eye"></i></button>
-          <button class="btn btn-ghost btn-xs" onclick="deletePurchase(${p.id})" style="color:var(--red)"><i class="fa fa-trash"></i></button>
         </div>
       </td>
     </tr>`).join('');
 }
 
 let purItems = [];
-function openPurchaseModal() {
-  document.getElementById('pur-supplier').innerHTML = DB.suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+async function openPurchaseModal() {
+  const [supData, prodData] = await Promise.all([
+    SuppliersAPI.list({ page_size: 500 }),
+    ProductsAPI.list({ page_size: 500 }),
+  ]);
+  _purSupplierCache = supData.results || supData;
+  _purProductCache = prodData.results || prodData;
+  document.getElementById('pur-supplier').innerHTML = _purSupplierCache.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
   document.getElementById('pur-date').value = new Date().toISOString().split('T')[0];
   purItems = [{productId:'',qty:1,price:0}];
   renderPurItems();
@@ -1501,7 +1617,7 @@ function renderPurItems() {
         <label>Product</label>
         <select class="form-input" onchange="purItemChange(${i},'product',this.value)" style="padding:9px 12px">
           <option value="">Select Product</option>
-          ${DB.products.map(p=>`<option value="${p.id}" ${item.productId==p.id?'selected':''}>${p.name}</option>`).join('')}
+          ${_purProductCache.map(p=>`<option value="${p.id}" ${item.productId==p.id?'selected':''}>${p.name}</option>`).join('')}
         </select>
       </div>
       <div class="form-group-inline" style="margin-bottom:0;width:90px">
@@ -1521,8 +1637,8 @@ function renderPurItems() {
 function purItemChange(i,field,val) {
   if (field==='product') {
     purItems[i].productId=parseInt(val)||'';
-    const prod=DB.products.find(p=>p.id==val);
-    if(prod) purItems[i].price=prod.buyPrice;
+    const prod=_purProductCache.find(p=>p.id==val);
+    if(prod) purItems[i].price=Number(prod.cost_price) || 0;
   } else if(field==='qty') purItems[i].qty=parseInt(val)||1;
   else purItems[i].price=parseFloat(val)||0;
   renderPurItems();
@@ -1530,49 +1646,71 @@ function purItemChange(i,field,val) {
 function addPurItem() { purItems.push({productId:'',qty:1,price:0}); renderPurItems(); }
 function removePurItem(i) { purItems.splice(i,1); renderPurItems(); }
 
-function savePurchase() {
+async function savePurchase() {
   if(!purItems.length||!purItems[0].productId) { toast('Add at least one product','error'); return; }
-  const total=purItems.reduce((a,i)=>a+i.qty*i.price,0);
-  const pur={
-    id:Math.max(...DB.purchases.map(p=>p.id),0)+1,
-    date:document.getElementById('pur-date').value,
-    supplier:parseInt(document.getElementById('pur-supplier').value),
-    items:purItems.map(i=>({productId:i.productId,name:DB.products.find(p=>p.id==i.productId)?.name||'',qty:i.qty,price:i.price})),
-    total, payment:document.getElementById('pur-payment').value,
-    notes:document.getElementById('pur-notes').value,
-  };
-  // Update stock
-  purItems.forEach(item=>{
-    const prod=DB.products.find(p=>p.id==item.productId);
-    if(prod){
-      const before=prod.stock;
-      prod.stock+=item.qty;
-      DB.stockHistory.unshift({date:new Date().toLocaleString(),product:prod.name,type:'Purchase',qty:item.qty,before,after:prod.stock,ref:'PO-'+String(pur.id).padStart(4,'0')});
-    }
-  });
-  DB.purchases.push(pur);
-  closeModal('purchase-modal');
-  renderPurchases();
-  toast('Purchase order saved!','success');
-}
+  const supplierId = parseInt(document.getElementById('pur-supplier').value);
+  if (!supplierId) { toast('Select a supplier','error'); return; }
 
-function deletePurchase(id) {
-  if(!confirm('Delete purchase?')) return;
-  DB.purchases=DB.purchases.filter(p=>p.id!==id);
-  renderPurchases();
-  toast('Purchase deleted','success');
+  try {
+    const warehouseId = await _ensureDefaultWarehouse();
+    const items = purItems.filter(i=>i.productId).map(i => ({
+      product: i.productId, quantity_ordered: i.qty, unit_cost: i.price,
+    }));
+
+    // Create the PO
+    const po = await PurchaseAPI.create({
+      supplier: supplierId, warehouse: warehouseId, items,
+      notes: document.getElementById('pur-notes').value,
+    });
+
+    // Receive everything immediately (this UI is a single-step "record a
+    // completed purchase" form, so ordered == received in one action).
+    await PurchaseAPI.receive(po.id, {
+      items: po.items.map(it => ({ purchase_order_item: it.id, quantity: it.quantity_ordered })),
+    });
+
+    // Pay in full if the form says "Paid"
+    const paymentStatus = document.getElementById('pur-payment').value;
+    if (paymentStatus === 'Paid') {
+      await PurchaseAPI.pay(po.id, { amount: po.total_amount, method: 'bank_transfer' });
+    }
+
+    closeModal('purchase-modal');
+    renderPurchases();
+    if (typeof renderProducts === 'function') renderProducts();
+    toast('Purchase order saved and stock received!','success');
+  } catch (err) {
+    toast(err.message || 'Failed to save purchase', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
 // EXPENSES
 // ═══════════════════════════════════════════════════════
-function renderExpenses() {
-  document.getElementById('expenses-table').innerHTML = DB.expenses.map(e=>`
+let _expenseCache = [];
+let _expenseCategoryCache = [];
+
+async function _findOrCreateExpenseCategory(name) {
+  if (!_expenseCategoryCache.length) {
+    const data = await ExpensesAPI.categories();
+    _expenseCategoryCache = data.results || data;
+  }
+  const existing = _expenseCategoryCache.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const created = await ExpensesAPI.createCategory({ name });
+  _expenseCategoryCache.push(created);
+  return created.id;
+}
+
+async function renderExpenses() {
+  const data = await ExpensesAPI.list({ page_size: 500 });
+  _expenseCache = data.results || data;
+  document.getElementById('expenses-table').innerHTML = _expenseCache.map(e=>`
     <tr>
-      <td>${e.date}</td>
-      <td><span class="badge badge-blue">${e.category}</span></td>
-      <td>${e.description}</td>
-      <td class="fw-700 text-red">$${e.amount.toFixed(2)}</td>
+      <td>${e.expense_date}</td>
+      <td><span class="badge badge-blue">${e.category_name}</span></td>
+      <td>${e.description || e.title}</td>
+      <td class="fw-700 text-red">$${Number(e.amount).toFixed(2)}</td>
       <td>
         <div class="flex-gap">
           <button class="btn btn-ghost btn-xs" onclick="editExpense(${e.id})"><i class="fa fa-edit"></i></button>
@@ -1583,7 +1721,7 @@ function renderExpenses() {
 
   if (charts.expCat) charts.expCat.destroy();
   const catTotals = {};
-  DB.expenses.forEach(e => catTotals[e.category] = (catTotals[e.category]||0)+e.amount);
+  _expenseCache.forEach(e => catTotals[e.category_name] = (catTotals[e.category_name]||0)+Number(e.amount));
   const ec = document.getElementById('expenseChart');
   if (ec) charts.expCat = new Chart(ec, {
     type: 'doughnut',
@@ -1593,11 +1731,19 @@ function renderExpenses() {
 
   if (charts.expMonth) charts.expMonth.destroy();
   const emc = document.getElementById('expMonthChart');
-  if (emc) charts.expMonth = new Chart(emc, {
-    type: 'bar',
-    data: { labels:['Sep','Oct','Nov','Dec','Jan'], datasets:[{ label:'Expenses ($)', data:[9800,10200,11500,12000,11530], backgroundColor:'rgba(239,68,68,.5)', borderColor:'rgba(239,68,68,1)', borderWidth:2, borderRadius:6 }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8892a4',font:{size:11}}}}, scales:{ x:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}}, y:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}} } }
-  });
+  if (emc) {
+    const monthTotals = {};
+    _expenseCache.forEach(e => {
+      const m = (e.expense_date||'').slice(0,7); // YYYY-MM
+      monthTotals[m] = (monthTotals[m]||0) + Number(e.amount);
+    });
+    const labels = Object.keys(monthTotals).sort();
+    charts.expMonth = new Chart(emc, {
+      type: 'bar',
+      data: { labels, datasets:[{ label:'Expenses ($)', data:labels.map(l=>monthTotals[l]), backgroundColor:'rgba(239,68,68,.5)', borderColor:'rgba(239,68,68,1)', borderWidth:2, borderRadius:6 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8892a4',font:{size:11}}}}, scales:{ x:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}}, y:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}} } }
+    });
+  }
 }
 
 function openExpenseModal() {
@@ -1611,33 +1757,58 @@ function openExpenseModal() {
 }
 
 function editExpense(id) {
-  const e=DB.expenses.find(x=>x.id===id);
+  const e=_expenseCache.find(x=>x.id===id);
+  if (!e) return;
   document.getElementById('exp-modal-title').textContent='Edit Expense';
   document.getElementById('exp-edit-id').value=e.id;
-  document.getElementById('exp-cat').value=e.category;
+  document.getElementById('exp-cat').value=e.category_name;
   document.getElementById('exp-amount').value=e.amount;
-  document.getElementById('exp-date').value=e.date;
-  document.getElementById('exp-desc').value=e.description;
-  document.getElementById('exp-ref').value=e.ref||'';
+  document.getElementById('exp-date').value=e.expense_date;
+  document.getElementById('exp-desc').value=e.description || '';
+  document.getElementById('exp-ref').value='';
   openModal('expense-modal');
 }
 
-function saveExpense() {
+async function saveExpense() {
   const amount=parseFloat(document.getElementById('exp-amount').value);
   if(!amount) { toast('Amount required!','error'); return; }
   const editId=parseInt(document.getElementById('exp-edit-id').value);
-  const data={category:document.getElementById('exp-cat').value,amount,date:document.getElementById('exp-date').value,description:document.getElementById('exp-desc').value,ref:document.getElementById('exp-ref').value||'EXP-'+Date.now()};
-  if(editId) { Object.assign(DB.expenses.find(e=>e.id===editId),data); toast('Expense updated!','success'); }
-  else { DB.expenses.push({id:Math.max(...DB.expenses.map(e=>e.id),0)+1,...data}); toast('Expense added!','success'); }
-  closeModal('expense-modal');
-  renderExpenses();
+  const categoryName = document.getElementById('exp-cat').value;
+  const description = document.getElementById('exp-desc').value;
+  const ref = document.getElementById('exp-ref').value;
+
+  try {
+    const categoryId = await _findOrCreateExpenseCategory(categoryName);
+    const payload = {
+      category: categoryId,
+      title: (description || categoryName).slice(0,200),
+      description: description + (ref ? ` (Ref: ${ref})` : ''),
+      amount,
+      expense_date: document.getElementById('exp-date').value,
+    };
+    if (editId) {
+      await ExpensesAPI.update(editId, payload);
+      toast('Expense updated!','success');
+    } else {
+      await ExpensesAPI.create(payload);
+      toast('Expense added!','success');
+    }
+    closeModal('expense-modal');
+    renderExpenses();
+  } catch (err) {
+    toast(err.message || 'Failed to save expense', 'error');
+  }
 }
 
-function deleteExpense(id) {
+async function deleteExpense(id) {
   if(!confirm('Delete expense?')) return;
-  DB.expenses=DB.expenses.filter(e=>e.id!==id);
-  renderExpenses();
-  toast('Expense deleted','success');
+  try {
+    await ExpensesAPI.remove(id);
+    renderExpenses();
+    toast('Expense deleted','success');
+  } catch (err) {
+    toast(err.message || 'Failed to delete expense', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1677,86 +1848,141 @@ function renderAccounting() {
 // ═══════════════════════════════════════════════════════
 // REPORTS
 // ═══════════════════════════════════════════════════════
-function renderReports() {
+let _reportColumnsCache = [];
+
+function _reportDateParams() {
+  const from = document.getElementById('rpt-from')?.value;
+  const to = document.getElementById('rpt-to')?.value;
+  const params = {};
+  if (from) params.date_from = from;
+  if (to) params.date_to = to;
+  return params;
+}
+
+async function renderReports() {
+  // Real 6-month revenue/profit trend from the backend's daily sales chart,
+  // rolled up into monthly buckets for this line chart.
   if (charts.rptSales) charts.rptSales.destroy();
   const rc = document.getElementById('rptSalesChart');
-  if (rc) charts.rptSales = new Chart(rc, {
-    type: 'line',
-    data: {
-      labels: ['Aug','Sep','Oct','Nov','Dec','Jan'],
-      datasets: [{
-        label: 'Revenue ($)', data: [22000,25000,21000,28000,32000,29000],
-        borderColor: 'rgba(59,130,246,1)', backgroundColor: 'rgba(59,130,246,0.1)',
-        borderWidth: 2.5, tension: 0.4, fill: true, pointBackgroundColor: '#3b82f6', pointRadius: 4,
-      },{
-        label: 'Profit ($)', data: [8000,9500,7500,11000,13000,10500],
-        borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.05)',
-        borderWidth: 2.5, tension: 0.4, fill: true, pointBackgroundColor: '#10b981', pointRadius: 4,
-      }]
-    },
-    options: { responsive:true,maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8892a4',font:{size:11}}}}, scales:{ x:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}}, y:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}} } }
-  });
+  if (rc) {
+    let series = [];
+    try {
+      const chartData = await DashboardAPI.salesChart(180);
+      series = chartData.series || [];
+    } catch (_) { /* manager+ only — leave empty for other roles */ }
+    const monthlyTotals = {};
+    series.forEach(s => {
+      const month = (s.day || '').slice(0, 7);
+      monthlyTotals[month] = (monthlyTotals[month] || 0) + Number(s.total);
+    });
+    const labels = Object.keys(monthlyTotals).sort();
+    charts.rptSales = new Chart(rc, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Revenue ($)', data: labels.map(l => monthlyTotals[l]),
+          borderColor: 'rgba(59,130,246,1)', backgroundColor: 'rgba(59,130,246,0.1)',
+          borderWidth: 2.5, tension: 0.4, fill: true, pointBackgroundColor: '#3b82f6', pointRadius: 4,
+        }]
+      },
+      options: { responsive:true,maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8892a4',font:{size:11}}}}, scales:{ x:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}}, y:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}} } }
+    });
+  }
 
-  const totalSales = 28500 + DB.orders.filter(o=>o.status==='Completed').reduce((a,o)=>a+o.total,0);
-  const totalExpenses = DB.expenses.reduce((a,e)=>a+e.amount,0) + DB.purchases.reduce((a,p)=>a+p.total,0);
-  const grossProfit = totalSales - DB.products.reduce((a,p)=>a+p.buyPrice*p.stock,0) - 8200;
-  const netProfit = totalSales - totalExpenses;
-  document.getElementById('pl-summary').innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="flex-between" style="padding:12px;background:var(--green-glow);border-radius:8px;border:1px solid rgba(16,185,129,.2)">
-        <span style="font-size:13px;font-weight:600">💹 Total Revenue</span>
-        <span style="font-size:16px;font-weight:800;color:var(--green)">$${totalSales.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
-      </div>
-      <div class="flex-between" style="padding:12px;background:var(--red-glow);border-radius:8px;border:1px solid rgba(239,68,68,.2)">
-        <span style="font-size:13px;font-weight:600">📉 Total Expenses</span>
-        <span style="font-size:16px;font-weight:800;color:var(--red)">$${totalExpenses.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
-      </div>
-      <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
-        <span style="font-size:13px;font-weight:600">📊 Cost of Goods</span>
-        <span style="font-size:16px;font-weight:800;color:var(--accent)">$8,200</span>
-      </div>
-      <div class="divider"></div>
-      <div class="flex-between" style="padding:14px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-light)">
-        <span style="font-size:15px;font-weight:700">🏆 Net Profit</span>
-        <span style="font-size:20px;font-weight:800;color:${netProfit>0?'var(--green)':'var(--red)'}">$${Math.abs(netProfit).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
-      </div>
-    </div>`;
+  // Real Profit & Loss summary
+  try {
+    const pl = await FinanceAPI.profitLoss(_reportDateParams());
+    const netProfit = Number(pl.net_profit);
+    document.getElementById('pl-summary').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="flex-between" style="padding:12px;background:var(--green-glow);border-radius:8px;border:1px solid rgba(16,185,129,.2)">
+          <span style="font-size:13px;font-weight:600">💹 Total Income</span>
+          <span style="font-size:16px;font-weight:800;color:var(--green)">$${Number(pl.income).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+        </div>
+        <div class="flex-between" style="padding:12px;background:var(--red-glow);border-radius:8px;border:1px solid rgba(239,68,68,.2)">
+          <span style="font-size:13px;font-weight:600">📉 Total Expenses</span>
+          <span style="font-size:16px;font-weight:800;color:var(--red)">$${Number(pl.expenses).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+        </div>
+        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+          <span style="font-size:13px;font-weight:600">📊 Cost of Goods Sold</span>
+          <span style="font-size:16px;font-weight:800;color:var(--accent)">$${Number(pl.cost_of_goods_sold).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+        </div>
+        <div class="divider"></div>
+        <div class="flex-between" style="padding:14px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-light)">
+          <span style="font-size:15px;font-weight:700">🏆 Net Profit</span>
+          <span style="font-size:20px;font-weight:800;color:${netProfit>=0?'var(--green)':'var(--red)'}">$${Math.abs(netProfit).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+        </div>
+      </div>`;
+  } catch (_) {
+    document.getElementById('pl-summary').innerHTML = '<div style="color:var(--text-muted);font-size:13px">Manager access required to view P&L</div>';
+  }
 
-  const sampleSales = [
-    { date:'2025-01-17', inv:'INV-0042', cust:'Ahmed Hassan', items:2, sub:4.50, tax:0.36, disc:0, total:4.86, pay:'Cash' },
-    { date:'2025-01-17', inv:'INV-0041', cust:'Walk-in', items:1, sub:2.00, tax:0.16, disc:0, total:2.16, pay:'Card' },
-    { date:'2025-01-16', inv:'INV-0040', cust:'Sarah Williams', items:5, sub:45.50, tax:3.64, disc:2.00, total:47.14, pay:'Digital' },
-    { date:'2025-01-15', inv:'INV-0039', cust:'Muhammad Ali', items:3, sub:12.75, tax:1.02, disc:0, total:13.77, pay:'Cash' },
-  ];
-  document.getElementById('report-table').innerHTML = [...DB.orders.map(o=>({date:o.date.split(',')[0]||o.date,inv:o.invoice,cust:o.customer,items:o.items.length,sub:o.subtotal||o.total,tax:o.taxAmt||0,disc:o.discountAmt||0,total:o.total,pay:o.paymentMethod})), ...sampleSales].slice(0,10).map(s=>`
-    <tr>
-      <td style="font-size:12px">${s.date}</td>
-      <td class="td-mono">${s.inv}</td>
-      <td>${s.cust}</td>
-      <td>${s.items}</td>
-      <td>$${s.sub.toFixed(2)}</td>
-      <td class="text-yellow">+$${s.tax.toFixed(2)}</td>
-      <td class="text-red">-$${s.disc.toFixed(2)}</td>
-      <td class="fw-700 text-green">$${s.total.toFixed(2)}</td>
-      <td><span class="badge badge-blue">${s.pay}</span></td>
-    </tr>`).join('');
+  await generateReport();
+}
+
+let _currentReportSlug = 'sales';
+
+async function generateReport() {
+  const typeSelect = document.getElementById('rpt-type');
+  const slug = typeSelect ? typeSelect.value : 'sales';
+  _currentReportSlug = slug;
+  const titleMap = {
+    sales: 'Sales Report', inventory: 'Inventory Report', purchase: 'Purchase Report',
+    expenses: 'Expense Report', profit: 'Profit & Loss Report', customers: 'Customer Report',
+    suppliers: 'Supplier Report', tax: 'Tax Report',
+  };
+  document.getElementById('report-table-title').textContent = titleMap[slug] || 'Report';
+
+  try {
+    const data = await ReportsAPI.fetch(slug, _reportDateParams());
+    const rows = data.results || [];
+    // Derive columns from the first row's keys (backend already sends
+    // human-friendly values as strings) — falls back to an empty table
+    // with just a "No data" message if there are no rows yet.
+    const columns = rows.length ? Object.keys(rows[0]) : [];
+    _reportColumnsCache = columns;
+
+    document.getElementById('report-table-head').innerHTML = columns
+      .map(c => `<th>${c.replace(/_/g,' ').replace(/\b\w/g, ch => ch.toUpperCase())}</th>`).join('');
+
+    document.getElementById('report-table').innerHTML = rows.length
+      ? rows.map(row => `<tr>${columns.map(c => `<td>${row[c]}</td>`).join('')}</tr>`).join('')
+      : `<tr><td colspan="${columns.length||1}" style="text-align:center;color:var(--text-muted);padding:20px">No data for the selected range</td></tr>`;
+  } catch (err) {
+    toast(err.message || 'Failed to generate report', 'error');
+  }
+}
+
+async function exportCurrentReport(format) {
+  try {
+    await ReportsAPI.download(_currentReportSlug, format, _reportDateParams());
+    toast(`${format.toUpperCase()} export downloaded`, 'success');
+  } catch (err) {
+    toast(err.message || 'Export failed', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
 // USERS
 // ═══════════════════════════════════════════════════════
-function renderUsers() {
-  const roleBadges = { Admin:'badge-purple', 'Sub-Admin':'badge-blue' };
-  document.getElementById('users-table').innerHTML = DB.users.map(u=>`
+let _userCache = [];
+const _roleBadgeMap = { super_admin:'badge-purple', admin:'badge-purple', manager:'badge-blue',
+  cashier:'badge-green', salesperson:'badge-green', inventory_manager:'badge-blue', customer:'badge-gray' };
+
+async function renderUsers() {
+  const data = await UsersAPI.list({ page_size: 500 });
+  _userCache = data.results || data;
+  document.getElementById('users-table').innerHTML = _userCache.map(u=>`
     <tr>
       <td class="td-mono">USR-${String(u.id).padStart(3,'0')}</td>
-      <td class="fw-700">${u.name}</td>
-      <td class="td-mono">${u.username}</td>
-      <td><span class="badge ${roleBadges[u.role]||'badge-gray'}">${u.role}</span></td>
+      <td class="fw-700">${u.full_name||u.email}</td>
+      <td class="td-mono">${u.email}</td>
+      <td><span class="badge ${_roleBadgeMap[u.role]||'badge-gray'}">${u.role.replace(/_/g,' ')}</span></td>
       <td>${u.email}</td>
-      <td style="font-size:11px;color:var(--text-secondary);max-width:200px">${u.role==='Admin'?'<span class="badge badge-purple">All Modules</span>':u.permissions?u.permissions.map(p=>`<span class="badge badge-blue" style="margin:1px;font-size:9px">${p}</span>`).join(''):'—'}</td>
-      <td style="font-size:12px">${u.lastLogin}</td>
-      <td><span class="badge badge-green">${u.status}</span></td>
+      <td style="font-size:11px;color:var(--text-secondary);max-width:200px">${['super_admin','admin'].includes(u.role)?'<span class="badge badge-purple">All Modules</span>':'<span class="badge badge-blue" style="font-size:9px">Role-based</span>'}</td>
+      <td style="font-size:12px">${u.last_login ? u.last_login.replace('T',' ').slice(0,16) : 'Never'}</td>
+      <td><span class="badge ${u.is_active?'badge-green':'badge-red'}">${u.is_active?'Active':'Inactive'}</span></td>
       <td>
         <div class="flex-gap">
           <button class="btn btn-ghost btn-xs" onclick="editUser(${u.id})"><i class="fa fa-edit"></i></button>
@@ -1765,71 +1991,85 @@ function renderUsers() {
       </td>
     </tr>`).join('');
 
-  document.getElementById('activity-log').innerHTML = DB.activityLog.slice(0,10).map(a=>`
-    <tr>
-      <td class="td-mono" style="font-size:11px">${a.time}</td>
-      <td class="fw-700">${a.user}</td>
-      <td><span class="badge badge-blue">${a.action}</span></td>
-      <td style="font-size:12px">${a.details}</td>
-      <td class="td-mono" style="font-size:11px">${a.ip}</td>
-    </tr>`).join('');
+  // Activity log now comes from the audit-log API when needed elsewhere;
+  // this panel is left showing local session events only.
+  const logBody = document.getElementById('activity-log');
+  if (logBody) logBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px">See Audit Logs (backend) for full activity history</td></tr>';
 }
 
 function togglePermissionsPanel() {
-  const role = document.getElementById('usr-role').value;
-  document.getElementById('permissions-panel').style.display = role === 'Sub-Admin' ? '' : 'none';
+  // The backend uses fixed roles (no per-user custom permission sets), so the
+  // granular checkbox panel is no longer applicable — always hidden now.
+  const panel = document.getElementById('permissions-panel');
+  if (panel) panel.style.display = 'none';
 }
 
 function openUserModal() {
   document.getElementById('user-modal-title').textContent='Add User';
   document.getElementById('user-edit-id').value='';
-  ['usr-name','usr-username','usr-email','usr-pass'].forEach(i=>document.getElementById(i).value='');
-  document.getElementById('usr-role').value='Sub-Admin';
-  document.querySelectorAll('.perm-check').forEach(c=>c.checked=false);
+  ['usr-name','usr-username','usr-email','usr-pass'].forEach(i=>{
+    const el = document.getElementById(i); if (el) el.value='';
+  });
+  document.getElementById('usr-role').value='cashier';
   togglePermissionsPanel();
   openModal('user-modal');
 }
 
 function editUser(id) {
-  const u=DB.users.find(x=>x.id===id);
+  const u=_userCache.find(x=>x.id===id);
+  if (!u) return;
   document.getElementById('user-modal-title').textContent='Edit User';
   document.getElementById('user-edit-id').value=u.id;
-  document.getElementById('usr-name').value=u.name;
-  document.getElementById('usr-username').value=u.username;
+  document.getElementById('usr-name').value=u.full_name||'';
+  const usernameEl = document.getElementById('usr-username');
+  if (usernameEl) usernameEl.value=u.email;
   document.getElementById('usr-email').value=u.email;
   document.getElementById('usr-role').value=u.role;
   document.getElementById('usr-pass').value='';
-  // Set permissions
-  document.querySelectorAll('.perm-check').forEach(c=>{
-    c.checked = (u.permissions||[]).includes(c.value);
-  });
   togglePermissionsPanel();
   openModal('user-modal');
 }
 
-function saveUser() {
+async function saveUser() {
   const name=document.getElementById('usr-name').value.trim();
-  const username=document.getElementById('usr-username').value.trim();
-  if(!name||!username) { toast('Name and username required!','error'); return; }
+  const email=document.getElementById('usr-email').value.trim();
+  if(!name||!email) { toast('Name and email required!','error'); return; }
   const editId=parseInt(document.getElementById('user-edit-id').value);
   const role=document.getElementById('usr-role').value;
-  const perms = role==='Admin'
-    ? ['dashboard','pos','booking','saleslips','orders','products','inventory','purchases','customers','suppliers','expenses','accounting','reports','users','settings']
-    : Array.from(document.querySelectorAll('.perm-check:checked')).map(c=>c.value);
-  const data={name,username,email:document.getElementById('usr-email').value,role,permissions:perms,status:'Active',lastLogin:'Never'};
   const pass=document.getElementById('usr-pass').value;
-  if(pass) data.password=pass;
-  if(editId) { Object.assign(DB.users.find(u=>u.id===editId),data); toast('User updated!','success'); }
-  else { if(!pass) { toast('Password required!','error'); return; } DB.users.push({id:Math.max(...DB.users.map(u=>u.id),0)+1,...data}); toast('User created!','success'); }
-  closeModal('user-modal');
-  renderUsers();
+  const nameParts = name.split(' ');
+  const payload = {
+    first_name: nameParts[0] || name,
+    last_name: nameParts.slice(1).join(' ') || '-',
+    email, role, is_active: true,
+  };
+  if (pass) payload.password = pass;
+
+  try {
+    if (editId) {
+      await UsersAPI.update(editId, payload);
+      toast('User updated!','success');
+    } else {
+      if (!pass) { toast('Password required!','error'); return; }
+      await UsersAPI.create(payload);
+      toast('User created!','success');
+    }
+    closeModal('user-modal');
+    renderUsers();
+  } catch (err) {
+    toast(err.message || 'Failed to save user', 'error');
+  }
 }
 
-function deleteUser(id) {
-  if(!confirm('Delete user?')) return;
-  DB.users=DB.users.filter(u=>u.id!==id);
-  renderUsers();
-  toast('User deleted','success');
+async function deleteUser(id) {
+  if(!confirm('Deactivate this user?')) return;
+  try {
+    await UsersAPI.remove(id);
+    renderUsers();
+    toast('User deactivated','success');
+  } catch (err) {
+    toast(err.message || 'Failed to deactivate user', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1872,7 +2112,7 @@ function printReportA4() {
       <div class="a4-store-info">
         <strong style="font-size:14px">SALES REPORT</strong><br>
         Generated: ${today}<br>
-        By: ${currentUser?.name || 'Admin'}
+        By: ${currentUser?.full_name || 'Admin'}
       </div>
     </div>
     <div class="a4-doc-title">Sales Report</div>
@@ -1905,49 +2145,35 @@ function initBooking() {
   renderBookingList();
 }
 
-function newBookingForm(editId) {
-  _editingBookingId = editId || null;
+async function newBookingForm(editId) {
+  // Bookings map directly onto real Sale records now — Sales aren't editable
+  // once created (matches real invoicing behavior), so "editing" a past
+  // booking isn't supported. Use Sale Return from the Returns page instead
+  // to correct a mistaken booking.
+  if (editId) {
+    toast('Editing a saved booking isn\'t supported — use Sale Return to correct it.', 'warning');
+    return;
+  }
+  _editingBookingId = null;
   document.getElementById('booking-form-wrap').style.display = '';
   document.getElementById('booking-list-wrap').style.display = 'none';
   setTimeout(()=>document.getElementById('booking-form-wrap').scrollIntoView({behavior:'smooth'}),50);
 
-  // Populate customer dropdown
-  const sel = document.getElementById('bk-customer');
-  sel.innerHTML = '<option value="">— Select Customer —</option>' +
-    DB.customers.map(c=>`<option value="${c.id}">${c.name} (${c.accountNo||'ACC-'+String(c.id).padStart(4,'0')})</option>`).join('');
+  await _loadBookingLookups();
 
   const today = new Date().toISOString().split('T')[0];
-
-  if (editId) {
-    document.getElementById('booking-form-title').textContent = '✏️ Edit Order Booking';
-    const bk = DB.orderBookings.find(b=>b.id===editId);
-    if (!bk) return;
-    document.getElementById('bk-date').value = bk.date;
-    document.getElementById('bk-invoice').value = bk.invoice;
-    document.getElementById('bk-customer').value = bk.customerId;
-    document.getElementById('bk-payment').value = bk.paymentMethod||'credit';
-    document.getElementById('bk-notes').value = bk.notes||'';
-    document.getElementById('bk-discount').value = bk.discountPct||0;
-    document.getElementById('bk-tax').value = bk.taxPct||0;
-    // Legacy toggle elements are now hidden inputs — no action needed
-    document.getElementById('bk-acc-search').value = '';
-    _bookingItems = bk.items.map(i=>({...i}));
-    onBookingCustomerChange();
-  } else {
-    document.getElementById('booking-form-title').textContent = '📝 New Order Booking';
-    document.getElementById('bk-date').value = today;
-    document.getElementById('bk-invoice').value = 'BK-'+String(bookingCounter).padStart(5,'0');
-    document.getElementById('bk-customer').value = '';
-    document.getElementById('bk-payment').value = 'credit';
-    document.getElementById('bk-notes').value = '';
-    document.getElementById('bk-discount').value = 0;
-    document.getElementById('bk-tax').value = DB.sysSettings.taxRate||0;
-    // Legacy toggle elements now hidden — no toggle state to reset
-    document.getElementById('bk-acc-search').value = '';
-    document.getElementById('bk-acc-display').value = '';
-    document.getElementById('bk-customer-info').style.display = 'none';
-    _bookingItems = [{ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 }];
-  }
+  document.getElementById('booking-form-title').textContent = '📝 New Order Booking';
+  document.getElementById('bk-date').value = today;
+  document.getElementById('bk-invoice').value = 'Assigned on save';
+  document.getElementById('bk-customer').value = '';
+  document.getElementById('bk-payment').value = 'credit';
+  document.getElementById('bk-notes').value = '';
+  document.getElementById('bk-discount').value = 0;
+  document.getElementById('bk-tax').value = 0;
+  document.getElementById('bk-acc-search').value = '';
+  document.getElementById('bk-acc-display').value = '';
+  document.getElementById('bk-customer-info').style.display = 'none';
+  _bookingItems = [{ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 }];
   renderBookingItemRows();
   calcBookingTotals();
 }
@@ -1979,22 +2205,43 @@ function clearAccSearch() {
   calcBookingTotals();
 }
 
+let _bkCustomerCache = [];
+let _bkProductCache = [];
+let _bkStockByProduct = {};
+
+async function _loadBookingLookups() {
+  const [custData, prodData, stockData] = await Promise.all([
+    CustomersAPI.list({ page_size: 500 }),
+    ProductsAPI.list({ page_size: 500, status: 'active' }),
+    InventoryAPI.stockItems({ page_size: 1000 }),
+  ]);
+  _bkCustomerCache = custData.results || custData;
+  _bkProductCache = prodData.results || prodData;
+  _bkStockByProduct = {};
+  (stockData.results || stockData).forEach(si => {
+    _bkStockByProduct[si.product] = (_bkStockByProduct[si.product] || 0) + si.quantity;
+  });
+  const sel = document.getElementById('bk-customer');
+  if (sel) sel.innerHTML = '<option value="">— Select Customer —</option>' +
+    _bkCustomerCache.map(c=>`<option value="${c.id}">${c.name} (ACC-${String(c.id).padStart(4,'0')})</option>`).join('');
+}
+
 function onBookingCustomerChange() {
   const id = parseInt(document.getElementById('bk-customer').value);
-  const cust = DB.customers.find(c=>c.id===id);
+  const cust = _bkCustomerCache.find(c=>c.id===id);
   if (!cust) {
     document.getElementById('bk-acc-display').value='';
     document.getElementById('bk-customer-info').style.display='none';
     calcBookingTotals();
     return;
   }
-  const acc = cust.accountNo||'ACC-'+String(cust.id).padStart(4,'0');
+  const acc = 'ACC-'+String(cust.id).padStart(4,'0');
   document.getElementById('bk-acc-display').value = acc;
   document.getElementById('bk-acc-search').value = acc;
   document.getElementById('bk-customer-info').style.display='';
-  document.getElementById('bk-prev-balance').textContent = '$'+((cust.prevBalance||0).toFixed(2));
-  document.getElementById('bk-total-purchases').textContent = '$'+((cust.totalPurchases||0).toFixed(2));
-  document.getElementById('bk-last-visit').textContent = cust.lastVisit||'—';
+  document.getElementById('bk-prev-balance').textContent = '$'+Number(cust.outstanding_balance).toFixed(2);
+  document.getElementById('bk-total-purchases').textContent = '$'+Number(cust.credit_limit).toFixed(2);
+  document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
   calcBookingTotals();
 }
 
@@ -2094,7 +2341,7 @@ function bkProdSearch(i, q) {
   if (!drop) return;
   const lc = (q||'').toLowerCase().trim();
   if (!lc) { drop.style.display='none'; return; }
-  const results = DB.products.filter(p=>
+  const results = _bkProductCache.filter(p=>
     (p.name||'').toLowerCase().includes(lc) ||
     (p.sku||'').toLowerCase().includes(lc) ||
     (p.barcode||'').toLowerCase().includes(lc)
@@ -2106,15 +2353,16 @@ function bkProdSearch(i, q) {
   }
   drop.style.display='';
   drop.innerHTML = results.map(p=>{
-    const sc = p.stock<=0?'var(--red)':p.stock<=(p.minStock||10)?'var(--yellow)':'var(--green)';
+    const stock = _bkStockByProduct[p.id]||0;
+    const sc = stock<=0?'var(--red)':stock<=(p.reorder_level||10)?'var(--yellow)':'var(--green)';
     return '<div onmousedown="bkProdSelect('+i+','+p.id+')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg-secondary)\'" onmouseout="this.style.background=\'\'">'
-      +'<span style="font-size:18px;flex-shrink:0">'+(p.icon||'📦')+'</span>'
+      +'<span style="font-size:18px;flex-shrink:0">📦</span>'
       +'<div style="flex:1;min-width:0">'
         +'<div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+p.name+'</div>'
         +'<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">'+(p.sku||'—')+(p.barcode?' · '+p.barcode:'')+'</div>'
       +'</div>'
       +'<div style="text-align:right;flex-shrink:0">'
-        +'<div style="font-size:13px;font-weight:800;color:'+sc+'">'+p.stock+'</div>'
+        +'<div style="font-size:13px;font-weight:800;color:'+sc+'">'+stock+'</div>'
         +'<div style="font-size:9px;color:var(--text-muted)">in stock</div>'
       +'</div>'
     +'</div>';
@@ -2128,16 +2376,17 @@ function bkProdSearchFocus(i) {
     if (!inp.value.trim()) {
       const drop = document.getElementById('bk-prod-drop-'+i);
       if (drop) {
-        const top12 = DB.products.slice(0,12);
+        const top12 = _bkProductCache.slice(0,12);
         if (!top12.length) return;
         drop.style.display='';
         drop.innerHTML = top12.map(p=>{
-          const sc=p.stock<=0?'var(--red)':p.stock<=(p.minStock||10)?'var(--yellow)':'var(--green)';
+          const stock = _bkStockByProduct[p.id]||0;
+          const sc=stock<=0?'var(--red)':stock<=(p.reorder_level||10)?'var(--yellow)':'var(--green)';
           return '<div onmousedown="bkProdSelect('+i+','+p.id+')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg-secondary)\'" onmouseout="this.style.background=\'\'">'
-            +'<span style="font-size:18px;flex-shrink:0">'+(p.icon||'📦')+'</span>'
+            +'<span style="font-size:18px;flex-shrink:0">📦</span>'
             +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px">'+p.name+'</div>'
             +'<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">'+(p.sku||'—')+'</div></div>'
-            +'<div style="text-align:right"><div style="font-size:13px;font-weight:800;color:'+sc+'">'+p.stock+'</div>'
+            +'<div style="text-align:right"><div style="font-size:13px;font-weight:800;color:'+sc+'">'+stock+'</div>'
             +'<div style="font-size:9px;color:var(--text-muted)">in stock</div></div></div>';
         }).join('');
       }
@@ -2148,15 +2397,15 @@ function bkProdSearchFocus(i) {
 }
 
 function bkProdSelect(i, productId) {
-  const prod = DB.products.find(p=>p.id===productId);
+  const prod = _bkProductCache.find(p=>p.id===productId);
   if (!prod) return;
   _bookingItems[i].productId = prod.id;
   _bookingItems[i].name      = prod.name;
-  _bookingItems[i].rate      = prod.sellPrice||0;
-  _bookingItems[i].ppc       = prod.piecesPerCarton||1;
-  _bookingItems[i].icon      = prod.icon||'📦';
-  _bookingItems[i].taxPct    = prod.tax||0;
-  _bookingItems[i].discount  = prod.discount||0;
+  _bookingItems[i].rate      = Number(prod.final_price)||0;
+  _bookingItems[i].ppc       = 1;
+  _bookingItems[i].icon      = '📦';
+  _bookingItems[i].taxPct    = 0;
+  _bookingItems[i].discount  = 0;
   renderBookingItemRows();
   calcBookingTotals();
   // Auto-focus the qty field — no extra click needed
@@ -2218,8 +2467,8 @@ function calcBookingTotals() {
   // Each item carries its own taxPct from the product; we compute
   // a weighted average tax amount across all items.
   const autoTaxAmt = _bookingItems.reduce((sum, item) => {
-    const prod = DB.products.find(p => p.id == item.productId);
-    const taxPct = (prod?.tax) || (item.taxPct) || 0;
+    const prod = _bkProductCache.find(p => p.id == item.productId);
+    const taxPct = (prod?.tax_rate) || (item.taxPct) || 0;
     if (!taxPct) return sum;
     const tp = (item.qty||0) + (item.cartons||0)*(item.ppc||1);
     const itemBase = tp*(item.rate||0);
@@ -2234,8 +2483,8 @@ function calcBookingTotals() {
   const total    = baseAmount + autoTaxAmt - discAmt;
 
   const custId   = parseInt(document.getElementById('bk-customer')?.value)||0;
-  const cust     = DB.customers.find(c => c.id === custId);
-  const prevBal  = cust?.prevBalance||0;
+  const cust     = _bkCustomerCache.find(c => c.id === custId);
+  const prevBal  = Number(cust?.outstanding_balance)||0;
   const netPayable = total + prevBal;
 
   // ── Update tax label to show effective rate ────────────
@@ -2258,170 +2507,99 @@ function calcBookingTotals() {
   set('bk-net-payable',    s(netPayable));
 }
 
-function saveBooking(status) {
+async function saveBooking(status) {
   const custId = parseInt(document.getElementById('bk-customer').value)||0;
   if (!custId) { toast('Please select a customer!','error'); return; }
   const validItems = _bookingItems.filter(i=>i.productId);
   if (!validItems.length) { toast('Add at least one product!','error'); return; }
 
-  const cust     = DB.customers.find(c=>c.id===custId);
-  const discPct  = parseFloat(document.getElementById('bk-discount').value)||0;
+  const discPct   = parseFloat(document.getElementById('bk-discount').value)||0;
+  const bookDate  = document.getElementById('bk-date').value;
+  const payMethod = document.getElementById('bk-payment').value;
+  const notes     = document.getElementById('bk-notes').value;
 
-  // ── Calculation Flow: Base → Tax → Discount → Total ───
-  // Step 1: Base amount
   const subtotal = validItems.reduce((s,i)=>{
     const tp=(i.qty||0)+(i.cartons||0)*(i.ppc||1);
     return s+tp*(i.rate||0);
   },0);
+  const discountAmount = subtotal*discPct/100;
 
-  // Step 2: Auto tax from product config (per-item, weighted sum)
-  const taxAmt = validItems.reduce((s,i)=>{
-    const prod = DB.products.find(p=>p.id==i.productId);
-    const taxPct = (prod?.tax)||(i.taxPct)||0;
-    if (!taxPct) return s;
-    const tp=(i.qty||0)+(i.cartons||0)*(i.ppc||1);
-    return s+tp*(i.rate||0)*taxPct/100;
-  },0);
-
-  // Step 3: Discount applied on (subtotal + tax)
-  const discAmt  = (subtotal+taxAmt)*discPct/100;
-
-  // Step 4: Final total
-  const total    = subtotal+taxAmt-discAmt;
-  const prevBal  = cust?.prevBalance||0;
-  const netPayable = total+prevBal;
-  const invoice  = document.getElementById('bk-invoice').value;
-  const bookDate = document.getElementById('bk-date').value;
-  const payMethod = document.getElementById('bk-payment').value;
-  const notes    = document.getElementById('bk-notes').value;
-
-  // Attach taxPct snapshot to each item for print fidelity
-  const itemsWithTax = validItems.map(i=>{
-    const prod = DB.products.find(p=>p.id==i.productId);
-    return { ...i, taxPct: (prod?.tax)||(i.taxPct)||0 };
+  const items = validItems.map(i => {
+    const prod = _bkProductCache.find(p=>p.id==i.productId);
+    const tp = (i.qty||0)+(i.cartons||0)*(i.ppc||1);
+    return { product: i.productId, quantity: tp, unit_price: i.rate, tax_percent: Number(prod?.tax_rate)||0 };
   });
 
-  // Legacy flags preserved for print compatibility (always false = no old-style toggle)
-  const gstOn    = false;
-  const advTaxOn = false;
-  const gstAmt   = taxAmt; // mapped for print templates
-
-  const payload = {
-    invoice, date: bookDate,
-    customerId: custId,
-    customerName: cust?.name||'Unknown',
-    accountNo: cust?.accountNo||'ACC-'+String(custId).padStart(4,'0'),
-    customerArea: cust?.address||'',
-    items: itemsWithTax,
-    subtotal, discAmt, taxAmt, total, prevBal, netPayable,
-    discountPct: discPct, taxPct: 0,
-    gstOn, gstAmt, advTaxOn, advTaxAmt: 0,
-    paymentMethod: payMethod,
-    notes, status,
-    createdBy: currentUser?.username||'',
-    createdByName: currentUser?.name||'',
-  };
-
-  if (_editingBookingId) {
-    const bk = DB.orderBookings.find(b=>b.id===_editingBookingId);
-    const wasTotal = bk.total;
-    const wasCredit = bk.paymentMethod==='credit' && bk.status!=='cancelled';
-    Object.assign(bk, payload);
-    bk.updatedAt = new Date().toLocaleString();
-    // Adjust customer balance
-    if (cust && wasCredit) {
-      cust.prevBalance = Math.max(0,(cust.prevBalance||0)-wasTotal+total);
-    }
-    toast('Booking updated!','success');
-  } else {
-    const id = Date.now();
-    DB.orderBookings.push({ id, createdAt: new Date().toLocaleString(), ...payload });
-    bookingCounter++;
-    // Update customer balance for credit orders
-    if (payMethod==='credit' && cust) {
-      cust.prevBalance = (cust.prevBalance||0)+total;
-      cust.totalPurchases = (cust.totalPurchases||0)+total;
-      cust.lastVisit = bookDate;
-    }
-    toast(`Booking saved! Invoice: ${invoice}`,'success');
-  }
-
-  // Stock deduction for confirmed bookings
-  if (status==='saved') {
-    validItems.forEach(item=>{
-      const prod = DB.products.find(p=>p.id==item.productId);
-      if (prod) {
-        const totalPcs = (item.qty||0)+(item.cartons||0)*(item.ppc||1);
-        const before = prod.stock;
-        prod.stock = Math.max(0, prod.stock-totalPcs);
-        DB.stockHistory = DB.stockHistory||[];
-        DB.stockHistory.unshift({date:new Date().toLocaleString(),product:prod.name,type:'Order Booking',qty:-totalPcs,before,after:prod.stock,ref:invoice});
-      }
+  try {
+    const warehouseId = await _ensureDefaultWarehouse();
+    const sale = await SalesAPI.create({
+      warehouse: warehouseId, customer: custId, items,
+      discount_amount: discountAmount, is_credit_sale: payMethod === 'credit',
+      notes: `Order Booking${notes ? ' — '+notes : ''} (date: ${bookDate})`,
     });
-  }
-
-  closeBookingForm();
-}
-
-function cancelBooking(id) {
-  if (!confirm('Cancel this booking? Stock will be restored.')) return;
-  const bk = DB.orderBookings.find(b=>b.id===id);
-  if (!bk) return;
-  bk.status = 'cancelled';
-  // Restore balance & stock
-  if (bk.paymentMethod==='credit') {
-    const cust = DB.customers.find(c=>c.id===bk.customerId);
-    if (cust) cust.prevBalance = Math.max(0,(cust.prevBalance||0)-bk.total);
-  }
-  // Restore stock
-  bk.items.forEach(item=>{
-    const prod = DB.products.find(p=>p.id==item.productId);
-    if (prod) {
-      const tp=(item.qty||0)+(item.cartons||0)*(item.ppc||1);
-      prod.stock += tp;
+    if (payMethod !== 'credit') {
+      await SalesAPI.pay(sale.id, { amount: sale.total_amount, method: payMethod === 'cash' ? 'cash' : 'other' });
     }
-  });
-  renderBookingList();
-  toast('Booking cancelled — stock restored','warning');
+    toast(`Booking saved! Invoice: ${sale.invoice_number}`,'success');
+    closeBookingForm();
+  } catch (err) {
+    toast(err.message || 'Failed to save booking', 'error');
+  }
 }
 
-function renderBookingList() {
+async function cancelBooking(id) {
+  if (!confirm('Cancel this booking? Stock and customer balance will be restored via a full return.')) return;
+  try {
+    const sale = await SalesAPI.get(id);
+    const items = sale.items
+      .filter(i => (i.quantity - i.quantity_returned) > 0)
+      .map(i => ({ sale_item: i.id, quantity: i.quantity - i.quantity_returned }));
+    if (!items.length) { toast('Nothing left to cancel — already fully returned.', 'warning'); return; }
+    await SalesAPI.processReturn(id, { items, reason: 'Booking cancelled' });
+    renderBookingList();
+    toast('Booking cancelled — stock and balance restored','warning');
+  } catch (err) {
+    toast(err.message || 'Failed to cancel booking', 'error');
+  }
+}
+
+async function renderBookingList() {
   const q  = (document.getElementById('bk-search')?.value||'').toLowerCase();
   const nq = (document.getElementById('bk-name-search')?.value||'').toLowerCase().trim();
-  const sf = document.getElementById('bk-status-filter')?.value||'';
   const df = document.getElementById('bk-date-filter')?.value||'';
 
-  const filtered = [...DB.orderBookings].reverse().filter(b=>
-    (!q  || b.invoice.toLowerCase().includes(q)||b.customerName.toLowerCase().includes(q)||(b.accountNo||'').toLowerCase().includes(q)) &&
-    (!nq || b.customerName.toLowerCase().includes(nq)) &&
-    (!sf || b.status===sf) &&
-    (!df || b.date===df)
-  );
+  // Order Bookings are real Sale records under the hood (see saveBooking) —
+  // this list shows all sales, since every booking IS a sale.
+  const data = await SalesAPI.list({ search: q || nq || undefined, ordering: '-created_at', page_size: 200 });
+  let filtered = data.results || data;
+  if (df) filtered = filtered.filter(b => (b.created_at||'').slice(0,10) === df);
 
-  const badges = {saved:'badge-green',draft:'badge-yellow',cancelled:'badge-red'};
-  const labels = {saved:'Confirmed',draft:'Draft',cancelled:'Cancelled'};
+  const statusMap = { completed:['badge-green','Confirmed'], returned:['badge-red','Cancelled'],
+    partially_returned:['badge-yellow','Partial Return'], cancelled:['badge-red','Cancelled'], draft:['badge-yellow','Draft'] };
 
   document.getElementById('booking-table-body').innerHTML = filtered.length
-    ? filtered.map(b=>`
+    ? filtered.map(b=>{
+        const [badgeClass, label] = statusMap[b.status] || ['badge-gray', b.status];
+        return `
         <tr>
-          <td class="td-mono" style="color:var(--cyan)">${b.invoice}</td>
-          <td style="font-size:12px">${b.date}</td>
-          <td class="fw-700">${b.customerName}</td>
-          <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.accountNo||'—'}</span></td>
+          <td class="td-mono" style="color:var(--cyan)">${b.invoice_number}</td>
+          <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
+          <td class="fw-700">${b.customer_name||'Walk-in'}</td>
+          <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
           <td>${b.items.length} item(s)</td>
-          <td class="fw-700 text-green">$${b.total.toFixed(2)}</td>
-          <td class="text-red">$${b.prevBal.toFixed(2)}</td>
-          <td class="fw-700 text-yellow">$${b.netPayable.toFixed(2)}</td>
-          <td><span class="badge badge-blue">${b.paymentMethod||'—'}</span></td>
-          <td><span class="badge ${badges[b.status]||'badge-gray'}">${labels[b.status]||b.status}</span></td>
+          <td class="fw-700 text-green">$${Number(b.total_amount).toFixed(2)}</td>
+          <td class="text-red">$${Number(b.due_amount).toFixed(2)}</td>
+          <td class="fw-700 text-yellow">$${Number(b.total_amount).toFixed(2)}</td>
+          <td><span class="badge badge-blue">${b.payment_status}</span></td>
+          <td><span class="badge ${badgeClass}">${label}</span></td>
           <td>
             <div class="flex-gap">
-              ${b.status!=='cancelled'?`<button class="btn btn-ghost btn-xs" onclick="newBookingForm(${b.id})" title="Edit"><i class="fa fa-edit"></i></button>`:''}
-              <button class="btn btn-ghost btn-xs" onclick="printSingleSlipA4(${b.id})" title="Print A4"><i class="fa fa-print"></i></button>
-              ${b.status!=='cancelled'?`<button class="btn btn-ghost btn-xs" onclick="cancelBooking(${b.id})" style="color:var(--red)" title="Cancel"><i class="fa fa-ban"></i></button>`:''}
+              <button class="btn btn-ghost btn-xs" onclick="viewOrder('${b.invoice_number}')" title="View"><i class="fa fa-eye"></i></button>
+              ${!['returned','cancelled'].includes(b.status)?`<button class="btn btn-ghost btn-xs" onclick="cancelBooking(${b.id})" style="color:var(--red)" title="Cancel"><i class="fa fa-ban"></i></button>`:''}
             </div>
           </td>
-        </tr>`).join('')
+        </tr>`;
+      }).join('')
     : `<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted)">
          <i class="fa fa-clipboard" style="font-size:32px;display:block;margin-bottom:10px"></i>No bookings found
        </td></tr>`;
@@ -2442,46 +2620,46 @@ function clearSaleSlipsFilters() {
   renderSaleSlips();
 }
 
-function renderSaleSlips() {
+let _slipsCache = [];
+
+async function renderSaleSlips() {
   const today = new Date().toISOString().split('T')[0];
   const ssDate = document.getElementById('ss-date');
   if (ssDate && !ssDate.value) ssDate.value = today;
   const dateFilter   = ssDate?.value||'';
-  const statusFilter = document.getElementById('ss-status')?.value||'';
   const nameFilter   = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
-  const areaFilter   = (document.getElementById('ss-area')?.value||'').toLowerCase().trim();
 
-  const slips = [...DB.orderBookings].reverse().filter(b=>
-    (!dateFilter   || b.date===dateFilter) &&
-    (!statusFilter || b.status===statusFilter) &&
-    (!nameFilter   || b.customerName.toLowerCase().includes(nameFilter) || (b.accountNo||'').toLowerCase().includes(nameFilter)) &&
-    (!areaFilter   || (b.customerArea||'').toLowerCase().includes(areaFilter))
-  );
+  const data = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
+  _slipsCache = data.results || data;
+
+  let _slipsRaw = _slipsCache;
+  if (dateFilter) _slipsRaw = _slipsRaw.filter(b => (b.created_at||'').slice(0,10) === dateFilter);
+  if (nameFilter) _slipsRaw = _slipsRaw.filter(b => (b.customer_name||'').toLowerCase().includes(nameFilter));
+  const slips = _slipsRaw;
 
   const countEl = document.getElementById('ss-count-label');
   if (countEl) countEl.textContent = `${slips.length} slip${slips.length!==1?'s':''}`;
 
-  const badges = {saved:'badge-green',draft:'badge-yellow',cancelled:'badge-red'};
-  const labels = {saved:'Confirmed',draft:'Draft',cancelled:'Cancelled'};
+  const badges = {completed:'badge-green',draft:'badge-yellow',returned:'badge-red',partially_returned:'badge-yellow',cancelled:'badge-red'};
+  const labels = {completed:'Confirmed',draft:'Draft',returned:'Cancelled',partially_returned:'Partial Return',cancelled:'Cancelled'};
 
   const tbody = document.getElementById('saleslips-tbody');
   if (!tbody) return;
   tbody.innerHTML = slips.length
     ? slips.map(b=>`
         <tr>
-          <td class="td-mono" style="color:var(--cyan)">${b.invoice}</td>
-          <td style="font-size:12px">${b.date}</td>
-          <td class="fw-700">${b.customerName}</td>
-          <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.accountNo||'—'}</span></td>
+          <td class="td-mono" style="color:var(--cyan)">${b.invoice_number}</td>
+          <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
+          <td class="fw-700">${b.customer_name||'Walk-in'}</td>
+          <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
           <td>${b.items.length} item(s)</td>
-          <td class="fw-700 text-green">$${b.total.toFixed(2)}</td>
-          <td class="fw-700 text-yellow">$${b.netPayable.toFixed(2)}</td>
+          <td class="fw-700 text-green">$${Number(b.total_amount).toFixed(2)}</td>
+          <td class="fw-700 text-yellow">$${Number(b.total_amount).toFixed(2)}</td>
           <td><span class="badge ${badges[b.status]||'badge-gray'}">${labels[b.status]||b.status}</span></td>
           <td>
             <div class="flex-gap">
               <button class="btn btn-ghost btn-xs" onclick="viewSlipDetail(${b.id})" title="View"><i class="fa fa-eye"></i></button>
               <button class="btn btn-accent btn-xs" onclick="printSingleSlipA4(${b.id})" title="Print A4"><i class="fa fa-print"></i></button>
-              ${b.status!=='cancelled'?`<button class="btn btn-ghost btn-xs" onclick="navigate('booking');setTimeout(()=>newBookingForm(${b.id}),150)" title="Edit"><i class="fa fa-edit"></i></button>`:''}
             </div>
           </td>
         </tr>`).join('')
@@ -2491,39 +2669,33 @@ function renderSaleSlips() {
 }
 
 function viewSlipDetail(id) {
-  const b = DB.orderBookings.find(x=>x.id===id);
+  const b = _slipsCache.find(x=>x.id===id);
   if (!b) return;
-  document.getElementById('od-title').textContent = 'Sale Slip — '+b.invoice;
+  document.getElementById('od-title').textContent = 'Sale Slip — '+b.invoice_number;
   document.getElementById('order-detail-body').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">CUSTOMER</div><div style="font-weight:600">${b.customerName}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">ACCOUNT NO</div><div style="font-weight:700;color:var(--purple);font-family:var(--mono)">${b.accountNo||'—'}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">DATE</div><div style="font-weight:600">${b.date}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">INVOICE</div><div style="font-weight:700;color:var(--cyan);font-family:var(--mono)">${b.invoice}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">PAYMENT</div><div style="font-weight:600">${b.paymentMethod||'—'}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">STATUS</div><span class="badge ${b.status==='saved'?'badge-green':b.status==='draft'?'badge-yellow':'badge-red'}">${b.status}</span></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">CUSTOMER</div><div style="font-weight:600">${b.customer_name||'Walk-in'}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">ACCOUNT NO</div><div style="font-weight:700;color:var(--purple);font-family:var(--mono)">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">DATE</div><div style="font-weight:600">${(b.created_at||'').slice(0,10)}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">INVOICE</div><div style="font-weight:700;color:var(--cyan);font-family:var(--mono)">${b.invoice_number}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">PAYMENT</div><div style="font-weight:600">${(b.payments[0]?.method)||'—'}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">STATUS</div><span class="badge ${b.status==='completed'?'badge-green':'badge-red'}">${b.status}</span></div>
     </div>
     <table>
-      <thead><tr><th>Product</th><th>Rate</th><th>Loose Pcs</th><th>Cartons</th><th>Total Pcs</th><th>Amount</th></tr></thead>
-      <tbody>${b.items.map(it=>{
-        const tp=(it.qty||0)+(it.cartons||0)*(it.ppc||1);
-        return `<tr>
-          <td>${it.icon||'📦'} ${it.name||'—'}</td>
-          <td>$${(it.rate||0).toFixed(2)}</td>
-          <td>${it.qty||0}</td>
-          <td>${it.cartons||0} ctn ${(it.ppc||1)>1?`(×${it.ppc} pcs)`:''}</td>
-          <td class="fw-700">${tp}</td>
-          <td class="fw-700 text-green">$${(tp*(it.rate||0)).toFixed(2)}</td>
-        </tr>`;
-      }).join('')}</tbody>
+      <thead><tr><th>Product</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead>
+      <tbody>${b.items.map(it=>`<tr>
+          <td>📦 ${it.product_name||'—'}</td>
+          <td>$${Number(it.unit_price).toFixed(2)}</td>
+          <td class="fw-700">${it.quantity}</td>
+          <td class="fw-700 text-green">$${Number(it.line_total).toFixed(2)}</td>
+        </tr>`).join('')}</tbody>
     </table>
     <div style="margin-top:16px;text-align:right">
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Subtotal: $${b.subtotal.toFixed(2)}</div>
-      ${b.discAmt>0?`<div style="font-size:12px;color:var(--red);margin-bottom:4px">Discount: -$${b.discAmt.toFixed(2)}</div>`:''}
-      ${b.taxAmt>0?`<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Tax: +$${b.taxAmt.toFixed(2)}</div>`:''}
-      <div style="font-size:16px;font-weight:800;margin-bottom:6px">Bill Total: $${b.total.toFixed(2)}</div>
-      <div style="font-size:13px;color:var(--red);margin-bottom:4px">Previous Balance: $${b.prevBal.toFixed(2)}</div>
-      <div style="font-size:18px;font-weight:800;color:var(--yellow)">Net Payable: $${b.netPayable.toFixed(2)}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Subtotal: $${Number(b.subtotal).toFixed(2)}</div>
+      ${Number(b.discount_amount)>0?`<div style="font-size:12px;color:var(--red);margin-bottom:4px">Discount: -$${Number(b.discount_amount).toFixed(2)}</div>`:''}
+      ${Number(b.tax_amount)>0?`<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Tax: +$${Number(b.tax_amount).toFixed(2)}</div>`:''}
+      <div style="font-size:16px;font-weight:800;margin-bottom:6px">Bill Total: $${Number(b.total_amount).toFixed(2)}</div>
+      <div style="font-size:18px;font-weight:800;color:var(--yellow)">Due: $${Number(b.due_amount).toFixed(2)}</div>
     </div>
     ${b.notes?`<div style="margin-top:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;font-size:12px"><strong>Notes:</strong> ${b.notes}</div>`:''}
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
@@ -2532,19 +2704,42 @@ function viewSlipDetail(id) {
   openModal('order-detail-modal');
 }
 
-// ── BUILD A4 HTML for a single booking ──────────────────
-function buildSlipA4Html(b) {
-  // rows built inline below
+// Adapts a real Sale object (from the backend) into the field shape this
+// print template was originally written against, so the template body
+// below didn't need a full rewrite.
+function _adaptSaleForSlipPrint(sale) {
+  return {
+    id: sale.id,
+    invoice: sale.invoice_number,
+    date: (sale.created_at||'').slice(0,10),
+    customerName: sale.customer_name || 'Walk-in',
+    accountNo: sale.customer ? ('ACC-'+String(sale.customer).padStart(4,'0')) : '—',
+    paymentMethod: (sale.payments[0]?.method) || '—',
+    createdBy: '',
+    items: (sale.items||[]).map(it => ({
+      icon: '📦', name: it.product_name, qty: it.quantity, cartons: 0, ppc: 1,
+      rate: Number(it.unit_price), taxPct: Number(it.tax_percent),
+    })),
+    discAmt: Number(sale.discount_amount),
+    discountPct: 0,
+    prevBal: 0,
+    notes: sale.notes || '',
+  };
+}
 
-  const s = DB.sysSettings || {};
-  const storeName = s.storeName || 'SmartRetail Store';
+// ── BUILD A4 HTML for a single booking ──────────────────
+function buildSlipA4Html(rawSale) {
+  const b = rawSale.invoice_number ? _adaptSaleForSlipPrint(rawSale) : rawSale;
+
+  const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
+  const storeName = s.company_name || 'SmartRetail Store';
   const storeAddress = s.address || '123 Market Street, City';
   const storePhone = s.phone || '';
-  const distName = s.distributorName || '';
-  const distAddress = s.distributorAddress || '';
-  const distPhone = s.distributorContact || '';
-  const ntn = s.ntn || '';
-  const logoDataUrl = s.logoDataUrl || '';
+  const distName = '';
+  const distAddress = '';
+  const distPhone = '';
+  const ntn = s.tax_id || '';
+  const logoDataUrl = s.logo || '';
 
   const logoBlock = logoDataUrl
     ? `<img src="${logoDataUrl}" style="max-width:85px;max-height:70px;object-fit:contain">`
@@ -2604,7 +2799,7 @@ function buildSlipA4Html(b) {
         <div style="font-size:17px;font-weight:900;color:#000;letter-spacing:0.5px;margin-bottom:4px;text-align:right">${b.invoice}</div>
         <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
           <span style="font-size:10px;color:#444">Cashier:</span>
-          <strong style="color:#000">${b.createdBy||currentUser?.name||'Admin'}</strong>
+          <strong style="color:#000">${b.createdBy||currentUser?.full_name||'Admin'}</strong>
         </div>
         <div style="display:flex;justify-content:space-between;gap:6px;font-size:11px;color:#000">
           <span style="font-size:10px;color:#444">Items:</span>
@@ -2688,8 +2883,9 @@ function buildSlipA4Html(b) {
   </div>`;
 }
 
-function printSingleSlipA4(id) {
-  const b = DB.orderBookings.find(x=>x.id===id);
+async function printSingleSlipA4(id) {
+  let b = _slipsCache.find(x=>x.id===id);
+  if (!b) b = await SalesAPI.get(id);
   if (!b) { toast('Booking not found','error'); return; }
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = buildSlipA4Html(b);
@@ -2702,16 +2898,12 @@ function printSingleSlipA4(id) {
 
 function printAllSlipsA4(mode) {
   const dateFilter   = document.getElementById('ss-date')?.value||'';
-  const statusFilter = document.getElementById('ss-status')?.value||'';
   const nameFilter   = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
-  const areaFilter   = (document.getElementById('ss-area')?.value||'').toLowerCase().trim();
 
-  const slips = [...DB.orderBookings].reverse().filter(b=>
-    b.status!=='cancelled' &&
-    (!dateFilter   || b.date===dateFilter) &&
-    (!statusFilter || b.status===statusFilter) &&
-    (!nameFilter   || b.customerName.toLowerCase().includes(nameFilter) || (b.accountNo||'').toLowerCase().includes(nameFilter)) &&
-    (!areaFilter   || (b.customerArea||'').toLowerCase().includes(areaFilter))
+  const slips = _slipsCache.filter(b=>
+    b.status!=='returned' && b.status!=='cancelled' &&
+    (!dateFilter   || (b.created_at||'').slice(0,10)===dateFilter) &&
+    (!nameFilter   || (b.customer_name||'').toLowerCase().includes(nameFilter))
   );
 
   if (!slips.length) { toast('No slips to print for selected filters','warning'); return; }
@@ -2719,8 +2911,9 @@ function printAllSlipsA4(mode) {
   let html='';
 
   if (mode==='summary') {
-    const totalBill = slips.reduce((s,b)=>s+b.total,0);
-    const totalNet  = slips.reduce((s,b)=>s+b.netPayable,0);
+    const adapted = slips.map(_adaptSaleForSlipPrint);
+    const totalBill = adapted.reduce((s,b)=>s+b.items.reduce((a,it)=>a+it.qty*it.rate,0),0);
+    const totalNet  = slips.reduce((s,b)=>s+Number(b.total_amount),0);
     html = `<div class="a4-doc">
       <div class="a4-header">
         <div>
@@ -2753,14 +2946,14 @@ function printAllSlipsA4(mode) {
         <tbody style="font-size:11px">
           ${slips.map((b,i)=>`<tr style="background:${i%2?'#f9f9f9':'#fff'}">
             <td style="padding:6px 9px">${i+1}</td>
-            <td style="padding:6px 9px;font-family:monospace">${b.invoice}</td>
-            <td style="padding:6px 9px;font-weight:700">${b.customerName}</td>
-            <td style="padding:6px 9px;font-family:monospace;color:#5b21b6">${b.accountNo||'—'}</td>
+            <td style="padding:6px 9px;font-family:monospace">${b.invoice_number}</td>
+            <td style="padding:6px 9px;font-weight:700">${b.customer_name||'Walk-in'}</td>
+            <td style="padding:6px 9px;font-family:monospace;color:#5b21b6">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>
             <td style="padding:6px 9px;text-align:center">${b.items.length}</td>
-            <td style="padding:6px 9px;text-align:right">$${b.total.toFixed(2)}</td>
-            <td style="padding:6px 9px;text-align:right;color:#dc2626">$${b.prevBal.toFixed(2)}</td>
-            <td style="padding:6px 9px;text-align:right;font-weight:700;color:#b45309">$${b.netPayable.toFixed(2)}</td>
-            <td style="padding:6px 9px">${b.paymentMethod||'—'}</td>
+            <td style="padding:6px 9px;text-align:right">$${Number(b.total_amount).toFixed(2)}</td>
+            <td style="padding:6px 9px;text-align:right;color:#dc2626">$${Number(b.due_amount).toFixed(2)}</td>
+            <td style="padding:6px 9px;text-align:right;font-weight:700;color:#b45309">$${Number(b.total_amount).toFixed(2)}</td>
+            <td style="padding:6px 9px">${(b.payments[0]?.method)||'—'}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot>
@@ -2828,68 +3021,67 @@ function printAllSlipsA4(mode) {
 // ═══════════════════════════════════════════════════════
 // SYSTEM SETTINGS
 // ═══════════════════════════════════════════════════════
-function renderSettings() {
-  const s = DB.sysSettings;
+let _companySettingsCache = null;
+
+async function renderSettings() {
+  const s = await SettingsAPI.getCompany();
+  _companySettingsCache = s;
   const setVal = (id, val) => { const el=document.getElementById(id); if(el) el.value = val||''; };
-  setVal('set-storename', s.storeName);
+  setVal('set-storename', s.company_name);
   setVal('set-address', s.address);
   setVal('set-phone', s.phone);
   setVal('set-email', s.email);
-  setVal('set-taxrate', s.taxRate);
-  setVal('set-lowstock', s.lowStockThreshold);
-  setVal('set-receipt-header', s.receiptHeader);
-  setVal('set-receipt-footer', s.receiptFooter);
-  setVal('set-dist-name', s.distributorName);
-  setVal('set-dist-phone', s.distributorContact);
-  setVal('set-dist-address', s.distributorAddress||'');
-  setVal('set-dist-email', s.distributorEmail||'');
-  setVal('set-ntn', s.ntn||'');
+  setVal('set-taxrate', s.default_tax_percent);
+  setVal('set-receipt-footer', s.invoice_footer_note);
+  setVal('set-ntn', s.tax_id||'');
+  // Note: low-stock threshold, receipt header text, and distributor info are
+  // frontend-only display fields — the backend's CompanySettings model has
+  // no equivalent columns for these yet, so they aren't persisted.
   const cur = document.getElementById('set-currency');
-  if (cur) { Array.from(cur.options).forEach(o=>{ o.selected = o.value===s.currency||o.text===s.currency; }); }
-  const tax = document.getElementById('set-show-tax');
-  if (tax) tax.value = s.showTaxOnReceipt ? 'yes' : 'no';
+  if (cur) { Array.from(cur.options).forEach(o=>{ o.selected = o.value===s.default_currency||o.text===s.default_currency; }); }
   // Logo preview
-  if (s.logoDataUrl) {
+  if (s.logo) {
     const prev = document.getElementById('set-logo-preview');
-    if (prev) prev.innerHTML = `<img src="${s.logoDataUrl}" style="width:100%;height:100%;object-fit:contain">`;
+    if (prev) prev.innerHTML = `<img src="${s.logo}" style="width:100%;height:100%;object-fit:contain">`;
   }
-  updatePreview();
+  if (typeof updatePreview === 'function') updatePreview();
 }
 
-function saveSettings() {
+async function saveSettings() {
   const g = id => document.getElementById(id)?.value||'';
-  DB.sysSettings.storeName = g('set-storename');
-  DB.sysSettings.address = g('set-address');
-  DB.sysSettings.phone = g('set-phone');
-  DB.sysSettings.email = g('set-email');
-  DB.sysSettings.taxRate = parseFloat(g('set-taxrate'))||0;
-  DB.sysSettings.lowStockThreshold = parseInt(g('set-lowstock'))||10;
-  DB.sysSettings.currency = g('set-currency');
-  DB.sysSettings.receiptHeader = g('set-receipt-header');
-  DB.sysSettings.receiptFooter = g('set-receipt-footer');
-  DB.sysSettings.showTaxOnReceipt = document.getElementById('set-show-tax')?.value === 'yes';
-  DB.sysSettings.distributorName = g('set-dist-name');
-  DB.sysSettings.distributorContact = g('set-dist-phone');
-  DB.sysSettings.distributorAddress = g('set-dist-address');
-  DB.sysSettings.distributorEmail = g('set-dist-email');
-  DB.sysSettings.ntn = g('set-ntn');
-  updatePreview();
-  toast('Settings saved successfully!', 'success');
+  const payload = {
+    company_name: g('set-storename'),
+    address: g('set-address'),
+    phone: g('set-phone'),
+    email: g('set-email'),
+    default_tax_percent: parseFloat(g('set-taxrate'))||0,
+    default_currency: g('set-currency'),
+    invoice_footer_note: g('set-receipt-footer'),
+    tax_id: g('set-ntn'),
+  };
+  try {
+    _companySettingsCache = await SettingsAPI.updateCompany(payload);
+    if (typeof updatePreview === 'function') updatePreview();
+    toast('Settings saved successfully!', 'success');
+  } catch (err) {
+    toast(err.message || 'Failed to save settings', 'error');
+  }
 }
 
-function handleLogoUpload(input) {
+async function handleLogoUpload(input) {
   const file = input.files[0];
   if (!file) return;
   if (file.size > 500000) { toast('Logo too large. Max 500KB.', 'error'); return; }
-  const reader = new FileReader();
-  reader.onload = e => {
-    DB.sysSettings.logoDataUrl = e.target.result;
+  try {
+    const updated = await SettingsAPI.updateCompanyLogo(file);
+    _companySettingsCache = updated;
     const prev = document.getElementById('set-logo-preview');
-    if (prev) prev.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:contain;border-radius:6px">`;
-    updatePreview();
+    if (prev) prev.innerHTML = `<img src="${updated.logo}" style="width:100%;height:100%;object-fit:contain;border-radius:6px">`;
+    if (typeof updatePreview === 'function') updatePreview();
     toast('Logo uploaded!', 'success');
-  };
-  reader.readAsDataURL(file);
+  } catch (err) {
+    toast(err.message || 'Failed to upload logo', 'error');
+  }
 }
 
 function updatePreview() {
@@ -2917,7 +3109,11 @@ function updatePreview() {
 
 // Get store header HTML for invoices
 function getInvoiceHeaderHtml(docTitle, refNo, refDate) {
-  const s = DB.sysSettings;
+  const real = _companySettingsCache;
+  const s = real ? {
+    storeName: real.company_name, address: real.address, phone: real.phone, email: real.email,
+    logoDataUrl: real.logo, distributorName: '', distributorContact: '',
+  } : DB.sysSettings;
   const logoHtml = s.logoDataUrl
     ? `<img src="${s.logoDataUrl}" style="height:50px;object-fit:contain;margin-bottom:4px">`
     : `<span style="font-size:24px">🏪</span>`;
@@ -2942,24 +3138,26 @@ function getInvoiceHeaderHtml(docTitle, refNo, refDate) {
 // ═══════════════════════════════════════════════════════
 // LEDGER ACCOUNTS
 // ═══════════════════════════════════════════════════════
-function renderLedger() {
-  const type = document.getElementById('ldg-type')?.value||'customer';
-  filterLedgerAccounts();
-  renderAllAccountsSummary(type);
+let _ledgerAccountCache = [];
+
+async function renderLedger() {
+  await filterLedgerAccounts();
+  await renderAllAccountsSummary();
 }
 
-function filterLedgerAccounts() {
+async function filterLedgerAccounts() {
   const type = document.getElementById('ldg-type')?.value||'customer';
   const q = (document.getElementById('ldg-search')?.value||'').toLowerCase();
-  const items = type==='customer' ? DB.customers : DB.suppliers;
   const sel = document.getElementById('ldg-account-select');
   if (!sel) return;
-  const filtered = items.filter(x=>x.name.toLowerCase().includes(q)||(x.accountNo||'').toLowerCase().includes(q));
+  const data = type==='customer' ? await CustomersAPI.list({ page_size: 500 }) : await SuppliersAPI.list({ page_size: 500 });
+  _ledgerAccountCache = data.results || data;
+  const filtered = _ledgerAccountCache.filter(x=>x.name.toLowerCase().includes(q));
   sel.innerHTML = '<option value="">— Select Account —</option>' +
-    filtered.map(x=>`<option value="${x.id}">${x.name}${x.accountNo?' ('+x.accountNo+')':''}</option>`).join('');
+    filtered.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
 }
 
-function loadLedgerAccount() {
+async function loadLedgerAccount() {
   const type = document.getElementById('ldg-type')?.value||'customer';
   const id = parseInt(document.getElementById('ldg-account-select')?.value)||0;
   if (!id) {
@@ -2968,49 +3166,25 @@ function loadLedgerAccount() {
     document.getElementById('ldg-all-accounts').style.display='';
     return;
   }
-  const entity = type==='customer'
-    ? DB.customers.find(c=>c.id===id)
-    : DB.suppliers.find(s=>s.id===id);
+  const entity = _ledgerAccountCache.find(x=>x.id===id);
   if (!entity) return;
 
-  // Get ledger entries
-  const ledgerKey = type==='customer' ? 'customerLedger' : 'supplierLedger';
-  DB[ledgerKey][id] = DB[ledgerKey][id] || [];
+  const ledger = type==='customer' ? await CustomersAPI.ledger(id) : await SuppliersAPI.ledger(id);
+  let entries = ledger.entries;
 
-  // Add entries from orderBookings for customers
-  if (type==='customer') {
-    const bookingEntries = DB.orderBookings
-      .filter(b=>b.customerId===id && b.status==='saved')
-      .map(b=>({ date:b.date, desc:`Invoice ${b.invoice}`, debit:b.total, credit:0, ref:b.invoice, _auto:true }));
-    // Merge without duplicating
-    const existingRefs = new Set(DB[ledgerKey][id].map(e=>e.ref));
-    bookingEntries.forEach(e=>{ if(!existingRefs.has(e.ref)) DB[ledgerKey][id].push(e); });
-  }
-
-  let entries = [...DB[ledgerKey][id]].sort((a,b)=>a.date.localeCompare(b.date));
-
-  // Date filter
   const from = document.getElementById('ldg-from')?.value||'';
   const to   = document.getElementById('ldg-to')?.value||'';
-  if (from) entries = entries.filter(e=>e.date>=from);
-  if (to)   entries = entries.filter(e=>e.date<=to);
+  if (from) entries = entries.filter(e=>e.date.slice(0,10)>=from);
+  if (to)   entries = entries.filter(e=>e.date.slice(0,10)<=to);
 
-  // Running balance
-  let bal = 0;
-  let totalDebit = 0, totalCredit = 0;
-  const rows = entries.map(e=>{
-    bal += (e.debit||0) - (e.credit||0);
-    totalDebit += (e.debit||0);
-    totalCredit += (e.credit||0);
-    return { ...e, runBal: bal };
-  });
+  const totalDebit = entries.reduce((s,e)=>s+Number(e.debit),0);
+  const totalCredit = entries.reduce((s,e)=>s+Number(e.credit),0);
 
-  // Show summary
   document.getElementById('ldg-account-summary').style.display='';
   document.getElementById('ldg-table-card').style.display='';
   document.getElementById('ldg-all-accounts').style.display='none';
   document.getElementById('ldg-acc-name').textContent = entity.name;
-  document.getElementById('ldg-acc-no').textContent = entity.accountNo||'Supplier';
+  document.getElementById('ldg-acc-no').textContent = type==='customer'?'Customer':'Supplier';
   document.getElementById('ldg-total-debit').textContent  = '$'+totalDebit.toFixed(2);
   document.getElementById('ldg-total-credit').textContent = '$'+totalCredit.toFixed(2);
   const net = totalDebit - totalCredit;
@@ -3018,98 +3192,64 @@ function loadLedgerAccount() {
   document.getElementById('ldg-net-balance').className = 'stat-value '+(net>0?'text-red':'text-green');
   document.getElementById('ldg-table-title').textContent = `Ledger: ${entity.name}`;
 
-  document.getElementById('ldg-tbody').innerHTML = rows.length
-    ? rows.map(r=>`
+  document.getElementById('ldg-tbody').innerHTML = entries.length
+    ? entries.map(r=>`
         <tr>
-          <td style="font-size:12px">${r.date}</td>
-          <td>${r.desc}</td>
-          <td class="td-mono" style="font-size:11px">${r.ref||'—'}</td>
-          <td class="text-red fw-700">${r.debit>0?'$'+r.debit.toFixed(2):'—'}</td>
-          <td class="text-green fw-700">${r.credit>0?'$'+r.credit.toFixed(2):'—'}</td>
-          <td class="fw-700 ${r.runBal>0?'text-red':'text-green'}">$${Math.abs(r.runBal).toFixed(2)} ${r.runBal>0?'Dr':'Cr'}</td>
+          <td style="font-size:12px">${r.date.slice(0,10)}</td>
+          <td>${r.description}</td>
+          <td class="td-mono" style="font-size:11px">${r.reference||'—'}</td>
+          <td class="text-red fw-700">${Number(r.debit)>0?'$'+Number(r.debit).toFixed(2):'—'}</td>
+          <td class="text-green fw-700">${Number(r.credit)>0?'$'+Number(r.credit).toFixed(2):'—'}</td>
+          <td class="fw-700 ${Number(r.balance)>0?'text-red':'text-green'}">$${Math.abs(Number(r.balance)).toFixed(2)} ${Number(r.balance)>0?'Dr':'Cr'}</td>
         </tr>`).join('')
     : `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">No transactions found</td></tr>`;
 }
 
-function renderAllAccountsSummary(type) {
-  const items = type==='customer' ? DB.customers : DB.suppliers;
-  const ledgerKey = type==='customer' ? 'customerLedger' : 'supplierLedger';
+async function renderAllAccountsSummary() {
+  const type = document.getElementById('ldg-type')?.value||'customer';
+  const items = _ledgerAccountCache.length ? _ledgerAccountCache
+    : (type==='customer' ? (await CustomersAPI.list({page_size:500})).results : (await SuppliersAPI.list({page_size:500})).results);
   document.getElementById('ldg-all-title').textContent = type==='customer' ? 'All Customer Accounts' : 'All Supplier Accounts';
   document.getElementById('ldg-all-tbody').innerHTML = items.map(x=>{
-    const entries = DB[ledgerKey][x.id]||[];
-    const totalD = entries.reduce((s,e)=>s+(e.debit||0),0);
-    const totalC = entries.reduce((s,e)=>s+(e.credit||0),0);
-    const net = totalD - totalC;
+    const balance = type==='customer' ? Number(x.outstanding_balance) : Number(x.outstanding_payable);
     return `<tr>
-      <td><span class="badge badge-purple" style="font-family:var(--mono)">${x.accountNo||'—'}</span></td>
+      <td><span class="badge badge-purple" style="font-family:var(--mono)">ACC-${String(x.id).padStart(4,'0')}</span></td>
       <td class="fw-700">${x.name}</td>
       <td>${x.phone||'—'}</td>
-      <td class="text-red fw-700">$${totalD.toFixed(2)}</td>
-      <td class="text-green fw-700">$${totalC.toFixed(2)}</td>
-      <td class="fw-700 ${net>0?'text-red':'text-green'}">$${Math.abs(net).toFixed(2)} ${net>0?'Dr':'Cr'}</td>
+      <td class="text-red fw-700">$${balance>0?balance.toFixed(2):'0.00'}</td>
+      <td class="text-green fw-700">—</td>
+      <td class="fw-700 ${balance>0?'text-red':'text-green'}">$${Math.abs(balance).toFixed(2)} ${balance>0?'Dr':'Cr'}</td>
       <td>
         <button class="btn btn-ghost btn-xs" onclick="document.getElementById('ldg-account-select').value=${x.id};loadLedgerAccount()"><i class="fa fa-eye"></i></button>
-        <button class="btn btn-ghost btn-xs" onclick="openLedgerEntryModalFor(${x.id})"><i class="fa fa-plus"></i></button>
       </td>
     </tr>`;
   }).join('');
 }
 
-let _ledgerTargetId = null;
+// Manual ledger entries aren't supported — the ledger is 100% computed from
+// real Sale/Payment/PurchaseOrder records (see apps.customers/suppliers
+// services.py on the backend), so there's nothing to "add" here directly.
 function openLedgerEntryModal() {
-  const id = parseInt(document.getElementById('ldg-account-select')?.value)||0;
-  if (!id) { toast('Please select an account first','warning'); return; }
-  _ledgerTargetId = id;
-  document.getElementById('le-date').value = new Date().toISOString().split('T')[0];
-  document.getElementById('le-ref').value = '';
-  document.getElementById('le-desc').value = '';
-  document.getElementById('le-debit').value = 0;
-  document.getElementById('le-credit').value = 0;
-  openModal('ledger-entry-modal');
+  toast('Ledger entries are generated automatically from real sales, payments, and purchases — there\'s nothing to add manually.', 'warning');
 }
+function openLedgerEntryModalFor(id) { openLedgerEntryModal(); }
+function saveLedgerEntry() { openLedgerEntryModal(); }
 
-function openLedgerEntryModalFor(id) {
-  document.getElementById('ldg-account-select').value = id;
-  openLedgerEntryModal();
-}
-
-function saveLedgerEntry() {
-  const id = _ledgerTargetId;
-  if (!id) { toast('No account selected','error'); return; }
-  const type = document.getElementById('ldg-type')?.value||'customer';
-  const ledgerKey = type==='customer' ? 'customerLedger' : 'supplierLedger';
-  DB[ledgerKey][id] = DB[ledgerKey][id]||[];
-  const entry = {
-    date: document.getElementById('le-date').value,
-    desc: document.getElementById('le-desc').value.trim(),
-    ref:  document.getElementById('le-ref').value.trim()||'MAN-'+Date.now(),
-    debit: parseFloat(document.getElementById('le-debit').value)||0,
-    credit: parseFloat(document.getElementById('le-credit').value)||0,
-  };
-  if (!entry.desc) { toast('Description is required','error'); return; }
-  DB[ledgerKey][id].push(entry);
-  closeModal('ledger-entry-modal');
-  loadLedgerAccount();
-  toast('Entry added!','success');
-}
-
-function printLedgerA4() {
+async function printLedgerA4() {
   const type = document.getElementById('ldg-type')?.value||'customer';
   const id = parseInt(document.getElementById('ldg-account-select')?.value)||0;
   if (!id) { toast('Please select an account first','warning'); return; }
-  const entity = type==='customer'
-    ? DB.customers.find(c=>c.id===id)
-    : DB.suppliers.find(s=>s.id===id);
+  const entity = _ledgerAccountCache.find(x=>x.id===id);
   if (!entity) return;
-  const ledgerKey = type==='customer' ? 'customerLedger' : 'supplierLedger';
-  const entries = [...(DB[ledgerKey][id]||[])].sort((a,b)=>a.date.localeCompare(b.date));
-  let bal=0, totalD=0, totalC=0;
-  const rows = entries.map(e=>{
-    bal+=(e.debit||0)-(e.credit||0); totalD+=(e.debit||0); totalC+=(e.credit||0);
+  const ledger = type==='customer' ? await CustomersAPI.ledger(id) : await SuppliersAPI.ledger(id);
+  let totalD=0, totalC=0;
+  const rows = ledger.entries.map(e=>{
+    totalD+=Number(e.debit); totalC+=Number(e.credit);
+    const bal = Number(e.balance);
     return `<tr>
-      <td>${e.date}</td><td>${e.desc}</td><td style="font-family:monospace">${e.ref||'—'}</td>
-      <td style="text-align:right;color:#dc2626">${e.debit>0?'$'+e.debit.toFixed(2):'—'}</td>
-      <td style="text-align:right;color:#16a34a">${e.credit>0?'$'+e.credit.toFixed(2):'—'}</td>
+      <td>${e.date.slice(0,10)}</td><td>${e.description}</td><td style="font-family:monospace">${e.reference||'—'}</td>
+      <td style="text-align:right;color:#dc2626">${Number(e.debit)>0?'$'+Number(e.debit).toFixed(2):'—'}</td>
+      <td style="text-align:right;color:#16a34a">${Number(e.credit)>0?'$'+Number(e.credit).toFixed(2):'—'}</td>
       <td style="text-align:right;font-weight:700;color:${bal>0?'#dc2626':'#16a34a'}">$${Math.abs(bal).toFixed(2)} ${bal>0?'Dr':'Cr'}</td>
     </tr>`;
   }).join('');
@@ -3157,34 +3297,27 @@ function printLedgerA4() {
 // ═══════════════════════════════════════════════════════
 // BALANCE SHEET
 // ═══════════════════════════════════════════════════════
-function renderBalanceSheet() {
-  // Income
-  const salesIncome = DB.orders.filter(o=>o.status==='Completed').reduce((s,o)=>s+o.total,0)
-    + DB.orderBookings.filter(b=>b.status==='saved').reduce((s,b)=>s+b.total,0)
-    + 28500; // seed
-  const totalExpenses = DB.expenses.reduce((s,e)=>s+e.amount,0);
-  const purchaseCost = DB.purchases.reduce((s,p)=>s+p.total,0);
-  const cogs = DB.products.reduce((s,p)=>s+(p.buyPrice||0)*(p.stock||0),0);
-  const grossProfit = salesIncome - purchaseCost;
-  const netProfit = salesIncome - totalExpenses - purchaseCost;
+async function renderBalanceSheet() {
+  const [pl, cf, custData, supData] = await Promise.all([
+    FinanceAPI.profitLoss(), FinanceAPI.cashFlow(),
+    CustomersAPI.list({ page_size: 500 }), SuppliersAPI.list({ page_size: 500 }),
+  ]);
+  const salesIncome = Number(pl.income);
+  const totalExpenses = Number(pl.expenses);
+  const purchaseCost = Number(pl.cost_of_goods_sold);
+  const grossProfit = Number(pl.gross_profit);
+  const netProfit = Number(pl.net_profit);
 
-  // Customer receivables
-  const custReceivables = DB.customers.map(c=>{
-    const entries = DB.customerLedger?.[c.id]||[];
-    const bal = entries.reduce((s,e)=>s+(e.debit||0)-(e.credit||0),0);
-    return { name:c.name, acc:c.accountNo, bal };
-  }).filter(x=>x.bal>0);
+  const custReceivables = (custData.results||custData)
+    .filter(c=>Number(c.outstanding_balance)>0)
+    .map(c=>({ name:c.name, acc:'ACC-'+String(c.id).padStart(4,'0'), bal:Number(c.outstanding_balance) }));
   const totalReceivable = custReceivables.reduce((s,x)=>s+x.bal,0);
 
-  // Supplier payables
-  const supPayables = DB.suppliers.map(s=>{
-    const entries = DB.supplierLedger?.[s.id]||[];
-    const bal = entries.reduce((a,e)=>a+(e.debit||0)-(e.credit||0),0);
-    return { name:s.name, bal };
-  }).filter(x=>x.bal>0);
+  const supPayables = (supData.results||supData)
+    .filter(s=>Number(s.outstanding_payable)>0)
+    .map(s=>({ name:s.name, bal:Number(s.outstanding_payable) }));
   const totalPayable = supPayables.reduce((s,x)=>s+x.bal,0);
 
-  // KPIs
   const fmt = v=>'$'+v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   document.getElementById('bs-kpi-grid').innerHTML = [
     { label:'Total Revenue', val:fmt(salesIncome), color:'green', icon:'fa-arrow-up' },
@@ -3198,49 +3331,41 @@ function renderBalanceSheet() {
       <div class="stat-label">${k.label}</div>
     </div>`).join('');
 
-  // Income breakdown
   document.getElementById('bs-income-body').innerHTML = `
     <div style="display:flex;flex-direction:column;gap:10px">
-      ${[
-        ['Sales (Orders)', salesIncome-28500],
-        ['Seed/Opening Revenue', 28500],
-      ].map(([l,v])=>`
-        <div class="flex-between" style="padding:10px;background:var(--bg-secondary);border-radius:8px">
-          <span style="font-size:13px">${l}</span>
-          <span class="fw-700 text-green">$${v.toFixed(2)}</span>
-        </div>`).join('')}
+      <div class="flex-between" style="padding:10px;background:var(--bg-secondary);border-radius:8px">
+        <span style="font-size:13px">Sales Revenue</span>
+        <span class="fw-700 text-green">$${salesIncome.toFixed(2)}</span>
+      </div>
       <div class="flex-between" style="padding:10px;background:var(--green-glow);border:1px solid rgba(16,185,129,.2);border-radius:8px">
         <span style="font-size:14px;font-weight:700">Total Revenue</span>
         <span style="font-size:16px;font-weight:800;color:var(--green)">$${salesIncome.toFixed(2)}</span>
       </div>
     </div>`;
 
-  // Expense breakdown
-  const expByCategory = {};
-  DB.expenses.forEach(e=>{ expByCategory[e.category]=(expByCategory[e.category]||0)+e.amount; });
-  expByCategory['Purchases/COGS'] = purchaseCost;
   document.getElementById('bs-expense-body').innerHTML = `
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${Object.entries(expByCategory).map(([k,v])=>`
-        <div class="flex-between" style="padding:9px 12px;background:var(--bg-secondary);border-radius:8px">
-          <span style="font-size:13px">${k}</span>
-          <span class="fw-700 text-red">$${v.toFixed(2)}</span>
-        </div>`).join('')}
+      <div class="flex-between" style="padding:9px 12px;background:var(--bg-secondary);border-radius:8px">
+        <span style="font-size:13px">Operating Expenses</span>
+        <span class="fw-700 text-red">$${totalExpenses.toFixed(2)}</span>
+      </div>
+      <div class="flex-between" style="padding:9px 12px;background:var(--bg-secondary);border-radius:8px">
+        <span style="font-size:13px">Cost of Goods Sold</span>
+        <span class="fw-700 text-red">$${purchaseCost.toFixed(2)}</span>
+      </div>
       <div class="flex-between" style="padding:10px;background:var(--red-glow);border:1px solid rgba(239,68,68,.2);border-radius:8px">
         <span style="font-size:14px;font-weight:700">Total Expenses</span>
         <span style="font-size:16px;font-weight:800;color:var(--red)">$${(totalExpenses+purchaseCost).toFixed(2)}</span>
       </div>
     </div>`;
 
-  // Receivables
   document.getElementById('bs-receivables').innerHTML = `<table>
     <thead><tr><th>Customer</th><th>Account</th><th>Balance Due</th></tr></thead>
     <tbody>
-      ${custReceivables.map(x=>`<tr><td class="fw-700">${x.name}</td><td class="td-mono">${x.acc||'—'}</td><td class="fw-700 text-red">$${x.bal.toFixed(2)}</td></tr>`).join('')}
+      ${custReceivables.map(x=>`<tr><td class="fw-700">${x.name}</td><td class="td-mono">${x.acc}</td><td class="fw-700 text-red">$${x.bal.toFixed(2)}</td></tr>`).join('')}
       <tr style="background:var(--bg-secondary)"><td colspan="2" class="fw-700">Total Receivable</td><td class="fw-700 text-red" style="font-size:14px">$${totalReceivable.toFixed(2)}</td></tr>
     </tbody></table>`;
 
-  // Payables
   document.getElementById('bs-payables').innerHTML = `<table>
     <thead><tr><th>Supplier</th><th>Balance Owed</th></tr></thead>
     <tbody>
@@ -3248,8 +3373,7 @@ function renderBalanceSheet() {
       <tr style="background:var(--bg-secondary)"><td class="fw-700">Total Payable</td><td class="fw-700 text-yellow" style="font-size:14px">$${totalPayable.toFixed(2)}</td></tr>
     </tbody></table>`;
 
-  // P&L
-  const cashBalance = salesIncome - totalExpenses - purchaseCost + totalReceivable - totalPayable;
+  const cashBalance = Number(cf.net_cash_flow);
   document.getElementById('bs-pnl-body').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
       <div>
@@ -3267,13 +3391,13 @@ function renderBalanceSheet() {
           </div>`).join('')}
       </div>
       <div>
-        <div style="font-size:13px;font-weight:700;color:var(--text-secondary);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em">Cash Position</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text-secondary);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em">Cash Position (Real)</div>
         ${[
-          ['Cash From Sales', salesIncome, 'text-green'],
+          ['Cash In', Number(cf.cash_in), 'text-green'],
           ['Receivable (Credit)', totalReceivable, 'text-accent'],
           ['Payable (Owed)', -totalPayable, 'text-yellow'],
-          ['Expenses Paid', -totalExpenses-purchaseCost, 'text-red'],
-          ['Net Cash Position', cashBalance, cashBalance>=0?'text-green':'text-red'],
+          ['Cash Out', -Number(cf.cash_out), 'text-red'],
+          ['Net Cash Flow', cashBalance, cashBalance>=0?'text-green':'text-red'],
         ].map(([l,v,c])=>`
           <div class="flex-between" style="padding:10px 14px;background:var(--bg-secondary);border-radius:8px;margin-bottom:6px">
             <span style="font-size:13px">${l}</span>
@@ -3283,25 +3407,26 @@ function renderBalanceSheet() {
     </div>`;
 }
 
-function printBalanceSheetA4() {
-  const salesIncome = DB.orders.filter(o=>o.status==='Completed').reduce((s,o)=>s+o.total,0)
-    + DB.orderBookings.filter(b=>b.status==='saved').reduce((s,b)=>s+b.total,0) + 28500;
-  const totalExpenses = DB.expenses.reduce((s,e)=>s+e.amount,0);
-  const purchaseCost = DB.purchases.reduce((s,p)=>s+p.total,0);
-  const netProfit = salesIncome - totalExpenses - purchaseCost;
+async function printBalanceSheetA4() {
+  const [pl, custData, supData, expData] = await Promise.all([
+    FinanceAPI.profitLoss(), CustomersAPI.list({ page_size: 500 }),
+    SuppliersAPI.list({ page_size: 500 }), ExpensesAPI.summary(),
+  ]);
+  const salesIncome = Number(pl.income);
+  const totalExpenses = Number(pl.expenses);
+  const purchaseCost = Number(pl.cost_of_goods_sold);
+  const netProfit = Number(pl.net_profit);
   const today = new Date().toLocaleDateString();
 
-  const custReceivables = DB.customers.map(c=>{
-    const bal = (DB.customerLedger?.[c.id]||[]).reduce((s,e)=>s+(e.debit||0)-(e.credit||0),0);
-    return { name:c.name, acc:c.accountNo, bal };
-  }).filter(x=>x.bal>0);
-  const supPayables = DB.suppliers.map(s=>{
-    const bal = (DB.supplierLedger?.[s.id]||[]).reduce((a,e)=>a+(e.debit||0)-(e.credit||0),0);
-    return { name:s.name, bal };
-  }).filter(x=>x.bal>0);
+  const custReceivables = (custData.results||custData)
+    .filter(c=>Number(c.outstanding_balance)>0)
+    .map(c=>({ name:c.name, acc:'ACC-'+String(c.id).padStart(4,'0'), bal:Number(c.outstanding_balance) }));
+  const supPayables = (supData.results||supData)
+    .filter(s=>Number(s.outstanding_payable)>0)
+    .map(s=>({ name:s.name, bal:Number(s.outstanding_payable) }));
 
   const expByCategory = {};
-  DB.expenses.forEach(e=>{ expByCategory[e.category]=(expByCategory[e.category]||0)+e.amount; });
+  (expData.by_category||[]).forEach(e=>{ expByCategory[e.category__name||'Other'] = Number(e.total); });
 
   const html = `<div class="a4-doc">
     ${getInvoiceHeaderHtml('BALANCE SHEET', 'BS-'+Date.now().toString().slice(-6), today)}
@@ -3386,15 +3511,16 @@ function setSRMode(mode) {
   }
 }
 
-function populateSRProductDropdown() {
+async function populateSRProductDropdown() {
   const sel = document.getElementById('sr-product-select');
   if (!sel) return;
+  if (!_invProductCache.length) await _loadInventoryData();
   const q = (document.getElementById('sr-product-search')?.value || '').toLowerCase();
-  const filtered = DB.products.filter(p =>
+  const filtered = _invProductCache.filter(p =>
     !q || p.name.toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q)
   );
   sel.innerHTML = '<option value="">— Choose a product —</option>' +
-    filtered.map(p => `<option value="${p.id}">${p.icon||'📦'} ${p.name} (${p.sku})</option>`).join('');
+    filtered.map(p => `<option value="${p.id}">📦 ${p.name} (${p.sku})</option>`).join('');
 }
 
 function filterSRProducts() {
@@ -3407,7 +3533,7 @@ function filterSRProducts() {
   }
 }
 
-function renderSingleProductReport() {
+async function renderSingleProductReport() {
   const sel = document.getElementById('sr-product-select');
   const prodId = parseInt(sel?.value);
   const placeholder = document.getElementById('sr-single-placeholder');
@@ -3419,89 +3545,67 @@ function renderSingleProductReport() {
     return;
   }
 
-  const p = DB.products.find(x => x.id === prodId);
+  if (!_invProductCache.length) await _loadInventoryData();
+  const p = _invProductCache.find(x => x.id === prodId);
   if (!p) return;
 
   placeholder.style.display = 'none';
   content.style.display = '';
 
-  const today = new Date().toISOString().split('T')[0];
-  const reportDate = document.getElementById('sr-date')?.value || today;
-  const ppc = p.piecesPerCarton || 1;
-  const remaining = p.stock || 0;
-  const cartons = ppc > 1 ? Math.floor(remaining / ppc) : 0;
-  const loose   = ppc > 1 ? remaining % ppc : remaining;
-  const value   = remaining * (p.sellPrice || 0);
-  const statusColor = remaining === 0 ? 'var(--red)' : remaining <= p.minStock ? 'var(--yellow)' : 'var(--green)';
+  const remaining = (_invStockByProduct[prodId]||{}).quantity || 0;
+  const minStock = p.reorder_level || 10;
+  const value   = remaining * Number(p.final_price||p.selling_price||0);
+  const statusColor = remaining === 0 ? 'var(--red)' : remaining <= minStock ? 'var(--yellow)' : 'var(--green)';
 
-  // Product header
-  document.getElementById('sr-prod-icon').textContent  = p.icon || '📦';
+  document.getElementById('sr-prod-icon').textContent  = '📦';
   document.getElementById('sr-prod-name').textContent  = p.name;
   document.getElementById('sr-prod-sku').textContent   = p.sku;
-  document.getElementById('sr-prod-brand').textContent = p.brand || '—';
-  document.getElementById('sr-prod-cat').textContent   = p.category || '—';
-  document.getElementById('sr-prod-ppc').textContent   = ppc > 1 ? ppc + ' pcs' : 'N/A';
+  document.getElementById('sr-prod-brand').textContent = p.brand_name || '—';
+  document.getElementById('sr-prod-cat').textContent   = p.category_name || '—';
+  document.getElementById('sr-prod-ppc').textContent   = 'N/A';
 
   const stockEl = document.getElementById('sr-prod-stock');
   stockEl.textContent = remaining + ' pcs';
   stockEl.style.color = statusColor;
-  document.getElementById('sr-prod-cartons').textContent = ppc > 1 ? cartons : '—';
-  document.getElementById('sr-prod-loose').textContent   = ppc > 1 ? loose + ' pcs' : remaining + ' pcs';
+  document.getElementById('sr-prod-cartons').textContent = '—';
+  document.getElementById('sr-prod-loose').textContent   = remaining + ' pcs';
   document.getElementById('sr-prod-value').textContent   = 'Rs. ' + value.toFixed(0);
 
-  // Build sales history from orderBookings
+  // Real sales history: fetch all sales, filter items by this product
+  const salesData = await SalesAPI.list({ page_size: 500 });
   const salesRows = [];
-  DB.orderBookings.filter(b => b.status === 'saved').forEach(b => {
-    b.items.forEach(it => {
-      if (it.productId === prodId || it.name === p.name) {
-        const tppc = it.ppc || 1;
-        const qty = (it.qty || 0) + (it.cartons || 0) * tppc;
-        const ctns = tppc > 1 ? (it.cartons || 0) : 0;
-        const lpcs = it.qty || 0;
-        const amt  = qty * (it.rate || p.sellPrice || 0);
-        salesRows.push({ date: b.date, invoice: b.invoice, customer: b.customerName, qty, ctns, lpcs, rate: it.rate || p.sellPrice || 0, amt });
-      }
+  (salesData.results || salesData).filter(s => s.status !== 'cancelled').forEach(s => {
+    (s.items||[]).filter(it => it.product === prodId).forEach(it => {
+      salesRows.push({
+        date: (s.created_at||'').slice(0,10), invoice: s.invoice_number, customer: s.customer_name||'Walk-in',
+        qty: it.quantity, ctns: 0, lpcs: it.quantity, rate: Number(it.unit_price), amt: Number(it.line_total),
+      });
     });
   });
-  // Also check POS orders
-  DB.orders.forEach(o => {
-    (o.items || []).forEach(it => {
-      if (it.id === prodId || it.name === p.name) {
-        const oDate = (o.date || '').split(',')[0].split(' ')[0] || o.date || '';
-        const amt = (it.qty || 0) * (it.price || p.sellPrice || 0);
-        salesRows.push({ date: oDate, invoice: o.invoice, customer: o.customer || 'Walk-in', qty: it.qty || 0, ctns: 0, lpcs: it.qty || 0, rate: it.price || p.sellPrice || 0, amt });
-      }
-    });
-  });
-
-  // Sort by date desc
   salesRows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
   const totalSold = salesRows.reduce((s, r) => s + r.qty, 0);
   const totalRev  = salesRows.reduce((s, r) => s + r.amt, 0);
 
   document.getElementById('sr-prod-history-label').textContent = salesRows.length + ' transaction(s) found';
-
   document.getElementById('sr-prod-history-tbody').innerHTML = salesRows.length
-    ? salesRows.map((r, i) => `<tr>
+    ? salesRows.map((r) => `<tr>
         <td>${r.date || '—'}</td>
         <td class="td-mono">${r.invoice || '—'}</td>
         <td style="font-weight:600">${r.customer}</td>
         <td class="fw-700 text-accent">${r.qty} pcs</td>
-        <td>${r.ctns > 0 ? '<span class="badge badge-cyan">📦 ' + r.ctns + '</span>' : '—'}</td>
-        <td>${r.lpcs > 0 ? '<span class="badge badge-yellow">' + r.lpcs + ' pcs</span>' : '—'}</td>
+        <td>—</td>
+        <td>—</td>
         <td>Rs. ${(r.rate || 0).toFixed(2)}</td>
         <td class="fw-700 text-green">Rs. ${r.amt.toFixed(2)}</td>
       </tr>`).join('')
     : '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No sales records found for this product</td></tr>';
 
-  // Stats
-  const openingStock = remaining + totalSold;
   document.getElementById('sr-prod-stats').innerHTML = [
     { label: 'Total Sold (All Time)', val: totalSold + ' pcs', color: 'blue',   icon: 'fa-shopping-cart' },
     { label: 'Total Revenue',          val: 'Rs. ' + totalRev.toFixed(0),  color: 'green',  icon: 'fa-rupee-sign' },
-    { label: 'Buy Price',              val: 'Rs. ' + (p.buyPrice || 0).toFixed(2), color: 'yellow', icon: 'fa-tag' },
-    { label: 'Sell Price',             val: 'Rs. ' + (p.sellPrice || 0).toFixed(2), color: 'purple', icon: 'fa-dollar-sign' },
+    { label: 'Buy Price',              val: 'Rs. ' + Number(p.cost_price||0).toFixed(2), color: 'yellow', icon: 'fa-tag' },
+    { label: 'Sell Price',             val: 'Rs. ' + Number(p.selling_price||0).toFixed(2), color: 'purple', icon: 'fa-dollar-sign' },
   ].map(k => `
     <div class="stat-card ${k.color}">
       <div class="stat-header"><div class="stat-icon ${k.color}"><i class="fa ${k.icon}"></i></div></div>
@@ -3509,27 +3613,28 @@ function renderSingleProductReport() {
       <div class="stat-label">${k.label}</div>
     </div>`).join('');
 
-  // Stock movement log
-  const movements = (DB.stockHistory || []).filter(h => h.product === p.name);
-  movements.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
+  // Real stock movement log (inventory ledger, filtered to this product)
+  const txnData = await InventoryAPI.transactions({ product: prodId, page_size: 50 });
+  const movements = (txnData.results || txnData);
+  const positiveTypes = ['stock_in','adjustment_increase','transfer_in','purchase','sale_return'];
   document.getElementById('sr-prod-movement-tbody').innerHTML = movements.length
     ? movements.map(h => {
-        const isNeg = (h.qty || 0) < 0;
-        const typeColor = h.type === 'Sale' ? 'var(--red)' : h.type === 'Purchase' ? 'var(--green)' : 'var(--yellow)';
+        const signedQty = positiveTypes.includes(h.transaction_type) ? h.quantity : -h.quantity;
+        const typeLabel = h.transaction_type.replace(/_/g,' ');
+        const typeColor = signedQty < 0 ? 'var(--red)' : 'var(--green)';
         return `<tr>
-          <td style="font-size:11px">${h.date || '—'}</td>
-          <td><span class="badge ${h.type==='Sale'?'badge-red':h.type==='Purchase'?'badge-green':'badge-yellow'}">${h.type || '—'}</span></td>
-          <td style="font-weight:700;color:${typeColor}">${(h.qty || 0) > 0 ? '+' : ''}${h.qty || 0}</td>
-          <td>${h.before ?? '—'}</td>
-          <td style="font-weight:700">${h.after ?? '—'}</td>
-          <td class="td-mono" style="font-size:11px">${h.ref || '—'}</td>
+          <td style="font-size:11px">${(h.created_at||'').slice(0,10)}</td>
+          <td><span class="badge ${signedQty<0?'badge-red':'badge-green'}">${typeLabel}</span></td>
+          <td style="font-weight:700;color:${typeColor}">${signedQty > 0 ? '+' : ''}${signedQty}</td>
+          <td>${h.balance_after - signedQty}</td>
+          <td style="font-weight:700">${h.balance_after}</td>
+          <td class="td-mono" style="font-size:11px">${h.reference || '—'}</td>
         </tr>`;
       }).join('')
     : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">No movement records found</td></tr>';
 }
 
-function renderStockReport() {
+async function renderStockReport() {
   const today = new Date().toISOString().split('T')[0];
   const srDate = document.getElementById('sr-date');
   if (srDate && !srDate.value) srDate.value = today;
@@ -3537,51 +3642,41 @@ function renderStockReport() {
   const catFilter   = document.getElementById('sr-cat')?.value || '';
   const stockFilter = document.getElementById('sr-stockfilter')?.value || '';
 
-  // If in single mode, re-render single report
-  if (_srMode === 'single') {
-    renderSingleProductReport();
-    return;
-  }
+  if (_srMode === 'single') { renderSingleProductReport(); return; }
 
-  // Populate categories dropdown
+  await _loadInventoryData(); // reuses the Inventory page's product+stock cache
+
   const catSel = document.getElementById('sr-cat');
   if (catSel && catSel.options.length <= 1) {
-    DB.categories.forEach(c => {
+    const catData = await CategoriesAPI.list();
+    (catData.results || catData).forEach(c => {
       const o = document.createElement('option');
-      o.value = c; o.text = c;
+      o.value = c.name; o.text = c.name;
       catSel.appendChild(o);
     });
   }
-
   document.getElementById('sr-date-label').textContent = 'Report Date: ' + reportDate;
 
-  // Calculate sold today
+  // Sold-today from real sales on that date
   const soldMap = {};
-  DB.orderBookings.filter(b => b.date === reportDate && b.status === 'saved').forEach(b => {
-    b.items.forEach(it => {
-      const ppc = it.ppc || 1;
-      const tp  = (it.qty || 0) + (it.cartons || 0) * ppc;
-      soldMap[it.productId] = (soldMap[it.productId] || 0) + tp;
-    });
-  });
-  DB.orders.filter(o => {
-    const d = (o.date || '').split(',')[0].split(' ')[0] || o.date || '';
-    return d === reportDate && o.status === 'Completed';
-  }).forEach(o => {
-    (o.items || []).forEach(it => { soldMap[it.id] = (soldMap[it.id] || 0) + (it.qty || 0); });
-  });
+  const salesData = await SalesAPI.list({ page_size: 500 });
+  (salesData.results || salesData)
+    .filter(s => (s.created_at||'').slice(0,10) === reportDate && s.status !== 'cancelled')
+    .forEach(s => (s.items||[]).forEach(it => { soldMap[it.product] = (soldMap[it.product]||0) + it.quantity; }));
 
-  let prods = DB.products;
-  if (catFilter)              prods = prods.filter(p => p.category === catFilter);
-  if (stockFilter === 'low')  prods = prods.filter(p => p.stock > 0 && p.stock <= p.minStock);
+  let prods = _invProductCache.map(p => {
+    const st = _invStockByProduct[p.id] || { quantity: 0 };
+    return { ...p, stock: st.quantity };
+  });
+  if (catFilter)              prods = prods.filter(p => p.category_name === catFilter);
+  if (stockFilter === 'low')  prods = prods.filter(p => p.stock > 0 && p.stock <= (p.reorder_level||10));
   if (stockFilter === 'out')  prods = prods.filter(p => p.stock === 0);
-  if (stockFilter === 'ok')   prods = prods.filter(p => p.stock > p.minStock);
+  if (stockFilter === 'ok')   prods = prods.filter(p => p.stock > (p.reorder_level||10));
 
   const totalProds = prods.length;
-  const inStock    = prods.filter(p => p.stock > p.minStock).length;
-  const lowStock   = prods.filter(p => p.stock > 0 && p.stock <= p.minStock).length;
+  const inStock    = prods.filter(p => p.stock > (p.reorder_level||10)).length;
+  const lowStock   = prods.filter(p => p.stock > 0 && p.stock <= (p.reorder_level||10)).length;
   const outStock   = prods.filter(p => p.stock === 0).length;
-  const totalValue = prods.reduce((s, p) => s + (p.sellPrice || 0) * (p.stock || 0), 0);
 
   document.getElementById('sr-stats-grid').innerHTML = [
     { label: 'Total Products', val: totalProds, color: 'blue',   icon: 'fa-boxes' },
@@ -3596,32 +3691,30 @@ function renderStockReport() {
     </div>`).join('');
 
   document.getElementById('sr-tbody').innerHTML = prods.map(p => {
-    const ppc = p.piecesPerCarton || 1;
+    const minStock = p.reorder_level || 10;
     const soldToday    = soldMap[p.id] || 0;
     const openingStock = p.stock + soldToday;
     const remaining    = p.stock;
-    const cartons = ppc > 1 ? Math.floor(remaining / ppc) : 0;
-    const loose   = ppc > 1 ? remaining % ppc : remaining;
-    const val = remaining * (p.sellPrice || 0);
-    const statusColor = remaining === 0 ? 'red' : remaining <= p.minStock ? 'yellow' : 'green';
-    const statusText  = remaining === 0 ? 'Out of Stock' : remaining <= p.minStock ? 'Low Stock' : 'In Stock';
+    const val = remaining * Number(p.final_price||p.selling_price||0);
+    const statusColor = remaining === 0 ? 'red' : remaining <= minStock ? 'yellow' : 'green';
+    const statusText  = remaining === 0 ? 'Out of Stock' : remaining <= minStock ? 'Low Stock' : 'In Stock';
     return `<tr>
       <td>
         <div class="flex-gap">
-          <span style="font-size:18px">${p.icon || '📦'}</span>
+          <span style="font-size:18px">📦</span>
           <div>
             <div style="font-weight:600">${p.name}</div>
-            <div style="font-size:11px;color:var(--text-muted)">${p.brand || ''}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${p.brand_name || ''}</div>
           </div>
         </div>
       </td>
       <td class="td-mono">${p.sku}</td>
-      <td><span class="badge badge-blue">${p.category}</span></td>
+      <td><span class="badge badge-blue">${p.category_name}</span></td>
       <td>${openingStock}</td>
       <td class="text-red fw-700">${soldToday > 0 ? soldToday : '—'}</td>
-      <td class="fw-700" style="color:${remaining===0?'var(--red)':remaining<=p.minStock?'var(--yellow)':'var(--green)'}">${remaining}</td>
-      <td>${ppc > 1 ? `<span class="badge badge-cyan">📦 ${cartons}</span>` : '—'}</td>
-      <td>${ppc > 1 ? `<span class="badge badge-yellow">${loose}</span>` : remaining}</td>
+      <td class="fw-700" style="color:${remaining===0?'var(--red)':remaining<=minStock?'var(--yellow)':'var(--green)'}">${remaining}</td>
+      <td>—</td>
+      <td>${remaining}</td>
       <td class="text-accent">Rs. ${val.toFixed(2)}</td>
       <td><span class="badge badge-${statusColor}">${statusText}</span></td>
     </tr>`;
@@ -3641,38 +3734,34 @@ function printStockReportA4() {
     return;
   }
 
-  // Print ALL products report
+  // Print ALL products report — reuses the cache renderStockReport() just loaded
   const soldMap = {};
-  DB.orderBookings.filter(b => b.date === reportDate && b.status === 'saved').forEach(b => {
-    b.items.forEach(it => { const tp = (it.qty || 0) + (it.cartons || 0) * (it.ppc || 1); soldMap[it.productId] = (soldMap[it.productId] || 0) + tp; });
-  });
-  const totalValue = DB.products.reduce((s, p) => s + (p.sellPrice || 0) * (p.stock || 0), 0);
-  const rows = DB.products.map((p, i) => {
-    const ppc = p.piecesPerCarton || 1;
+  const prods = _invProductCache.map(p => ({ ...p, stock: (_invStockByProduct[p.id]||{}).quantity || 0 }));
+  const totalValue = prods.reduce((s, p) => s + Number(p.final_price||p.selling_price||0) * p.stock, 0);
+  const rows = prods.map((p, i) => {
+    const minStock = p.reorder_level || 10;
     const sold = soldMap[p.id] || 0;
     const opening = p.stock + sold;
-    const cartons = ppc > 1 ? Math.floor(p.stock / ppc) : 0;
-    const loose   = ppc > 1 ? p.stock % ppc : p.stock;
-    const val = p.stock * (p.sellPrice || 0);
-    const st  = p.stock === 0 ? 'Out' : p.stock <= p.minStock ? 'Low' : 'OK';
+    const val = p.stock * Number(p.final_price||p.selling_price||0);
+    const st  = p.stock === 0 ? 'Out' : p.stock <= minStock ? 'Low' : 'OK';
     return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
       <td style="padding:6px 8px">${i+1}</td>
-      <td style="padding:6px 8px">${p.icon||''} <strong>${p.name}</strong></td>
+      <td style="padding:6px 8px">📦 <strong>${p.name}</strong></td>
       <td style="padding:6px 8px;font-family:monospace">${p.sku}</td>
-      <td style="padding:6px 8px">${p.category}</td>
+      <td style="padding:6px 8px">${p.category_name}</td>
       <td style="padding:6px 8px;text-align:center">${opening}</td>
       <td style="padding:6px 8px;text-align:center;color:#dc2626;font-weight:700">${sold > 0 ? sold : '—'}</td>
-      <td style="padding:6px 8px;text-align:center;font-weight:800;color:${p.stock===0?'#dc2626':p.stock<=p.minStock?'#b45309':'#16a34a'}">${p.stock}</td>
-      <td style="padding:6px 8px;text-align:center">${ppc > 1 ? cartons + ' ctn' : '—'}</td>
-      <td style="padding:6px 8px;text-align:center">${ppc > 1 ? loose + ' pcs' : p.stock}</td>
+      <td style="padding:6px 8px;text-align:center;font-weight:800;color:${p.stock===0?'#dc2626':p.stock<=minStock?'#b45309':'#16a34a'}">${p.stock}</td>
+      <td style="padding:6px 8px;text-align:center">—</td>
+      <td style="padding:6px 8px;text-align:center">${p.stock}</td>
       <td style="padding:6px 8px;text-align:right">Rs. ${val.toFixed(2)}</td>
-      <td style="padding:6px 8px;text-align:center;font-weight:700;color:${p.stock===0?'#dc2626':p.stock<=p.minStock?'#b45309':'#16a34a'}">${st}</td>
+      <td style="padding:6px 8px;text-align:center;font-weight:700;color:${p.stock===0?'#dc2626':p.stock<=minStock?'#b45309':'#16a34a'}">${st}</td>
     </tr>`;
   }).join('');
 
   const html = `<div class="a4-doc">
     ${getInvoiceHeaderHtml('STOCK REPORT', 'SR-'+reportDate, reportDate)}
-    <div style="padding:5mm 0 3mm"><strong>Overall Stock Report — ${reportDate}</strong> &nbsp;·&nbsp; ${DB.products.length} products &nbsp;·&nbsp; Total Value: Rs. ${totalValue.toFixed(2)}</div>
+    <div style="padding:5mm 0 3mm"><strong>Overall Stock Report — ${reportDate}</strong> &nbsp;·&nbsp; ${prods.length} products &nbsp;·&nbsp; Total Value: Rs. ${totalValue.toFixed(2)}</div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:5mm;font-size:10px">
       <thead>
         <tr>
@@ -3692,7 +3781,7 @@ function printStockReportA4() {
       <tbody>${rows}</tbody>
       <tfoot>
         <tr style="background:#1a1a1a;color:#fff;font-weight:700;font-size:11px">
-          <td colspan="9" style="padding:7px 8px">TOTALS — ${DB.products.length} products</td>
+          <td colspan="9" style="padding:7px 8px">TOTALS — ${prods.length} products</td>
           <td style="padding:7px 8px;text-align:right">Rs. ${totalValue.toFixed(2)}</td>
           <td style="padding:7px 8px"></td>
         </tr>
@@ -3710,51 +3799,45 @@ function printStockReportA4() {
   setTimeout(() => { pa.style.display = 'none'; }, 1200);
 }
 
-function printSingleProductA4(prodId, reportDate) {
-  const p = DB.products.find(x => x.id === prodId);
+async function printSingleProductA4(prodId, reportDate) {
+  if (!_invProductCache.length) await _loadInventoryData();
+  const p = _invProductCache.find(x => x.id === prodId);
   if (!p) return;
-  const ppc = p.piecesPerCarton || 1;
-  const remaining = p.stock || 0;
-  const cartons   = ppc > 1 ? Math.floor(remaining / ppc) : 0;
-  const loose     = ppc > 1 ? remaining % ppc : remaining;
-  const value     = remaining * (p.sellPrice || 0);
-  const statusText = remaining === 0 ? 'OUT OF STOCK' : remaining <= p.minStock ? 'LOW STOCK' : 'IN STOCK';
-  const statusColor = remaining === 0 ? '#dc2626' : remaining <= p.minStock ? '#b45309' : '#16a34a';
+  const remaining = (_invStockByProduct[prodId]||{}).quantity || 0;
+  const minStock = p.reorder_level || 10;
+  const value     = remaining * Number(p.final_price||p.selling_price||0);
+  const statusText = remaining === 0 ? 'OUT OF STOCK' : remaining <= minStock ? 'LOW STOCK' : 'IN STOCK';
+  const statusColor = remaining === 0 ? '#dc2626' : remaining <= minStock ? '#b45309' : '#16a34a';
 
-  // Gather sales
+  // Gather real sales for this product
+  const salesData = await SalesAPI.list({ page_size: 500 });
   const salesRows = [];
-  DB.orderBookings.filter(b => b.status === 'saved').forEach(b => {
-    b.items.forEach(it => {
-      if (it.productId === prodId || it.name === p.name) {
-        const tppc = it.ppc || 1;
-        const qty  = (it.qty || 0) + (it.cartons || 0) * tppc;
-        const ctns = tppc > 1 ? (it.cartons || 0) : 0;
-        const lpcs = it.qty || 0;
-        const amt  = qty * (it.rate || p.sellPrice || 0);
-        salesRows.push({ date: b.date, invoice: b.invoice, customer: b.customerName, qty, ctns, lpcs, rate: it.rate || p.sellPrice || 0, amt });
-      }
-    });
-  });
-  DB.orders.forEach(o => {
-    (o.items || []).forEach(it => {
-      if (it.id === prodId || it.name === p.name) {
-        const oDate = (o.date || '').split(',')[0].split(' ')[0] || o.date || '';
-        salesRows.push({ date: oDate, invoice: o.invoice, customer: o.customer || 'Walk-in', qty: it.qty || 0, ctns: 0, lpcs: it.qty || 0, rate: it.price || p.sellPrice || 0, amt: (it.qty||0)*(it.price||p.sellPrice||0) });
-      }
+  (salesData.results || salesData).filter(s => s.status !== 'cancelled').forEach(s => {
+    (s.items||[]).filter(it => it.product === prodId).forEach(it => {
+      salesRows.push({
+        date: (s.created_at||'').slice(0,10), invoice: s.invoice_number, customer: s.customer_name||'Walk-in',
+        qty: it.quantity, ctns: 0, lpcs: it.quantity, rate: Number(it.unit_price), amt: Number(it.line_total),
+      });
     });
   });
   salesRows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const totalSold = salesRows.reduce((s, r) => s + r.qty, 0);
   const totalRev  = salesRows.reduce((s, r) => s + r.amt, 0);
 
-  // Movement log
-  const movements = (DB.stockHistory || []).filter(h => h.product === p.name);
-  movements.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  // Real movement log
+  const txnData = await InventoryAPI.transactions({ product: prodId, page_size: 50 });
+  const positiveTypes = ['stock_in','adjustment_increase','transfer_in','purchase','sale_return'];
+  const movements = (txnData.results || txnData).map(h => {
+    const signedQty = positiveTypes.includes(h.transaction_type) ? h.quantity : -h.quantity;
+    return { date: (h.created_at||'').slice(0,10), type: h.transaction_type.replace(/_/g,' '),
+      qty: signedQty, before: h.balance_after - signedQty, after: h.balance_after, ref: h.reference };
+  });
+  const ppc = 1, cartons = 0, loose = remaining;
 
   const html = `<div class="a4-doc">
     ${getInvoiceHeaderHtml('STOCK REPORT', 'SR-PROD-'+reportDate, reportDate)}
     <div style="padding:4mm 0 3mm">
-      <strong style="font-size:14px">Per Product Report — ${p.icon||'📦'} ${p.name}</strong>
+      <strong style="font-size:14px">Per Product Report — 📦 ${p.name}</strong>
       <span style="margin-left:10px;font-family:monospace;font-size:11px;color:#555">${p.sku}</span>
       <span style="margin-left:10px;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:${statusColor};color:#fff">${statusText}</span>
     </div>
@@ -3776,15 +3859,15 @@ function printSingleProductA4(prodId, reportDate) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:5mm;font-size:11px">
       <div style="border:1px solid #ddd;border-radius:5px;padding:10px">
         <div style="font-weight:700;font-size:10px;color:#777;margin-bottom:5px;text-transform:uppercase">Product Details</div>
-        <div>Brand: <strong>${p.brand||'—'}</strong></div>
-        <div>Category: <strong>${p.category||'—'}</strong></div>
-        <div>Pcs/Carton: <strong>${ppc>1?ppc+' pcs':'N/A'}</strong></div>
-        <div>Min Stock: <strong>${p.minStock||0} pcs</strong></div>
+        <div>Brand: <strong>${p.brand_name||'—'}</strong></div>
+        <div>Category: <strong>${p.category_name||'—'}</strong></div>
+        <div>Pcs/Carton: <strong>N/A</strong></div>
+        <div>Min Stock: <strong>${minStock} pcs</strong></div>
       </div>
       <div style="border:1px solid #ddd;border-radius:5px;padding:10px">
         <div style="font-weight:700;font-size:10px;color:#777;margin-bottom:5px;text-transform:uppercase">Pricing & Sales</div>
-        <div>Buy Price: <strong>Rs. ${(p.buyPrice||0).toFixed(2)}</strong></div>
-        <div>Sell Price: <strong>Rs. ${(p.sellPrice||0).toFixed(2)}</strong></div>
+        <div>Buy Price: <strong>Rs. ${Number(p.cost_price||0).toFixed(2)}</strong></div>
+        <div>Sell Price: <strong>Rs. ${Number(p.selling_price||0).toFixed(2)}</strong></div>
         <div>Total Sold: <strong style="color:#dc2626">${totalSold} pcs</strong></div>
         <div>Total Revenue: <strong style="color:#16a34a">Rs. ${totalRev.toFixed(2)}</strong></div>
       </div>
@@ -3918,7 +4001,7 @@ function printA4Invoice(order) {
         <strong style="font-size:14px">INVOICE</strong><br>
         #${order.invoice}<br>
         ${order.date}<br>
-        Cashier: ${currentUser?.name || 'Admin'}
+        Cashier: ${currentUser?.full_name || 'Admin'}
       </div>
     </div>
     <div class="a4-doc-title">Sales Invoice</div>
@@ -4135,9 +4218,13 @@ function getWeekDates(offset) {
   });
 }
 
-function renderSupplyRoutes() {
+let _routeCache = [];
+
+async function renderSupplyRoutes() {
+  const data = await RoutesAPI.list({ page_size: 500 });
+  _routeCache = data.results || data;
   // Stats
-  const routes = DB.routes || [];
+  const routes = _routeCache;
   const todayName = DAYS_OF_WEEK[(new Date().getDay() + 6) % 7]; // Mon=0
   const uniqueReps = [...new Set(routes.map(r => r.person).filter(Boolean))];
   document.getElementById('sr-stat-total').textContent  = routes.length;
@@ -4151,7 +4238,7 @@ function renderSupplyRoutes() {
 
 function renderCalendarGrid() {
   const dates  = getWeekDates(_routeWeekOffset);
-  const routes = (DB.routes || []).filter(r => r.status !== 'Inactive' || true);
+  const routes = _routeCache.filter(r => r.status !== 'Inactive' || true);
   const start  = dates[0], end = dates[6];
 
   document.getElementById('sr-week-label').textContent =
@@ -4222,7 +4309,7 @@ function shiftRouteWeek(dir) {
 function renderRouteCards() {
   const q   = (document.getElementById('sr-search')?.value||'').toLowerCase();
   const sf  = document.getElementById('sr-status-filter')?.value||'';
-  const routes = (DB.routes||[]).filter(r =>
+  const routes = _routeCache.filter(r =>
     (!sf || r.status === sf) &&
     (!q  || r.name.toLowerCase().includes(q) || (r.area||'').toLowerCase().includes(q) || (r.person||'').toLowerCase().includes(q))
   );
@@ -4237,7 +4324,7 @@ function renderRouteCards() {
 
   container.innerHTML = routes.map((r, ri) => {
     const color = ROUTE_PALETTE[ri % ROUTE_PALETTE.length];
-    const suppNames = (r.suppliers||[]).map(sid => DB.suppliers.find(s=>s.id===sid)?.name||'').filter(Boolean);
+    const suppNames = r.supplier_names||[];
     const todayName = DAYS_OF_WEEK[(new Date().getDay() + 6) % 7];
     const isActiveToday = r.days.includes(todayName) && r.status === 'Active';
     return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:all .2s;cursor:default"
@@ -4311,7 +4398,7 @@ function renderRouteCards() {
 // Alias so old calls still work
 function renderRoutesTable() { renderRouteCards(); }
 
-function openRouteModal() {
+async function openRouteModal() {
   document.getElementById('route-modal-title').textContent = 'Add New Route';
   document.getElementById('route-edit-id').value = '';
   ['rt-name','rt-area','rt-person','rt-notes'].forEach(id => document.getElementById(id).value = '');
@@ -4319,12 +4406,12 @@ function openRouteModal() {
   // Reset day toggles
   document.querySelectorAll('.rt-day-toggle').forEach(el => el.classList.remove('active'));
   _initDayToggles([]);
-  _initSupplierToggles([]);
+  await _initSupplierToggles([]);
   openModal('route-modal');
 }
 
-function editRoute(id) {
-  const r = DB.routes.find(x => x.id === id);
+async function editRoute(id) {
+  const r = _routeCache.find(x => x.id === id);
   if (!r) return;
   document.getElementById('route-modal-title').textContent = 'Edit Route';
   document.getElementById('route-edit-id').value = r.id;
@@ -4334,7 +4421,7 @@ function editRoute(id) {
   document.getElementById('rt-notes').value = r.notes||'';
   document.getElementById('rt-status').value = r.status||'Active';
   _initDayToggles(r.days||[]);
-  _initSupplierToggles(r.suppliers||[]);
+  await _initSupplierToggles(r.suppliers||[]);
   openModal('route-modal');
 }
 
@@ -4361,8 +4448,10 @@ function _initDayToggles(activeDays) {
   });
 }
 
-function _initSupplierToggles(activeIds) {
-  document.getElementById('rt-supplier-list').innerHTML = DB.suppliers.map(s => {
+async function _initSupplierToggles(activeIds) {
+  const supData = await SuppliersAPI.list({ page_size: 500 });
+  const suppliers = supData.results || supData;
+  document.getElementById('rt-supplier-list').innerHTML = suppliers.map(s => {
     const isOn = activeIds.includes(s.id);
     return `<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;
         border:1.5px solid ${isOn?'var(--green)':'var(--border)'};
@@ -4375,12 +4464,12 @@ function _initSupplierToggles(activeIds) {
   }).join('');
 }
 
-function saveRoute() {
+async function saveRoute() {
   const name = document.getElementById('rt-name').value.trim();
   if (!name) { toast('Route name is required!','error'); return; }
   const days = Array.from(document.querySelectorAll('.rt-day-toggle')).filter(el => el._active).map(el => el.getAttribute('data-day'));
   const suppliers = Array.from(document.querySelectorAll('.rt-sup-cb:checked')).map(c => parseInt(c.value));
-  const data = {
+  const payload = {
     name,
     area:    document.getElementById('rt-area').value.trim(),
     person:  document.getElementById('rt-person').value.trim(),
@@ -4389,65 +4478,69 @@ function saveRoute() {
     days, suppliers
   };
   const editId = parseInt(document.getElementById('route-edit-id').value);
-  if (editId) {
-    Object.assign(DB.routes.find(r => r.id === editId), data);
-    toast('Route updated!', 'success');
-  } else {
-    data.id = Math.max(0, ...(DB.routes||[]).map(r=>r.id)) + 1;
-    (DB.routes = DB.routes||[]).push(data);
-    toast('Route created!', 'success');
+  try {
+    if (editId) {
+      await RoutesAPI.update(editId, payload);
+      toast('Route updated!', 'success');
+    } else {
+      await RoutesAPI.create(payload);
+      toast('Route created!', 'success');
+    }
+    closeModal('route-modal');
+    renderSupplyRoutes();
+  } catch (err) {
+    toast(err.message || 'Failed to save route', 'error');
   }
-  closeModal('route-modal');
-  renderSupplyRoutes();
 }
 
-function deleteRoute(id) {
+async function deleteRoute(id) {
   if (!confirm('Delete this route?')) return;
-  DB.routes = DB.routes.filter(r => r.id !== id);
-  renderSupplyRoutes();
-  toast('Route deleted', 'success');
+  try {
+    await RoutesAPI.remove(id);
+    renderSupplyRoutes();
+    toast('Route deleted', 'success');
+  } catch (err) {
+    toast(err.message || 'Failed to delete route', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
 // ORDER SUMMARY MODULE
 // ═══════════════════════════════════════════════════════
-function renderOrderSummary() {
+let _osBookingsCache = [];
+
+async function renderOrderSummary() {
   const fromVal    = document.getElementById('os-date-from')?.value;
   const toVal      = document.getElementById('os-date-to')?.value;
   const q          = (document.getElementById('os-search')?.value||'').toLowerCase();
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
 
-  // Populate username dropdown (idempotent)
+  const salesData = await SalesAPI.list({ page_size: 500 });
+  _osBookingsCache = (salesData.results || salesData).filter(s => s.status !== 'cancelled');
+
+  // Populate username (served_by) dropdown
   const usDd = document.getElementById('os-username-filter');
   if (usDd) {
-    const uniqueUsers = [...new Set(
-      (DB.orderBookings||[]).filter(b => b.createdBy).map(b => b.createdBy)
-    )].sort();
+    const uniqueUsers = [...new Set(_osBookingsCache.map(b => b.served_by_name).filter(Boolean))].sort();
     const current = usDd.value;
     usDd.innerHTML = '<option value="">All Users</option>' +
-      uniqueUsers.map(u => `<option value="${u}" ${u===current?'selected':''}>${u}${DB.users?.find(x=>x.username===u)?' ('+DB.users.find(x=>x.username===u).name+')':''}</option>`).join('');
+      uniqueUsers.map(u => `<option value="${u}" ${u===current?'selected':''}>${u}</option>`).join('');
     if (current) usDd.value = current;
   }
 
-  const bookings = (DB.orderBookings||[]).filter(b => {
-    if (b.status === 'cancelled') return false;
-    const bDate = (b.date||'').split('T')[0];
+  const bookings = _osBookingsCache.filter(b => {
+    const bDate = (b.created_at||'').slice(0,10);
     if (fromVal && bDate < fromVal) return false;
     if (toVal   && bDate > toVal)   return false;
-    if (usernameFilter && (b.createdBy||'') !== usernameFilter) return false;
+    if (usernameFilter && (b.served_by_name||'') !== usernameFilter) return false;
     return true;
   });
 
-  // ── Financial KPIs (username/date-aware) ─────────────
   const finOrders   = bookings.length;
-  const finAmount   = bookings.reduce((s,b) => s+(b.total||0), 0);
-  const finTax      = bookings.reduce((s,b) => s+(b.taxAmt||b.gstAmt||0), 0);
-  const finDiscount = bookings.reduce((s,b) => s+(b.discAmt||0), 0);
-  // Received = payments by customers who had bookings in this set
-  const custIdsInSet = [...new Set(bookings.map(b=>b.customerId).filter(Boolean))];
-  const finReceived = (DB.collectionPayments||[])
-    .filter(p => custIdsInSet.includes(p.customerId))
-    .reduce((s,p) => s+p.amount, 0);
+  const finAmount   = bookings.reduce((s,b) => s+Number(b.total_amount), 0);
+  const finTax      = bookings.reduce((s,b) => s+Number(b.tax_amount), 0);
+  const finDiscount = bookings.reduce((s,b) => s+Number(b.discount_amount), 0);
+  const finReceived = bookings.reduce((s,b) => s+Number(b.paid_amount), 0);
   const finPending  = Math.max(0, finAmount - finReceived);
 
   const f = v => 'Rs.' + v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
@@ -4459,34 +4552,27 @@ function renderOrderSummary() {
   setEl('os-fin-pending',  f(finPending));
   setEl('os-fin-received', f(finReceived));
 
-  // ── Username badge above table ─────────────────────────
   const usBadge = document.getElementById('os-username-badge');
   if (usBadge) {
     usBadge.style.display = usernameFilter ? '' : 'none';
     if (usernameFilter) {
-      const usr = DB.users?.find(x=>x.username===usernameFilter);
-      usBadge.innerHTML = `<i class="fa fa-user-tag"></i> Showing orders by: <strong>${usernameFilter}</strong>${usr?' ('+usr.name+')':''} <button onclick="document.getElementById('os-username-filter').value='';renderOrderSummary()" style="background:none;border:none;color:var(--red);cursor:pointer;margin-left:6px;font-size:12px">✕ Clear</button>`;
+      usBadge.innerHTML = `<i class="fa fa-user-tag"></i> Showing orders by: <strong>${usernameFilter}</strong> <button onclick="document.getElementById('os-username-filter').value='';renderOrderSummary()" style="background:none;border:none;color:var(--red);cursor:pointer;margin-left:6px;font-size:12px">✕ Clear</button>`;
     }
   }
 
-  // Aggregate per product
+  // Aggregate per product from real sale items
   const productMap = {};
   bookings.forEach(bk => {
     (bk.items||[]).forEach(it => {
-      const prod = DB.products.find(p => p.id === it.productId || p.name === it.name);
-      const key  = prod ? prod.id : it.name;
+      const key = it.product;
       if (!productMap[key]) {
         productMap[key] = {
-          name: it.name,
-          icon: prod?.icon || '📦',
-          sku:  prod?.sku || '—',
-          piecesPerCarton: prod?.piecesPerCarton || 1,
-          buyPrice: prod?.buyPrice || it.rate || 0,
-          totalPieces: 0,
-          orderCount:  0,
+          name: it.product_name, icon: '📦', sku: it.product_sku || '—',
+          piecesPerCarton: 1, buyPrice: Number(it.unit_price),
+          totalPieces: 0, orderCount: 0,
         };
       }
-      productMap[key].totalPieces += (it.totalPcs || it.qty || 0);
+      productMap[key].totalPieces += it.quantity;
       productMap[key].orderCount++;
     });
   });
@@ -4514,7 +4600,7 @@ function renderOrderSummary() {
     tbody.innerHTML = '';
     table.style.display = 'none';
     empty.style.display = '';
-    if (!bookings.length && !(DB.orderBookings||[]).length) {
+    if (!bookings.length && !_osBookingsCache.length) {
       document.getElementById('os-empty-msg').innerHTML =
         'Save confirmed bookings in the <strong>Order Booking</strong> module — they will appear here with full carton &amp; piece counts.';
     } else {
@@ -4593,20 +4679,19 @@ function exportOrderSummaryCsv() {
   const fromVal = document.getElementById('os-date-from')?.value || '';
   const toVal   = document.getElementById('os-date-to')?.value   || '';
 
-  const bookings = (DB.orderBookings||[]).filter(b => {
-    if (b.status === 'cancelled') return false;
-    const d = (b.date||'').split('T')[0];
+  const bookings = _osBookingsCache.filter(b => {
+    const d = (b.created_at||'').slice(0,10);
     if (fromVal && d < fromVal) return false;
     if (toVal   && d > toVal)   return false;
-    if (usernameFilter && (b.createdBy||'') !== usernameFilter) return false;
+    if (usernameFilter && (b.served_by_name||'') !== usernameFilter) return false;
     return true;
   });
 
-  const headers = ['Invoice','Date','Customer','Account','Username','Subtotal','Tax','Discount','Total','Net Payable','Status'];
+  const headers = ['Invoice','Date','Customer','Account','Username','Subtotal','Tax','Discount','Total','Paid','Status'];
   const dataRows = bookings.map(b => [
-    b.invoice, b.date, b.customerName, b.accountNo||'', b.createdBy||'',
-    (b.subtotal||0).toFixed(2), (b.taxAmt||0).toFixed(2), (b.discAmt||0).toFixed(2),
-    (b.total||0).toFixed(2), (b.netPayable||0).toFixed(2), b.status
+    b.invoice_number, (b.created_at||'').slice(0,10), b.customer_name||'Walk-in', b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'', b.served_by_name||'',
+    Number(b.subtotal).toFixed(2), Number(b.tax_amount).toFixed(2), Number(b.discount_amount).toFixed(2),
+    Number(b.total_amount).toFixed(2), Number(b.paid_amount).toFixed(2), b.status
   ]);
   const csv = [headers, ...dataRows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -4634,7 +4719,7 @@ function printOrderSummary() {
   const html = `<div class="a4-doc">
     <div class="a4-header">
       <div><div class="a4-logo-name">🏪 SmartRetail Store</div><div style="font-size:11px;color:#555;margin-top:3px">Warehouse Dispatch Summary${usernameFilter?' — User: '+usernameFilter:''}</div></div>
-      <div class="a4-store-info"><strong>ORDER SUMMARY</strong><br>Generated: ${today}<br>By: ${currentUser?.name||'Admin'}</div>
+      <div class="a4-store-info"><strong>ORDER SUMMARY</strong><br>Generated: ${today}<br>By: ${currentUser?.full_name||'Admin'}</div>
     </div>
     <div class="a4-doc-title">Order Summary — Cartons &amp; Pieces Dispatched</div>
     <!-- Financial summary strip -->
@@ -4973,22 +5058,21 @@ function ssToggle(key, container) {
 }
 
 // ── SALES SLIP SEARCH with username/invoice/area filter ──
-window.renderSaleSlips = function() {
+window.renderSaleSlips = async function() {
   const dateFilter     = document.getElementById('ss-date')?.value||'';
-  const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
-  const areaFilter     = (document.getElementById('ss-area')?.value||'').toLowerCase().trim();
   const invoiceFilter  = (document.getElementById('ss-invoice')?.value||'').toLowerCase().trim();
   const usernameFilter = (document.getElementById('ss-username')?.value||'').toLowerCase().trim();
 
-  const slips = [...DB.orderBookings].reverse().filter(b =>
+  const data = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
+  _slipsCache = data.results || data;
+
+  const slips = _slipsCache.filter(b =>
     b.status !== 'cancelled' &&
-    (!dateFilter     || b.date === dateFilter) &&
-    (!statusFilter   || b.status === statusFilter) &&
-    (!nameFilter     || (b.customerName||'').toLowerCase().includes(nameFilter) || (b.accountNo||'').toLowerCase().includes(nameFilter)) &&
-    (!areaFilter     || (b.customerArea||'').toLowerCase().includes(areaFilter)) &&
-    (!invoiceFilter  || (b.invoice||'').toLowerCase().includes(invoiceFilter) || (b.accountNo||'').toLowerCase().includes(invoiceFilter)) &&
-    (!usernameFilter || (b.createdBy||'').toLowerCase().includes(usernameFilter) || (b.createdByName||'').toLowerCase().includes(usernameFilter))
+    (!dateFilter     || (b.created_at||'').slice(0,10) === dateFilter) &&
+    (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
+    (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter)) &&
+    (!usernameFilter || (b.served_by_name||'').toLowerCase().includes(usernameFilter))
   );
 
   const tbody = document.getElementById('saleslips-tbody');
@@ -5002,28 +5086,27 @@ window.renderSaleSlips = function() {
   }
 
   tbody.innerHTML = slips.map(b => {
-    const statusClass = b.status === 'saved' ? 'badge-green' : b.status === 'draft' ? 'badge-yellow' : 'badge-red';
-    const hasTax  = (b.taxAmt||0) > 0;
-    const hasDisc = (b.discAmt||0) > 0;
+    const statusClass = b.status === 'completed' ? 'badge-green' : ['returned','partially_returned'].includes(b.status) ? 'badge-red' : 'badge-yellow';
+    const hasTax  = Number(b.tax_amount) > 0;
+    const hasDisc = Number(b.discount_amount) > 0;
     return `<tr>
-      <td class="td-mono" style="font-weight:700">${b.invoice}</td>
-      <td style="font-size:12px">${b.date}</td>
-      <td style="font-weight:600">${b.customerName}
-        ${b.createdBy ? `<div style="font-size:10px;color:var(--text-muted)"><i class="fa fa-user-tag"></i> ${b.createdBy}</div>` : ''}
+      <td class="td-mono" style="font-weight:700">${b.invoice_number}</td>
+      <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
+      <td style="font-weight:600">${b.customer_name||'Walk-in'}
+        ${b.served_by_name ? `<div style="font-size:10px;color:var(--text-muted)"><i class="fa fa-user-tag"></i> ${b.served_by_name}</div>` : ''}
       </td>
-      <td class="td-mono">${b.accountNo||'—'}</td>
+      <td class="td-mono">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>
       <td style="text-align:center">${b.items?.length||0}</td>
-      <td class="fw-700 td-mono">Rs.${(b.subtotal||0).toFixed(2)}
-        ${hasTax && ssSettings.showTax ? `<div style="font-size:10px;color:var(--yellow)">+Rs.${(b.taxAmt||0).toFixed(2)} tax</div>` : ''}
-        ${hasDisc && ssSettings.showDiscount ? `<div style="font-size:10px;color:var(--green)">-Rs.${(b.discAmt||0).toFixed(2)} disc</div>` : ''}
+      <td class="fw-700 td-mono">Rs.${Number(b.subtotal).toFixed(2)}
+        ${hasTax ? `<div style="font-size:10px;color:var(--yellow)">+Rs.${Number(b.tax_amount).toFixed(2)} tax</div>` : ''}
+        ${hasDisc ? `<div style="font-size:10px;color:var(--green)">-Rs.${Number(b.discount_amount).toFixed(2)} disc</div>` : ''}
       </td>
-      <td class="fw-700 td-mono" style="color:var(--yellow)">Rs.${(b.netPayable||0).toFixed(2)}</td>
-      <td><span class="badge ${statusClass}">${b.status}</span></td>
+      <td class="fw-700 td-mono" style="color:var(--yellow)">Rs.${Number(b.total_amount).toFixed(2)}</td>
+      <td><span class="badge ${statusClass}">${b.status.replace(/_/g,' ')}</span></td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:nowrap">
           <button class="btn btn-ghost btn-xs" onclick="viewSlipDetail(${b.id})" title="View Details"><i class="fa fa-eye"></i></button>
           <button class="btn btn-ghost btn-xs" onclick="printSingleSlipA4(${b.id})" title="Print"><i class="fa fa-print"></i></button>
-          <button class="btn btn-accent btn-xs" onclick="downloadSlipInvoice(${b.id})" title="Download"><i class="fa fa-download"></i></button>
         </div>
       </td>
     </tr>`;
@@ -5037,15 +5120,18 @@ window.clearSaleSlipsFilters = function() {
   renderSaleSlips();
 };
 
-window.viewSlipDetail   = id => viewOrderDetail(id);
-
-window.downloadSlipInvoice = function(id) {
-  const b = DB.orderBookings.find(x => x.id === id);
+// Fixed: previously overrode viewSlipDetail with a call to a non-existent
+// viewOrderDetail() function (dead code from the original template — would
+// have thrown ReferenceError on click). The real viewSlipDetail defined
+// earlier (using _slipsCache) is left as the only definition.
+window.downloadSlipInvoice = async function(id) {
+  let b = _slipsCache.find(x => x.id === id);
+  if (!b) b = await SalesAPI.get(id);
   if (!b) { toast('Booking not found','error'); return; }
-  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invoice ' + b.invoice + '</title></head><body style="margin:0;padding:20px;font-family:sans-serif">' + buildSlipA4Html(b) + '</body></html>';
+  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invoice ' + b.invoice_number + '</title></head><body style="margin:0;padding:20px;font-family:sans-serif">' + buildSlipA4Html(b) + '</body></html>';
   const blob = new Blob([html], { type: 'text/html' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'Invoice-' + b.invoice + '.html'; a.click();
+  a.href = URL.createObjectURL(blob); a.download = 'Invoice-' + b.invoice_number + '.html'; a.click();
   URL.revokeObjectURL(a.href);
   toast('Invoice downloaded!', 'success');
 };
@@ -5184,66 +5270,61 @@ if (!DB.collectionPayments) DB.collectionPayments = [];
 if (!DB.saleReturns)      DB.saleReturns = [];
 if (!DB.purchaseReturns)  DB.purchaseReturns = [];
 
+let _colCustomerCache = [];
+let _colSalesCache = [];
+
 function _custBookings(custId) {
-  const c = DB.customers.find(x => x.id === custId);
-  return DB.orderBookings.filter(b =>
-    b.status === 'saved' &&
-    (b.customerId === custId || (c && b.customerName === c.name))
-  );
+  return _colSalesCache.filter(b => b.customer === custId);
 }
 
 function getCustomerBalance(custId) {
   const bookings = _custBookings(custId);
-  const totalOrders = bookings.reduce((s, b) => s + (b.total||0), 0);
-  const payments    = DB.collectionPayments.filter(p => p.customerId === custId).reduce((s, p) => s + p.amount, 0);
+  const totalOrders = bookings.reduce((s, b) => s + Number(b.total_amount), 0);
+  const payments    = bookings.reduce((s, b) => s + Number(b.paid_amount), 0);
   return { totalOrders, payments, balance: totalOrders - payments };
 }
 
 function getTodayOrders(custId) {
   const today = new Date().toISOString().split('T')[0];
-  return _custBookings(custId).filter(b => b.date === today).reduce((s, b) => s + (b.total||0), 0);
+  return _custBookings(custId).filter(b => (b.created_at||'').slice(0,10) === today).reduce((s, b) => s + Number(b.total_amount), 0);
 }
 
 function getLastPaymentDate(custId) {
-  const pays = DB.collectionPayments.filter(p => p.customerId === custId);
-  if (!pays.length) { const c = DB.customers.find(x => x.id === custId); return c?.lastVisit || '—'; }
-  return pays.sort((a,b) => (b.date||'').localeCompare(a.date||''))[0].date || '—';
+  const allPayments = [];
+  _custBookings(custId).forEach(b => (b.payments||[]).forEach(p => allPayments.push(p)));
+  if (!allPayments.length) return '—';
+  return allPayments.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''))[0].created_at.slice(0,10);
 }
 
-// Build username summary: all bookings by a username across all customers
+// Build username summary: all sales served by a username, grouped by customer
 function getUsernameCollectionRows(username) {
   const lc = username.toLowerCase();
-  const bookings = DB.orderBookings.filter(b =>
-    b.status === 'saved' &&
-    ((b.createdBy||'').toLowerCase() === lc || (b.createdByName||'').toLowerCase().includes(lc))
-  );
-  // Group by customer
+  const bookings = _colSalesCache.filter(b => (b.served_by_name||'').toLowerCase().includes(lc));
   const byCustomer = {};
   bookings.forEach(b => {
-    const key = b.customerId || b.customerName;
-    if (!byCustomer[key]) byCustomer[key] = { customerName: b.customerName, accountNo: b.accountNo||'—', username: b.createdBy||b.createdByName||username, invoices: [], totalBill: 0, discAmt: 0, taxAmt: 0 };
-    byCustomer[key].invoices.push(b.invoice);
-    byCustomer[key].totalBill += (b.total||0);
-    byCustomer[key].discAmt  += (b.discAmt||0);
-    byCustomer[key].taxAmt   += (b.taxAmt||0);
-    // Find payments
-    const cust = DB.customers.find(c => c.id === b.customerId || c.name === b.customerName);
-    if (cust) {
-      const pays = DB.collectionPayments.filter(p => p.customerId === cust.id).reduce((s,p) => s+p.amount, 0);
-      byCustomer[key].received = pays;
-    } else {
-      byCustomer[key].received = byCustomer[key].received || 0;
-    }
+    const key = b.customer || b.customer_name;
+    if (!byCustomer[key]) byCustomer[key] = { customerName: b.customer_name||'Walk-in', accountNo: b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—', username: b.served_by_name||username, invoices: [], totalBill: 0, discAmt: 0, taxAmt: 0, received: 0 };
+    byCustomer[key].invoices.push(b.invoice_number);
+    byCustomer[key].totalBill += Number(b.total_amount);
+    byCustomer[key].discAmt  += Number(b.discount_amount);
+    byCustomer[key].taxAmt   += Number(b.tax_amount);
+    byCustomer[key].received += Number(b.paid_amount);
   });
   return Object.values(byCustomer).map(r => ({
     ...r,
     invoiceCount: r.invoices.length,
-    pending: Math.max(0, r.totalBill - (r.received||0)),
+    pending: Math.max(0, r.totalBill - r.received),
     totalCollection: r.totalBill
   }));
 }
 
-function renderCollection() {
+async function renderCollection() {
+  const [custData, salesData] = await Promise.all([
+    CustomersAPI.list({ page_size: 500 }), SalesAPI.list({ page_size: 500 }),
+  ]);
+  _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: 'ACC-'+String(c.id).padStart(4,'0') }));
+  _colSalesCache = (salesData.results || salesData).filter(b => b.status !== 'cancelled');
+
   const q           = (document.getElementById('col-search')?.value||'').toLowerCase();
   const dateFrom    = document.getElementById('col-date-from')?.value||'';
   const dateTo      = document.getElementById('col-date-to')?.value||'';
@@ -5302,7 +5383,7 @@ function renderCollection() {
     <th>Today's Orders</th><th>Total Pending</th><th>Received</th>
     <th>Remaining</th><th>Last Payment</th><th>Actions</th></tr>`;
 
-  let rows = DB.customers.map(c => {
+  let rows = _colCustomerCache.map(c => {
     const bal = getCustomerBalance(c.id);
     const todayOrders = getTodayOrders(c.id);
     const lastPay     = getLastPaymentDate(c.id);
@@ -5313,11 +5394,7 @@ function renderCollection() {
   rows = rows.filter(r => {
     if (q && !(r.name||'').toLowerCase().includes(q) && !(r.phone||'').toLowerCase().includes(q) && !(r.accountNo||'').toLowerCase().includes(q)) return false;
     if (usernameQ) {
-      // filter customers who have bookings by this username
-      const hasBk = _custBookings(r.id).some(b =>
-        (b.createdBy||'').toLowerCase().includes(usernameQ) ||
-        (b.createdByName||'').toLowerCase().includes(usernameQ)
-      );
+      const hasBk = _custBookings(r.id).some(b => (b.served_by_name||'').toLowerCase().includes(usernameQ));
       if (!hasBk) return false;
     }
     if (balFilter === 'pending' && r.totalPending <= 0) return false;
@@ -5327,7 +5404,7 @@ function renderCollection() {
   });
 
   const totalPending  = rows.reduce((s,r) => s+Math.max(0, r.totalPending), 0);
-  const totalReceived = DB.collectionPayments.filter(p => p.date===today).reduce((s,p) => s+p.amount, 0);
+  const totalReceived = _colSalesCache.reduce((s,b) => s + (b.payments||[]).filter(p=>(p.created_at||'').slice(0,10)===today).reduce((a,p)=>a+Number(p.amount),0), 0);
   const overdueCount  = rows.filter(r => r.totalPending>0 && r.lastPay<thirtyDaysAgo).length;
 
   if (document.getElementById('col-total-customers')) document.getElementById('col-total-customers').textContent = rows.length;
@@ -5370,7 +5447,7 @@ function renderCollection() {
 }
 
 function openCollectionPayment(custId) {
-  const c = DB.customers.find(x => x.id===custId); if (!c) return;
+  const c = _colCustomerCache.find(x => x.id===custId); if (!c) return;
   const bal = getCustomerBalance(custId);
   const remaining = Math.max(0, bal.totalOrders-bal.payments);
   document.getElementById('col-pay-cust-id').value       = custId;
@@ -5392,22 +5469,37 @@ function calcColRemaining() {
   document.getElementById('col-pay-remaining').style.color = rem===0 ? 'var(--green)' : 'var(--yellow)';
 }
 
-function saveCollectionPayment() {
+async function saveCollectionPayment() {
   const custId = parseInt(document.getElementById('col-pay-cust-id').value);
-  const amount = parseFloat(document.getElementById('col-pay-amount').value);
+  let amount = parseFloat(document.getElementById('col-pay-amount').value);
   if (!amount || amount<=0) { toast('Enter a valid payment amount!','error'); return; }
-  const payment = {
-    id: Date.now(), customerId: custId, amount,
-    date:   document.getElementById('col-pay-date').value,
-    method: document.getElementById('col-pay-method').value,
-    notes:  document.getElementById('col-pay-notes').value,
-  };
-  DB.collectionPayments.push(payment);
-  const c = DB.customers.find(x => x.id===custId);
-  if (c) c.lastVisit = payment.date;
-  closeModal('col-payment-modal');
-  renderCollection();
-  toast(`Payment of Rs.${amount.toFixed(2)} recorded for ${c?.name}!`,'success');
+  const method = document.getElementById('col-pay-method').value;
+  const c = _colCustomerCache.find(x => x.id===custId);
+
+  // A "collection payment" is applied across this customer's unpaid sales,
+  // oldest first, via the real SalesAPI.pay() endpoint (there's no separate
+  // customer-level payment record on the backend — payments always belong
+  // to a specific invoice, matching real accounting).
+  const unpaidSales = _custBookings(custId)
+    .filter(b => Number(b.due_amount) > 0)
+    .sort((a,b) => (a.created_at||'').localeCompare(b.created_at||''));
+
+  if (!unpaidSales.length) { toast('This customer has no unpaid invoices.', 'warning'); return; }
+
+  try {
+    for (const sale of unpaidSales) {
+      if (amount <= 0) break;
+      const due = Number(sale.due_amount);
+      const payNow = Math.min(due, amount);
+      await SalesAPI.pay(sale.id, { amount: payNow, method });
+      amount -= payNow;
+    }
+    closeModal('col-payment-modal');
+    renderCollection();
+    toast(`Payment recorded for ${c?.name}!`,'success');
+  } catch (err) {
+    toast(err.message || 'Failed to record payment', 'error');
+  }
 }
 
 function clearCollectionFilters() {
@@ -5421,7 +5513,7 @@ function clearCollectionFilters() {
 
 function printCollectionReport() {
   const rows = [];
-  DB.customers.forEach(c => {
+  _colCustomerCache.forEach(c => {
     const bal = getCustomerBalance(c.id);
     const lastPay = getLastPaymentDate(c.id);
     rows.push({
@@ -5457,7 +5549,7 @@ function printCollectionReport() {
         <div style="font-size:11px;color:#666;margin-top:2px">Date: ${today} &nbsp;|&nbsp; Printed: ${now}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:11px;color:#555">Printed by: <strong>${currentUser?.name||'Admin'}</strong></div>
+        <div style="font-size:11px;color:#555">Printed by: <strong>${currentUser?.full_name||'Admin'}</strong></div>
         <div style="font-size:11px;color:#555;margin-top:2px">Total Accounts: <strong>${rows.length}</strong></div>
       </div>
     </div>
@@ -5544,7 +5636,7 @@ function printCollectionReport() {
 
     <div style="margin-top:12px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between">
       <span>SmartRetail ERP — Customer Collection Report</span>
-      <span>Printed: ${now} by ${currentUser?.name||'Admin'}</span>
+      <span>Printed: ${now} by ${currentUser?.full_name||'Admin'}</span>
     </div>
   </div>`;
 
@@ -5949,105 +6041,39 @@ document.addEventListener('DOMContentLoaded', function() {
   `;
   document.head.appendChild(style);
 });
-(function() {
-  const _origRenderSaleSlips = typeof renderSaleSlips === 'function' ? renderSaleSlips : null;
-  if (!_origRenderSaleSlips) return;
-  // Patch renderSaleSlips to also filter by invoice and username
-  window.renderSaleSlips = function() {
-    const dateFilter   = document.getElementById('ss-date')?.value||'';
-    const statusFilter = document.getElementById('ss-status')?.value||'';
-    const nameFilter   = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
-    const areaFilter   = (document.getElementById('ss-area')?.value||'').toLowerCase().trim();
-    const invoiceFilter = (document.getElementById('ss-invoice')?.value||'').toLowerCase().trim();
-    const usernameFilter = (document.getElementById('ss-username')?.value||'').toLowerCase().trim();
-
-    const slips = [...DB.orderBookings].reverse().filter(b =>
-      b.status !== 'cancelled' &&
-      (!dateFilter   || b.date === dateFilter) &&
-      (!statusFilter || b.status === statusFilter) &&
-      (!nameFilter   || (b.customerName||'').toLowerCase().includes(nameFilter) || (b.accountNo||'').toLowerCase().includes(nameFilter)) &&
-      (!areaFilter   || (b.customerArea||'').toLowerCase().includes(areaFilter)) &&
-      (!invoiceFilter || (b.invoice||'').toLowerCase().includes(invoiceFilter) || (b.accountNo||'').toLowerCase().includes(invoiceFilter)) &&
-      (!usernameFilter || (b.createdBy||'').toLowerCase().includes(usernameFilter) || (b.createdByName||'').toLowerCase().includes(usernameFilter))
-    );
-
-    const tbody = document.getElementById('saleslips-tbody');
-    const label = document.getElementById('ss-count-label');
-    if (label) label.textContent = slips.length + ' slip' + (slips.length!==1?'s':'');
-
-    if (!slips.length) {
-      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)"><i class="fa fa-file-invoice" style="font-size:32px;display:block;margin-bottom:10px;opacity:0.3"></i>No sale slips found</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = slips.map(b => {
-      const statusClass = b.status === 'saved' ? 'badge-green' : b.status === 'draft' ? 'badge-yellow' : 'badge-red';
-      return `<tr>
-        <td class="td-mono" style="font-weight:700">${b.invoice}</td>
-        <td style="font-size:12px">${b.date}</td>
-        <td style="font-weight:600">${b.customerName}</td>
-        <td class="td-mono">${b.accountNo||'—'}</td>
-        <td style="text-align:center">${b.items?.length||0}</td>
-        <td class="fw-700">$${(b.total||0).toFixed(2)}</td>
-        <td class="fw-700" style="color:var(--yellow)">$${(b.netPayable||0).toFixed(2)}</td>
-        <td><span class="badge ${statusClass}">${b.status}</span></td>
-        <td>
-          <div class="flex-gap" style="gap:4px">
-            <button class="btn btn-ghost btn-xs" onclick="viewSlipDetail(${b.id})" title="View Details"><i class="fa fa-eye"></i></button>
-            <button class="btn btn-ghost btn-xs" onclick="printSingleSlipA4(${b.id})" title="Print"><i class="fa fa-print"></i></button>
-            <button class="btn btn-accent btn-xs" onclick="downloadSlipInvoice(${b.id})" title="Download"><i class="fa fa-download"></i></button>
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
-  };
-
-  window.clearSaleSlipsFilters = function() {
-    ['ss-date','ss-status','ss-name','ss-area','ss-invoice','ss-username'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
-    });
-    renderSaleSlips();
-  };
-
-  window.viewSlipDetail = function(id) {
-    viewOrderDetail(id);
-  };
-
-  window.downloadSlipInvoice = function(id) {
-    const b = DB.orderBookings.find(x => x.id === id);
-    if (!b) { toast('Booking not found','error'); return; }
-    const html = '<!DOCTYPE html><html><head><title>Invoice ' + b.invoice + '</title></head><body>' + buildSlipA4Html(b) + '</body></html>';
-    const blob = new Blob([html], { type: 'text/html' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'Invoice-' + b.invoice + '.html';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast('Invoice downloaded!', 'success');
-  };
-})();
+// NOTE: Two legacy IIFE patches that used to re-override renderSaleSlips/
+// viewSlipDetail/downloadSlipInvoice with stale DB.orderBookings-based logic
+// were removed here — the real implementations above (using _slipsCache /
+// SalesAPI) are now the only definitions, so they're no longer clobbered.
+window.clearSaleSlipsFilters = function() {
+  ['ss-date','ss-status','ss-name','ss-area','ss-invoice','ss-username'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  renderSaleSlips();
+};
 
 // ═══════════════════════════════════════════════════════
 // SALE RETURN MODULE
 // ═══════════════════════════════════════════════════════
 let _srCurrentBooking = null;
 
-function renderSaleReturn() {
-  searchSaleReturnInvoice();
-  renderSaleReturnHistory();
+let _srInvoiceCache = [];
+
+async function renderSaleReturn() {
+  await searchSaleReturnInvoice();
+  await renderSaleReturnHistory();
 }
 
-function searchSaleReturnInvoice() {
-  const invQ   = (document.getElementById('sr-invoice-search')?.value||'').toLowerCase().trim();
-  const custQ  = (document.getElementById('sr-cust-search')?.value||'').toLowerCase().trim();
+async function searchSaleReturnInvoice() {
+  const invQ   = (document.getElementById('sr-invoice-search')?.value||'').trim();
+  const custQ  = (document.getElementById('sr-cust-search')?.value||'').trim();
   const fromD  = document.getElementById('sr-date-from')?.value||'';
   const toD    = document.getElementById('sr-date-to')?.value||'';
   const tbody  = document.getElementById('sr-invoice-tbody');
   const label  = document.getElementById('sr-results-count');
   if (!tbody) return;
 
-  // Only show results if at least one filter is active
   if (!invQ && !custQ && !fromD && !toD) {
     tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">
       <i class="fa fa-search" style="font-size:28px;display:block;margin-bottom:8px;opacity:.3"></i>
@@ -6057,14 +6083,15 @@ function searchSaleReturnInvoice() {
     return;
   }
 
-  const results = (DB.orderBookings||[]).filter(b => {
-    if (b.status === 'cancelled') return false;
-    if (invQ  && !(b.invoice||'').toLowerCase().includes(invQ) && !(b.accountNo||'').toLowerCase().includes(invQ)) return false;
-    if (custQ && !(b.customerName||'').toLowerCase().includes(custQ)) return false;
-    if (fromD && (b.date||'') < fromD) return false;
-    if (toD   && (b.date||'') > toD)   return false;
-    return true;
-  }).slice(0, 50);
+  const params = {};
+  if (invQ) params.search = invQ;
+  else if (custQ) params.search = custQ;
+  const data = await SalesAPI.list(params);
+  let results = data.results || data;
+  if (fromD) results = results.filter(s => (s.created_at||'') >= fromD);
+  if (toD) results = results.filter(s => (s.created_at||'') <= toD + 'T23:59:59');
+  results = results.slice(0, 50);
+  _srInvoiceCache = results;
 
   if (label) label.textContent = results.length + ' invoice' + (results.length!==1?'s':'') + ' found';
 
@@ -6077,18 +6104,18 @@ function searchSaleReturnInvoice() {
   }
 
   tbody.innerHTML = results.map(b => {
-    const alreadyReturned = (DB.saleReturns||[]).some(r => r.originalInvoice === b.invoice);
-    const statusClass = b.status==='saved'?'badge-green':b.status==='draft'?'badge-yellow':'badge-red';
+    const alreadyReturned = ['returned','partially_returned'].includes(b.status);
+    const statusClass = b.status==='completed'?'badge-green':b.status==='cancelled'?'badge-red':'badge-yellow';
     return `<tr>
-      <td class="td-mono" style="font-weight:700">${b.invoice}</td>
-      <td style="font-size:12px">${b.date}</td>
-      <td style="font-weight:600">${b.customerName}</td>
-      <td class="td-mono" style="font-size:11px">${b.accountNo||'—'}</td>
+      <td class="td-mono" style="font-weight:700">${b.invoice_number}</td>
+      <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
+      <td style="font-weight:600">${b.customer_name||'Walk-in'}</td>
+      <td class="td-mono" style="font-size:11px">—</td>
       <td style="text-align:center">${b.items?.length||0}</td>
-      <td class="td-mono fw-700">Rs.${(b.total||0).toFixed(2)}</td>
-      <td class="td-mono" style="color:var(--yellow)">${(b.taxAmt||0)>0?'Rs.'+(b.taxAmt||0).toFixed(2):'—'}</td>
-      <td class="td-mono" style="color:var(--green)">${(b.discAmt||0)>0?'Rs.'+(b.discAmt||0).toFixed(2):'—'}</td>
-      <td><span class="badge ${statusClass}">${b.status}</span>
+      <td class="td-mono fw-700">Rs.${Number(b.total_amount).toFixed(2)}</td>
+      <td class="td-mono" style="color:var(--yellow)">${Number(b.tax_amount)>0?'Rs.'+Number(b.tax_amount).toFixed(2):'—'}</td>
+      <td class="td-mono" style="color:var(--green)">${Number(b.discount_amount)>0?'Rs.'+Number(b.discount_amount).toFixed(2):'—'}</td>
+      <td><span class="badge ${statusClass}">${b.status.replace(/_/g,' ')}</span>
           ${alreadyReturned?'<span class="badge badge-red" style="margin-left:4px">Returned</span>':''}</td>
       <td>
         <button class="btn btn-sm" style="background:var(--red);color:#fff;font-size:11px"
@@ -6100,35 +6127,34 @@ function searchSaleReturnInvoice() {
   }).join('');
 }
 
-function openSaleReturnModal(bookingId) {
-  const b = DB.orderBookings.find(x => x.id === bookingId);
-  if (!b) { toast('Invoice not found!','error'); return; }
+async function openSaleReturnModal(saleId) {
+  const b = await SalesAPI.get(saleId);
   _srCurrentBooking = b;
 
-  document.getElementById('sr-modal-invoice-label').textContent = 'Invoice: ' + b.invoice + ' — ' + b.customerName;
-  document.getElementById('sr-inv-no').textContent    = b.invoice;
-  document.getElementById('sr-inv-cust').textContent  = b.customerName;
-  document.getElementById('sr-inv-date').textContent  = b.date;
-  document.getElementById('sr-inv-total').textContent = 'Rs.' + (b.total||0).toFixed(2);
+  document.getElementById('sr-modal-invoice-label').textContent = 'Invoice: ' + b.invoice_number + ' — ' + (b.customer_name||'Walk-in');
+  document.getElementById('sr-inv-no').textContent    = b.invoice_number;
+  document.getElementById('sr-inv-cust').textContent  = b.customer_name||'Walk-in';
+  document.getElementById('sr-inv-date').textContent  = (b.created_at||'').replace('T',' ').slice(0,16);
+  document.getElementById('sr-inv-total').textContent = 'Rs.' + Number(b.total_amount).toFixed(2);
   document.getElementById('sr-reason').value          = 'Defective Product';
   document.getElementById('sr-notes').value           = '';
   document.getElementById('sr-refund-total').textContent     = 'Rs.0.00';
   document.getElementById('sr-return-items-count').textContent = '0 items selected';
 
-  // Build item rows
+  // Build item rows — quantity_pending = quantity - quantity_returned (already-returned items are excluded)
   const tbody = document.getElementById('sr-items-tbody');
   tbody.innerHTML = (b.items||[]).map((it,i) => {
-    const tp = (it.qty||0) + (it.cartons||0)*(it.ppc||1);
-    const unitPrice = it.rate||0;
+    const pending = it.quantity - (it.quantity_returned||0);
+    const unitPrice = Number(it.unit_price);
     return `<tr>
       <td style="padding:6px 10px;text-align:center">
-        <input type="checkbox" class="sr-item-check" data-idx="${i}" onchange="srCalcRefund()">
+        <input type="checkbox" class="sr-item-check" data-idx="${i}" data-sale-item-id="${it.id}" onchange="srCalcRefund()" ${pending<=0?'disabled':''}>
       </td>
-      <td style="padding:6px 10px;font-weight:600">${it.icon||'📦'} ${it.name}</td>
-      <td style="padding:6px 10px;text-align:center;color:var(--cyan);font-weight:700">${tp}</td>
+      <td style="padding:6px 10px;font-weight:600">📦 ${it.product_name}${pending<=0?' <span class="badge badge-red" style="font-size:9px">Fully Returned</span>':''}</td>
+      <td style="padding:6px 10px;text-align:center;color:var(--cyan);font-weight:700">${pending}</td>
       <td style="padding:6px 10px">
-        <input type="number" class="form-input sr-return-qty" data-idx="${i}" data-max="${tp}" data-price="${unitPrice}"
-          value="0" min="0" max="${tp}" style="width:70px;padding:5px 8px;font-size:12px"
+        <input type="number" class="form-input sr-return-qty" data-idx="${i}" data-max="${pending}" data-price="${unitPrice}"
+          value="0" min="0" max="${pending}" style="width:70px;padding:5px 8px;font-size:12px" ${pending<=0?'disabled':''}
           oninput="srValidateQty(this);srCalcRefund()">
       </td>
       <td style="padding:6px 10px;text-align:right;color:var(--text-secondary);font-family:var(--mono)">Rs.${unitPrice.toFixed(2)}</td>
@@ -6177,81 +6203,56 @@ function srCalcRefund() {
   document.getElementById('sr-return-items-count').textContent = itemsSelected + ' item' + (itemsSelected!==1?'s':'') + ' selected';
 }
 
-function saveSaleReturn() {
+let _srHistoryCache = [];
+
+async function saveSaleReturn() {
   if (!_srCurrentBooking) return;
   const returnItems = [];
-  document.querySelectorAll('.sr-return-qty').forEach((el,i) => {
+  document.querySelectorAll('.sr-return-qty').forEach((el) => {
     const qty = parseInt(el.value)||0;
     if (qty > 0) {
-      const origItem = _srCurrentBooking.items[i];
-      returnItems.push({ ...origItem, returnQty: qty, refund: qty*(origItem.rate||0) });
+      const saleItemId = parseInt(el.closest('tr').querySelector('.sr-item-check').dataset.saleItemId);
+      returnItems.push({ sale_item: saleItemId, quantity: qty });
     }
   });
   if (!returnItems.length) { toast('Select at least one item to return!','error'); return; }
-  const reason       = document.getElementById('sr-reason').value;
-  const refundMethod = document.getElementById('sr-refund-method').value;
-  const notes        = document.getElementById('sr-notes').value;
-  const totalRefund  = returnItems.reduce((s,i) => s+i.refund, 0);
-  const returnId     = 'SR-' + String((DB.saleReturns.length+1)).padStart(4,'0');
+  const reason = document.getElementById('sr-reason').value;
+  const notes  = document.getElementById('sr-notes').value;
 
-  const record = {
-    id:              DB.saleReturns.length + 1,
-    returnId,
-    date:            new Date().toISOString().split('T')[0],
-    originalInvoice: _srCurrentBooking.invoice,
-    originalId:      _srCurrentBooking.id,
-    customerId:      _srCurrentBooking.customerId,
-    customerName:    _srCurrentBooking.customerName,
-    items:           returnItems,
-    totalRefund,
-    reason,
-    refundMethod,
-    notes,
-    by:              currentUser?.username || 'admin',
-  };
-
-  DB.saleReturns.push(record);
-
-  // Return stock to inventory
-  returnItems.forEach(ri => {
-    const prod = DB.products.find(p => p.id === ri.productId || p.name === ri.name);
-    if (prod) {
-      const before = prod.stock;
-      prod.stock += ri.returnQty;
-      DB.stockHistory.unshift({
-        date: new Date().toLocaleString(), product: prod.name,
-        type: 'Sale Return', adjType: 'returned',
-        qty: ri.returnQty, before, after: prod.stock,
-        ref: returnId, by: record.by
-      });
-    }
-  });
-
-  closeModal('sr-process-modal');
-  renderSaleReturnHistory();
-  searchSaleReturnInvoice();
-  toast(`Return ${returnId} processed — Refund: Rs.${totalRefund.toFixed(2)}`, 'success');
+  try {
+    const saleReturn = await SalesAPI.processReturn(_srCurrentBooking.id, {
+      items: returnItems, reason: notes ? `${reason} — ${notes}` : reason,
+    });
+    closeModal('sr-process-modal');
+    await renderSaleReturnHistory();
+    await searchSaleReturnInvoice();
+    toast(`Return processed — Refund: Rs.${Number(saleReturn.refund_amount).toFixed(2)}`, 'success');
+  } catch (err) {
+    toast(err.message || 'Failed to process return', 'error');
+  }
 }
 
-function renderSaleReturnHistory() {
+async function renderSaleReturnHistory() {
   const tbody = document.getElementById('sr-history-tbody');
   const label = document.getElementById('sr-history-count');
   if (!tbody) return;
-  const returns = [...(DB.saleReturns||[])].reverse();
+  const data = await SalesAPI.returnHistory({ ordering: '-created_at' });
+  const returns = data.results || data;
+  _srHistoryCache = returns;
   if (label) label.textContent = returns.length + ' return' + (returns.length!==1?'s':'');
   if (!returns.length) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--text-muted)">No returns processed yet</td></tr>`;
     return;
   }
   tbody.innerHTML = returns.map(r => `<tr>
-    <td class="td-mono" style="font-weight:700;color:var(--red)">${r.returnId}</td>
-    <td style="font-size:12px">${r.date}</td>
-    <td class="td-mono">${r.originalInvoice}</td>
-    <td style="font-weight:600">${r.customerName}</td>
-    <td style="text-align:center">${r.items.length} item(s)<br><span style="font-size:10px;color:var(--text-muted)">${r.items.map(i=>i.name+' ×'+i.returnQty).join(', ')}</span></td>
-    <td class="td-mono fw-700" style="color:var(--red)">Rs.${r.totalRefund.toFixed(2)}</td>
-    <td style="font-size:11px">${r.reason}</td>
-    <td style="font-size:11px;color:var(--text-muted)">${r.by}</td>
+    <td class="td-mono" style="font-weight:700;color:var(--red)">SR-${String(r.id).padStart(4,'0')}</td>
+    <td style="font-size:12px">${(r.created_at||'').slice(0,10)}</td>
+    <td class="td-mono">${r.sale}</td>
+    <td style="font-weight:600">—</td>
+    <td style="text-align:center">${r.items.length} item(s)</td>
+    <td class="td-mono fw-700" style="color:var(--red)">Rs.${Number(r.refund_amount).toFixed(2)}</td>
+    <td style="font-size:11px">${r.reason||'—'}</td>
+    <td style="font-size:11px;color:var(--text-muted)">${r.processed_by||'—'}</td>
   </tr>`).join('');
 }
 
@@ -6263,165 +6264,143 @@ function clearSrFilters() {
 }
 
 function printSaleReturnReport() {
-  const returns = DB.saleReturns||[];
-  const totalVal = returns.reduce((s,r)=>s+r.totalRefund,0);
+  const returns = _srHistoryCache||[];
+  const totalVal = returns.reduce((s,r)=>s+Number(r.refund_amount),0);
   const html = `<div class="a4-doc"><div style="display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px">
     <div><div style="font-size:20px;font-weight:900">🏪 SmartRetail ERP</div><div style="font-size:12px;color:#555">Sale Return Report — ${new Date().toLocaleDateString()}</div></div>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr>${['Return ID','Date','Invoice','Customer','Items','Refund','Reason'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
+    <thead><tr>${['Return ID','Date','Invoice','Items','Refund','Reason'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
     <tbody>${returns.map((r,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'}">
-      <td style="padding:6px 8px;font-weight:700;color:#dc2626">${r.returnId}</td>
-      <td style="padding:6px 8px">${r.date}</td>
-      <td style="padding:6px 8px;font-family:monospace">${r.originalInvoice}</td>
-      <td style="padding:6px 8px;font-weight:700">${r.customerName}</td>
+      <td style="padding:6px 8px;font-weight:700;color:#dc2626">SR-${String(r.id).padStart(4,'0')}</td>
+      <td style="padding:6px 8px">${(r.created_at||'').slice(0,10)}</td>
+      <td style="padding:6px 8px;font-family:monospace">${r.sale}</td>
       <td style="padding:6px 8px">${r.items.length}</td>
-      <td style="padding:6px 8px;font-weight:800;color:#dc2626">Rs.${r.totalRefund.toFixed(2)}</td>
-      <td style="padding:6px 8px">${r.reason}</td>
+      <td style="padding:6px 8px;font-weight:800;color:#dc2626">Rs.${Number(r.refund_amount).toFixed(2)}</td>
+      <td style="padding:6px 8px">${r.reason||''}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="5" style="padding:8px;font-weight:700">TOTAL REFUNDS</td><td colspan="2" style="padding:8px;font-weight:900;font-size:14px">Rs.${totalVal.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="4" style="padding:8px;font-weight:700">TOTAL REFUNDS</td><td colspan="2" style="padding:8px;font-weight:900;font-size:14px">Rs.${totalVal.toFixed(2)}</td></tr></tfoot>
   </table></div>`;
   const pa=document.getElementById('print-area'); pa.innerHTML=html; pa.style.display='block';
   window.print(); setTimeout(()=>{pa.style.display='none';},1200);
 }
 
-function exportSaleReturns() {
-  const rows=(DB.saleReturns||[]).map(r=>[r.returnId,r.date,r.originalInvoice,r.customerName,r.items.length,r.totalRefund.toFixed(2),r.reason,r.refundMethod,r.by]);
-  const csv=[['Return ID','Date','Invoice','Customer','Items','Refund','Reason','Method','By'],...rows].map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='sale-returns-'+new Date().toISOString().split('T')[0]+'.csv'; a.click();
-  URL.revokeObjectURL(a.href); toast('Exported!','success');
+async function exportSaleReturns() {
+  await ReportsAPI.download('sales', 'csv', {}); // full sales report export covers returned invoices too
+  toast('Exported!','success');
 }
 
 // ═══════════════════════════════════════════════════════
 // PURCHASE RETURN MODULE
 // ═══════════════════════════════════════════════════════
-let _prItems = [];
 
-function openPurchaseReturnModal(poId) {
-  _prItems = [{ productId:'', qty:1, price:0 }];
+let _prSelectedPo = null;
+
+async function openPurchaseReturnModal(poId) {
   const supSel = document.getElementById('pr-supplier');
-  if (supSel) supSel.innerHTML = '<option value="">— Select Supplier —</option>' +
-    DB.suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  if (supSel) {
+    const supData = await SuppliersAPI.list({ page_size: 500 });
+    const suppliers = supData.results || supData;
+    supSel.innerHTML = '<option value="">— Select Supplier —</option>' +
+      suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  }
   document.getElementById('pr-date').value   = new Date().toISOString().split('T')[0];
   document.getElementById('pr-notes').value  = '';
-  document.getElementById('pr-po-select').innerHTML = '<option value="">— Select PO (optional) —</option>';
+  document.getElementById('pr-po-select').innerHTML = '<option value="">— Select PO —</option>';
+  _prSelectedPo = null;
+  document.getElementById('pr-items-list').innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px">Select a supplier, then a purchase order, to see its received items.</div>';
+
   if (poId) {
-    const po = DB.purchases.find(p=>p.id===poId);
-    if (po) {
-      if (supSel) supSel.value = po.supplier;
-      prLoadPurchases();
-      setTimeout(()=>{ document.getElementById('pr-po-select').value=poId; prLoadPoItems(); },50);
-    }
+    const po = await PurchaseAPI.get(poId);
+    if (supSel) supSel.value = po.supplier;
+    await prLoadPurchases();
+    document.getElementById('pr-po-select').value = poId;
+    await prLoadPoItems();
   }
-  renderPrItems();
   openModal('pr-modal');
 }
 
-function prLoadPurchases() {
+async function prLoadPurchases() {
   const supId = parseInt(document.getElementById('pr-supplier').value)||0;
   const poSel = document.getElementById('pr-po-select');
-  const pos   = DB.purchases.filter(p=>!supId||p.supplier===supId);
-  poSel.innerHTML = '<option value="">— Select PO (optional) —</option>' +
-    pos.map(p=>`<option value="${p.id}">PO-${String(p.id).padStart(4,'0')} — ${p.date} (Rs.${p.total.toFixed(2)})</option>`).join('');
+  const data = await PurchaseAPI.list(supId ? { supplier: supId } : {});
+  const pos = (data.results || data).filter(p => ['received','partially_received'].includes(p.status));
+  poSel.innerHTML = '<option value="">— Select PO —</option>' +
+    pos.map(p=>`<option value="${p.id}">${p.po_number} — ${(p.created_at||'').slice(0,10)} (Rs.${Number(p.total_amount).toFixed(2)})</option>`).join('');
 }
 
-function prLoadPoItems() {
+async function prLoadPoItems() {
   const poId = parseInt(document.getElementById('pr-po-select').value)||0;
-  if (!poId) { _prItems=[{productId:'',qty:1,price:0}]; renderPrItems(); return; }
-  const po = DB.purchases.find(p=>p.id===poId);
-  if (!po) return;
-  _prItems = po.items.map(i=>({ productId:i.productId, name:i.name, qty:i.qty, price:i.price }));
-  renderPrItems();
+  const el = document.getElementById('pr-items-list');
+  if (!poId) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px">Select a PO to see its received items.</div>'; return; }
+  const po = await PurchaseAPI.get(poId);
+  _prSelectedPo = po;
+
+  const receivedItems = po.items.filter(i => i.quantity_received > 0);
+  if (!receivedItems.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px">This PO has no received quantity yet — nothing to return.</div>';
+    return;
+  }
+  el.innerHTML = receivedItems.map((item) => `
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <input type="checkbox" class="pr-item-check" data-po-item-id="${item.id}" onchange="prCalcTotal()">
+      <div style="flex:2;min-width:160px;font-weight:600">📦 ${item.product_name}
+        <div style="font-size:10px;color:var(--text-muted)">Received: ${item.quantity_received} @ Rs.${Number(item.unit_cost).toFixed(2)}</div>
+      </div>
+      <div class="form-group-inline" style="margin-bottom:0;width:90px">
+        <label>Return Qty</label>
+        <input class="form-input pr-return-qty" type="number" value="0" min="0" max="${item.quantity_received}"
+          data-po-item-id="${item.id}" data-price="${item.unit_cost}" style="padding:9px 12px"
+          oninput="prCalcTotal()">
+      </div>
+      <div class="form-group-inline" style="margin-bottom:0;width:100px">
+        <label>Line Total</label>
+        <div class="pr-line-total" data-po-item-id="${item.id}" style="padding:9px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;font-weight:700;font-family:var(--mono);font-size:12px;color:var(--yellow)">Rs.0.00</div>
+      </div>
+    </div>`).join('');
+  prCalcTotal();
 }
 
-function renderPrItems() {
-  const el = document.getElementById('pr-items-list');
-  if (!el) return;
-  el.innerHTML = _prItems.map((item,i)=>`
-    <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
-      <div class="form-group-inline" style="margin-bottom:0;flex:2;min-width:160px">
-        <label>Product</label>
-        <select class="form-input" onchange="prItemChange(${i},'product',this.value)" style="padding:9px 12px">
-          <option value="">Select Product</option>
-          ${DB.products.map(p=>`<option value="${p.id}" ${item.productId==p.id?'selected':''}>${p.icon||'📦'} ${p.name}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group-inline" style="margin-bottom:0;width:90px">
-        <label>Qty</label>
-        <input class="form-input" type="number" value="${item.qty||1}" min="1" style="padding:9px 12px"
-          oninput="prItemChange(${i},'qty',this.value)">
-      </div>
-      <div class="form-group-inline" style="margin-bottom:0;width:110px">
-        <label>Price (Rs.)</label>
-        <input class="form-input" type="number" value="${item.price||0}" step="0.01" style="padding:9px 12px"
-          oninput="prItemChange(${i},'price',this.value)">
-      </div>
-      <div class="form-group-inline" style="margin-bottom:0;width:90px">
-        <label>Line Total</label>
-        <div style="padding:9px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;font-weight:700;font-family:var(--mono);font-size:12px;color:var(--yellow)">Rs.${((item.qty||0)*(item.price||0)).toFixed(2)}</div>
-      </div>
-      <button class="btn btn-ghost btn-xs" onclick="removePrItem(${i})" style="color:var(--red);margin-bottom:2px" title="Remove"><i class="fa fa-times"></i></button>
-    </div>`).join('');
-  const total = _prItems.reduce((s,i)=>s+(i.qty||0)*(i.price||0),0);
+function prCalcTotal() {
+  let total = 0;
+  document.querySelectorAll('.pr-return-qty').forEach(el => {
+    const qty = parseInt(el.value)||0;
+    const price = parseFloat(el.dataset.price)||0;
+    const lineTotal = qty * price;
+    const totalEl = document.querySelector(`.pr-line-total[data-po-item-id="${el.dataset.poItemId}"]`);
+    if (totalEl) totalEl.textContent = 'Rs.'+lineTotal.toFixed(2);
+    total += lineTotal;
+  });
   const tv = document.getElementById('pr-total-val');
   if (tv) tv.textContent = 'Rs.'+total.toFixed(2);
 }
 
-function prItemChange(i,field,val) {
-  if (field==='product') {
-    _prItems[i].productId = parseInt(val)||'';
-    const p = DB.products.find(x=>x.id==val);
-    if (p) { _prItems[i].name=p.name; _prItems[i].price=p.buyPrice||0; }
-  } else if (field==='qty')   _prItems[i].qty   = parseInt(val)||1;
-  else                         _prItems[i].price = parseFloat(val)||0;
-  renderPrItems();
-}
-function addPrItem()       { _prItems.push({productId:'',qty:1,price:0}); renderPrItems(); }
-function removePrItem(i)   { _prItems.splice(i,1); if(!_prItems.length) _prItems.push({productId:'',qty:1,price:0}); renderPrItems(); }
-
-function savePurchaseReturn() {
-  const supId = parseInt(document.getElementById('pr-supplier').value)||0;
-  if (!supId) { toast('Please select a supplier!','error'); return; }
-  const validItems = _prItems.filter(i=>i.productId && i.qty>0);
-  if (!validItems.length) { toast('Add at least one item!','error'); return; }
-  const total   = validItems.reduce((s,i)=>s+i.qty*i.price,0);
-  const poId    = parseInt(document.getElementById('pr-po-select').value)||null;
-  const reason  = document.getElementById('pr-reason').value;
-  const notes   = document.getElementById('pr-notes').value;
-  const retDate = document.getElementById('pr-date').value;
-  const returnId= 'PR-' + String((DB.purchaseReturns.length+1)).padStart(4,'0');
-  const record  = {
-    id: DB.purchaseReturns.length+1, returnId,
-    date: retDate, supplierId: supId,
-    supplierName: DB.suppliers.find(s=>s.id===supId)?.name||'Unknown',
-    poId, poRef: poId?'PO-'+String(poId).padStart(4,'0'):'—',
-    items: validItems.map(i=>({...i, name: DB.products.find(p=>p.id==i.productId)?.name||i.name||''})),
-    total, reason, notes, by: currentUser?.username||'admin',
-  };
-  DB.purchaseReturns.push(record);
-
-  // Deduct stock (items are going back to supplier)
-  validItems.forEach(item=>{
-    const prod = DB.products.find(p=>p.id==item.productId);
-    if (prod) {
-      const before = prod.stock;
-      prod.stock = Math.max(0, prod.stock - item.qty);
-      DB.stockHistory.unshift({
-        date: new Date().toLocaleString(), product: prod.name,
-        type:'Purchase Return', adjType:'decrease',
-        qty:-item.qty, before, after:prod.stock,
-        ref:returnId, by:record.by
-      });
-    }
+async function savePurchaseReturn() {
+  if (!_prSelectedPo) { toast('Please select a purchase order!','error'); return; }
+  const returnItems = [];
+  document.querySelectorAll('.pr-return-qty').forEach(el => {
+    const qty = parseInt(el.value)||0;
+    if (qty > 0) returnItems.push({ purchase_order_item: parseInt(el.dataset.poItemId), quantity: qty });
   });
+  if (!returnItems.length) { toast('Enter a return quantity for at least one item!','error'); return; }
+  const reason = document.getElementById('pr-reason').value;
+  const notes  = document.getElementById('pr-notes').value;
 
-  closeModal('pr-modal');
-  renderPurchaseReturns();
-  toast(`Purchase Return ${returnId} saved — Rs.${total.toFixed(2)} returned to ${record.supplierName}`, 'success');
+  try {
+    const result = await PurchaseAPI.processReturn(_prSelectedPo.id, {
+      items: returnItems, reason: notes ? `${reason} — ${notes}` : reason,
+    });
+    closeModal('pr-modal');
+    await renderPurchaseReturns();
+    toast(`Purchase Return saved — Rs.${Number(result.refund_amount).toFixed(2)} credited from ${result.supplier_name}`, 'success');
+  } catch (err) {
+    toast(err.message || 'Failed to process return', 'error');
+  }
 }
 
-function renderPurchaseReturns() {
+let _prHistoryCache = [];
+
+async function renderPurchaseReturns() {
   const q      = (document.getElementById('pr-search')?.value||'').toLowerCase();
   const fromD  = document.getElementById('pr-date-from')?.value||'';
   const toD    = document.getElementById('pr-date-to')?.value||'';
@@ -6429,22 +6408,23 @@ function renderPurchaseReturns() {
   const label  = document.getElementById('pr-count-label');
   if (!tbody) return;
 
-  let rows = [...(DB.purchaseReturns||[])].reverse().filter(r=>{
-    if (fromD && r.date < fromD) return false;
-    if (toD   && r.date > toD)   return false;
-    if (q && !(r.returnId||'').toLowerCase().includes(q) &&
-             !(r.supplierName||'').toLowerCase().includes(q) &&
-             !(r.poRef||'').toLowerCase().includes(q) &&
-             !r.items.some(i=>(i.name||'').toLowerCase().includes(q))) return false;
+  const data = await PurchaseAPI.returnHistory({ ordering: '-created_at' });
+  const allRet = data.results || data;
+  _prHistoryCache = allRet;
+
+  let rows = allRet.filter(r=>{
+    const dateOnly = (r.created_at||'').slice(0,10);
+    if (fromD && dateOnly < fromD) return false;
+    if (toD   && dateOnly > toD)   return false;
+    if (q && !(r.po_number||'').toLowerCase().includes(q) &&
+             !(r.supplier_name||'').toLowerCase().includes(q)) return false;
     return true;
   });
 
-  // Update KPIs
-  const allRet = DB.purchaseReturns||[];
   document.getElementById('pr-total-returns').textContent = allRet.length;
-  document.getElementById('pr-total-items').textContent   = allRet.reduce((s,r)=>s+r.items.reduce((a,i)=>a+i.qty,0),0);
-  document.getElementById('pr-total-value').textContent   = 'Rs.'+(allRet.reduce((s,r)=>s+r.total,0)).toFixed(0);
-  document.getElementById('pr-suppliers-count').textContent = new Set(allRet.map(r=>r.supplierId)).size;
+  document.getElementById('pr-total-items').textContent   = allRet.reduce((s,r)=>s+r.items.reduce((a,i)=>a+i.quantity,0),0);
+  document.getElementById('pr-total-value').textContent   = 'Rs.'+(allRet.reduce((s,r)=>s+Number(r.refund_amount),0)).toFixed(0);
+  document.getElementById('pr-suppliers-count').textContent = new Set(allRet.map(r=>r.supplier_name)).size;
 
   if (label) label.textContent = rows.length + ' record' + (rows.length!==1?'s':'');
   if (!rows.length) {
@@ -6455,15 +6435,15 @@ function renderPurchaseReturns() {
     return;
   }
   tbody.innerHTML = rows.map(r=>`<tr>
-    <td class="td-mono fw-700" style="color:var(--yellow)">${r.returnId}</td>
-    <td style="font-size:12px">${r.date}</td>
-    <td class="td-mono">${r.poRef}</td>
-    <td style="font-weight:600">${r.supplierName}</td>
-    <td style="font-size:11px">${r.items.map(i=>i.name+' ×'+i.qty).join('<br>')}</td>
-    <td style="text-align:center;font-weight:700">${r.items.reduce((s,i)=>s+i.qty,0)}</td>
-    <td class="td-mono fw-700" style="color:var(--yellow)">Rs.${r.total.toFixed(2)}</td>
-    <td style="font-size:11px">${r.reason}</td>
-    <td><span class="badge badge-yellow">Processed</span></td>
+    <td class="td-mono fw-700" style="color:var(--yellow)">PR-${String(r.id).padStart(4,'0')}</td>
+    <td style="font-size:12px">${(r.created_at||'').slice(0,10)}</td>
+    <td class="td-mono">${r.po_number}</td>
+    <td style="font-weight:600">${r.supplier_name}</td>
+    <td style="font-size:11px">${r.items.length} item(s)</td>
+    <td style="text-align:center;font-weight:700">${r.items.reduce((s,i)=>s+i.quantity,0)}</td>
+    <td class="td-mono fw-700" style="color:var(--yellow)">Rs.${Number(r.refund_amount).toFixed(2)}</td>
+    <td style="font-size:11px">${r.reason||'—'}</td>
+    <td><span class="badge badge-yellow">${r.status}</span></td>
     <td>
       <button class="btn btn-ghost btn-xs" onclick="printPurchaseReturnSlip(${r.id})" title="Print"><i class="fa fa-print"></i></button>
     </td>
@@ -6476,32 +6456,32 @@ function clearPrFilters() {
 }
 
 function printPurchaseReturnSlip(id) {
-  const r = (DB.purchaseReturns||[]).find(x=>x.id===id);
+  const r = (_prHistoryCache||[]).find(x=>x.id===id);
   if (!r) return;
+  const dateStr = (r.created_at||'').slice(0,10);
   const html=`<div class="a4-doc"><div style="border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px">
     <div style="font-size:20px;font-weight:900">🏪 SmartRetail ERP</div>
-    <div style="font-size:14px;font-weight:700">Purchase Return — ${r.returnId}</div>
-    <div style="font-size:11px;color:#555">Date: ${r.date} | Supplier: ${r.supplierName} | PO: ${r.poRef}</div>
+    <div style="font-size:14px;font-weight:700">Purchase Return — PR-${String(r.id).padStart(4,'0')}</div>
+    <div style="font-size:11px;color:#555">Date: ${dateStr} | Supplier: ${r.supplier_name} | PO: ${r.po_number}</div>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">
-    <thead><tr>${['Product','Qty','Unit Price','Total'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
+    <thead><tr>${['Item','Qty','Refund'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
     <tbody>${r.items.map((it,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'}">
-      <td style="padding:6px 8px;font-weight:700">${it.name}</td>
-      <td style="padding:6px 8px;text-align:center">${it.qty}</td>
-      <td style="padding:6px 8px">Rs.${(it.price||0).toFixed(2)}</td>
-      <td style="padding:6px 8px;font-weight:800">Rs.${(it.qty*it.price).toFixed(2)}</td>
+      <td style="padding:6px 8px;font-weight:700">Item #${it.purchase_order_item}</td>
+      <td style="padding:6px 8px;text-align:center">${it.quantity}</td>
+      <td style="padding:6px 8px;font-weight:800">Rs.${Number(it.refund_amount).toFixed(2)}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="3" style="padding:8px;font-weight:700">TOTAL RETURN VALUE</td><td style="padding:8px;font-weight:900;font-size:14px">Rs.${r.total.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="2" style="padding:8px;font-weight:700">TOTAL RETURN VALUE</td><td style="padding:8px;font-weight:900;font-size:14px">Rs.${Number(r.refund_amount).toFixed(2)}</td></tr></tfoot>
   </table>
-  <div style="font-size:12px;color:#555">Reason: ${r.reason}${r.notes?' | Notes: '+r.notes:''}</div>
-  <div style="font-size:11px;color:#888;margin-top:8px">Processed by: ${r.by} on ${r.date}</div></div>`;
+  <div style="font-size:12px;color:#555">Reason: ${r.reason||'—'}</div>
+  <div style="font-size:11px;color:#888;margin-top:8px">Processed on ${dateStr}</div></div>`;
   const pa=document.getElementById('print-area'); pa.innerHTML=html; pa.style.display='block';
   window.print(); setTimeout(()=>{pa.style.display='none';},1200);
 }
 
 function printPurchaseReturnReport() {
-  const rows = DB.purchaseReturns||[];
-  const total = rows.reduce((s,r)=>s+r.total,0);
+  const rows = _prHistoryCache||[];
+  const total = rows.reduce((s,r)=>s+Number(r.refund_amount),0);
   const html=`<div class="a4-doc"><div style="border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px">
     <div style="font-size:20px;font-weight:900">🏪 SmartRetail ERP</div>
     <div style="font-size:12px;color:#555">Purchase Return Report — ${new Date().toLocaleDateString()}</div>
@@ -6509,13 +6489,13 @@ function printPurchaseReturnReport() {
   <table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr>${['Return ID','Date','PO Ref','Supplier','Items','Total','Reason'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'}">
-      <td style="padding:6px 8px;font-weight:700;color:#d97706">${r.returnId}</td>
-      <td style="padding:6px 8px">${r.date}</td>
-      <td style="padding:6px 8px;font-family:monospace">${r.poRef}</td>
-      <td style="padding:6px 8px;font-weight:700">${r.supplierName}</td>
+      <td style="padding:6px 8px;font-weight:700;color:#d97706">PR-${String(r.id).padStart(4,'0')}</td>
+      <td style="padding:6px 8px">${(r.created_at||'').slice(0,10)}</td>
+      <td style="padding:6px 8px;font-family:monospace">${r.po_number}</td>
+      <td style="padding:6px 8px;font-weight:700">${r.supplier_name}</td>
       <td style="padding:6px 8px">${r.items.length}</td>
-      <td style="padding:6px 8px;font-weight:800;color:#d97706">Rs.${r.total.toFixed(2)}</td>
-      <td style="padding:6px 8px">${r.reason}</td>
+      <td style="padding:6px 8px;font-weight:800;color:#d97706">Rs.${Number(r.refund_amount).toFixed(2)}</td>
+      <td style="padding:6px 8px">${r.reason||''}</td>
     </tr>`).join('')}</tbody>
     <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="5" style="padding:8px;font-weight:700">TOTAL</td><td colspan="2" style="padding:8px;font-weight:900;font-size:14px">Rs.${total.toFixed(2)}</td></tr></tfoot>
   </table></div>`;

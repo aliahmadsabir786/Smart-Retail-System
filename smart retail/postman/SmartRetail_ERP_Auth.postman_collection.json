@@ -1,0 +1,100 @@
+{
+  "info": {
+    "name": "SmartRetail ERP - Authentication (Phase 1)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api/v1" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Register",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/auth/register/",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"newcustomer@smartretail.com\",\n  \"first_name\": \"Sara\",\n  \"last_name\": \"Khan\",\n  \"password\": \"StrongPass123!\",\n  \"password_confirm\": \"StrongPass123!\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Login",
+      "event": [{
+        "listen": "test",
+        "script": {
+          "exec": [
+            "const data = pm.response.json();",
+            "if (data.access) pm.collectionVariables.set('access_token', data.access);",
+            "if (data.refresh) pm.collectionVariables.set('refresh_token', data.refresh);"
+          ]
+        }
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/auth/login/",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin@smartretail.com\",\n  \"password\": \"Admin123!\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Refresh Token",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/auth/refresh/",
+        "body": { "mode": "raw", "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}" }
+      }
+    },
+    {
+      "name": "Profile (Get)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+        "url": "{{base_url}}/auth/profile/"
+      }
+    },
+    {
+      "name": "Change Password",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{access_token}}" }
+        ],
+        "url": "{{base_url}}/auth/change-password/",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"old_password\": \"Admin123!\",\n  \"new_password\": \"NewAdmin456!\",\n  \"new_password_confirm\": \"NewAdmin456!\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Password Reset Request",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/auth/password-reset/",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@smartretail.com\"\n}" }
+      }
+    },
+    {
+      "name": "Logout",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{access_token}}" }
+        ],
+        "url": "{{base_url}}/auth/logout/",
+        "body": { "mode": "raw", "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}" }
+      }
+    }
+  ]
+}

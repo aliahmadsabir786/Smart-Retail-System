@@ -1,0 +1,17 @@
+services:
+  web:
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+    volumes:
+      - .:/app
+
+  celery_worker:
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+
+  celery_beat:
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development

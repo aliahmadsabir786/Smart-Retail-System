@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; color:#222;">
+  <h2>Welcome to SmartRetail ERP, {{ user.first_name }}!</h2>
+  <p>Please verify your email address to activate your account.</p>
+  <p>
+    <a href="{{ verification_link }}"
+       style="background:#4f46e5;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;">
+      Verify Email
+    </a>
+  </p>
+  <p>If the button doesn't work, copy this link into your browser:</p>
+  <p>{{ verification_link }}</p>
+  <p>This link expires in 24 hours.</p>
+</body>
+</html>

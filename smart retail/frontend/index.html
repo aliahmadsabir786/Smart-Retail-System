@@ -1,0 +1,2739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartRetail ERP – Inventory & POS Management System</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <script src="api.js"></script>
+  <script src="script.js"></script>
+</head>
+<body>
+
+<!-- ── SPLASH SCREEN ─── -->
+<div id="splash-screen">
+  <div class="splash-content">
+    <div class="splash-logo-icon">🏪</div>
+    <div class="splash-brand-name">Smart<span>Retail</span> ERP</div>
+    <div class="splash-tagline">Inventory &amp; POS Management System</div>
+    <div class="splash-loader-wrap">
+      <div class="splash-loader-track">
+        <div class="splash-loader-bar"></div>
+      </div>
+      <div class="splash-loading-text">
+        Initializing<span class="splash-dot">.</span><span class="splash-dot">.</span><span class="splash-dot">.</span>
+      </div>
+    </div>
+  </div>
+  <div class="splash-version">v2.1.0 &nbsp;·&nbsp; SmartRetail Systems</div>
+</div>
+
+<!-- ── LOGIN ─── -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-icon">🏪</div>
+      <div class="login-logo-text">
+        SmartRetail ERP
+        <span>Inventory & POS Management</span>
+      </div>
+    </div>
+    <div class="login-title">Welcome back</div>
+    <div class="login-sub">Sign in to manage your retail operations</div>
+    <div class="form-group">
+      <label>Email</label>
+      <input class="form-input" id="l-user" type="text" placeholder="Enter email" value="admin@smartretail.com">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input class="form-input" id="l-pass" type="password" placeholder="Enter password" value="Admin123!">
+    </div>
+    <button class="btn-primary" id="login-btn" onclick="doLogin()">
+      <i class="fa fa-sign-in-alt"></i> Sign In
+    </button>
+    <div id="login-error" style="color:var(--red,#ef4444);font-size:12px;margin-top:8px;display:none"></div>
+    <div class="login-demo">
+      <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Quick Login (seeded accounts)</div>
+      <div class="demo-accounts">
+        <button class="demo-btn" onclick="quickLogin('admin@smartretail.com','Admin123!')">
+          <span class="demo-badge badge-admin">Super Admin</span>
+          admin@smartretail.com
+        </button>
+        <button class="demo-btn" onclick="quickLogin('manager@smartretail.com','Manager123!')">
+          <span class="demo-badge badge-admin">Manager</span>
+          manager@smartretail.com
+        </button>
+        <button class="demo-btn" onclick="quickLogin('cashier@smartretail.com','Cashier123!')">
+          <span class="demo-badge badge-admin">Cashier</span>
+          cashier@smartretail.com
+        </button>
+        <button class="demo-btn" onclick="quickLogin('inventory@smartretail.com','Inventory123!')">
+          <span class="demo-badge badge-admin">Inventory Mgr</span>
+          inventory@smartretail.com
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── APP ─── -->
+<div id="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🏪</div>
+      <div class="sidebar-brand">SmartRetail ERP<span>v2.0 Enterprise</span></div>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar" id="u-avatar">A</div>
+      <div class="user-info">
+        <div class="user-name" id="u-name">Admin User</div>
+        <div class="user-role" id="u-role">Administrator</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-section-label">Overview</div>
+        <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+          <i class="fa fa-chart-pie"></i> Dashboard
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Operations</div>
+        <div class="nav-item" data-page="pos" onclick="navigate('pos')">
+          <i class="fa fa-cash-register"></i> POS Terminal
+        </div>
+        <div class="nav-item" data-page="booking" onclick="navigate('booking')">
+          <i class="fa fa-clipboard-list"></i> Order Booking
+        </div>
+        <div class="nav-item" data-page="saleslips" onclick="navigate('saleslips')">
+          <i class="fa fa-file-invoice"></i> Sale Slips
+        </div>
+        <div class="nav-item" data-page="salereturn" onclick="navigate('salereturn')">
+          <i class="fa fa-undo-alt"></i> Sale Return
+        </div>
+        <div class="nav-item" data-page="orders" onclick="navigate('orders')">
+          <i class="fa fa-receipt"></i> Orders
+        </div>
+        <div class="nav-item" data-page="supplyroutes" onclick="navigate('supplyroutes')">
+          <i class="fa fa-route"></i> Supply Routes
+        </div>
+        <div class="nav-item" data-page="ordersummary" onclick="navigate('ordersummary')">
+          <i class="fa fa-clipboard-check"></i> Order Summary
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Inventory</div>
+        <div class="nav-item" data-page="products" onclick="navigate('products')">
+          <i class="fa fa-box"></i> Products
+        </div>
+        <div class="nav-item" data-page="inventory" onclick="navigate('inventory')">
+          <i class="fa fa-warehouse"></i> Inventory
+        </div>
+        <div class="nav-item" data-page="purchases" onclick="navigate('purchases')">
+          <i class="fa fa-truck"></i> Purchases
+        </div>
+        <div class="nav-item" data-page="purchasereturn" onclick="navigate('purchasereturn')">
+          <i class="fa fa-truck-loading"></i> Purchase Return
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Stakeholders</div>
+        <div class="nav-item" data-page="customers" onclick="navigate('customers')">
+          <i class="fa fa-users"></i> Customers
+        </div>
+        <div class="nav-item" data-page="collection" onclick="navigate('collection')">
+          <i class="fa fa-hand-holding-usd"></i> Customer Collection
+        </div>
+        <div class="nav-item" data-page="suppliers" onclick="navigate('suppliers')">
+          <i class="fa fa-building"></i> Suppliers
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Finance</div>
+        <div class="nav-item" data-page="expenses" onclick="navigate('expenses')">
+          <i class="fa fa-wallet"></i> Expenses
+        </div>
+        <div class="nav-item" data-page="ledger" onclick="navigate('ledger')">
+          <i class="fa fa-book-open"></i> Ledger Accounts
+        </div>
+        <div class="nav-item" data-page="balancesheet" onclick="navigate('balancesheet')">
+          <i class="fa fa-balance-scale"></i> Balance Sheet
+        </div>
+        <div class="nav-item" data-page="accounting" onclick="navigate('accounting')">
+          <i class="fa fa-book"></i> Accounting
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Analytics</div>
+        <div class="nav-item" data-page="reports" onclick="navigate('reports')">
+          <i class="fa fa-chart-bar"></i> Reports
+        </div>
+        <div class="nav-item" data-page="stockreport" onclick="navigate('stockreport')">
+          <i class="fa fa-boxes"></i> Stock Report
+        </div>
+      </div>
+      <div class="nav-section" id="admin-nav">
+        <div class="nav-section-label">Administration</div>
+        <div class="nav-item" data-page="users" onclick="navigate('users')">
+          <i class="fa fa-user-cog"></i> User Management
+        </div>
+        <div class="nav-item" data-page="settings" onclick="navigate('settings')">
+          <i class="fa fa-cog"></i> Settings
+        </div>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="logout-btn" onclick="doLogout()">
+        <i class="fa fa-sign-out-alt"></i> Sign Out
+      </button>
+    </div>
+  </aside>
+
+  <!-- SIDEBAR OVERLAY (mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="topbar">
+      <button class="mobile-menu-btn" onclick="toggleSidebar()" id="mobile-menu-btn" aria-label="Toggle menu">
+        <i class="fa fa-bars"></i>
+      </button>
+      <div class="topbar-title" id="page-title">Dashboard</div>
+      <div class="topbar-search">
+        <i class="fa fa-search"></i>
+        <input type="text" placeholder="Search products, orders...">
+      </div>
+      <div class="topbar-actions">
+        <div class="time-display" id="clock">--:--</div>
+        <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn" title="Toggle Light/Dark Mode" aria-label="Toggle theme">
+          <i class="fa fa-lightbulb bulb-icon bulb-on"></i>
+          <i class="fa fa-moon bulb-icon bulb-off" style="font-size:13px"></i>
+        </button>
+        <button class="icon-btn" onclick="toggleNotif()" id="notif-btn">
+          <i class="fa fa-bell"></i>
+          <div class="badge">3</div>
+        </button>
+        <button class="icon-btn">
+          <i class="fa fa-question-circle"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- NOTIFICATIONS PANEL -->
+    <div id="notif-panel" class="hidden" style="position:absolute;top:66px;right:24px;z-index:200;width:320px;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Notifications</div>
+          <span class="badge badge-red">3 new</span>
+        </div>
+        <div class="notif-list">
+          <div class="notif-item">
+            <div class="notif-icon" style="background:var(--red-glow);color:var(--red)"><i class="fa fa-exclamation-triangle"></i></div>
+            <div class="notif-text">
+              <div class="notif-title">Low Stock Alert</div>
+              <div class="notif-sub">Coca-Cola 330ml — Only 5 units left</div>
+            </div>
+            <div class="notif-time">2m ago</div>
+          </div>
+          <div class="notif-item">
+            <div class="notif-icon" style="background:var(--yellow-glow);color:var(--yellow)"><i class="fa fa-clock"></i></div>
+            <div class="notif-text">
+              <div class="notif-title">Expiry Warning</div>
+              <div class="notif-sub">Milk 1L — Expires in 2 days</div>
+            </div>
+            <div class="notif-time">1h ago</div>
+          </div>
+          <div class="notif-item">
+            <div class="notif-icon" style="background:var(--green-glow);color:var(--green)"><i class="fa fa-check-circle"></i></div>
+            <div class="notif-text">
+              <div class="notif-title">Order Completed</div>
+              <div class="notif-sub">Order #ORD-0042 marked as complete</div>
+            </div>
+            <div class="notif-time">3h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ═══ DASHBOARD ═══ -->
+      <div class="page active" id="page-dashboard" style="display:block">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Dashboard Overview</h2>
+            <p>Welcome back, <span id="dash-user">Admin</span> — here's your business summary</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm"><i class="fa fa-calendar"></i> Today</button>
+            <button class="btn btn-accent btn-sm" onclick="navigate('pos')"><i class="fa fa-cash-register"></i> New Sale</button>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card blue">
+            <div class="stat-header">
+              <div class="stat-icon blue"><i class="fa fa-dollar-sign"></i></div>
+              <span class="stat-change up">↑ 12.4%</span>
+            </div>
+            <div class="stat-value" id="d-revenue">$4,285</div>
+            <div class="stat-label">Today's Revenue</div>
+          </div>
+          <div class="stat-card green">
+            <div class="stat-header">
+              <div class="stat-icon green"><i class="fa fa-shopping-cart"></i></div>
+              <span class="stat-change up">↑ 8.1%</span>
+            </div>
+            <div class="stat-value" id="d-orders">127</div>
+            <div class="stat-label">Total Orders Today</div>
+          </div>
+          <div class="stat-card purple">
+            <div class="stat-header">
+              <div class="stat-icon purple"><i class="fa fa-users"></i></div>
+              <span class="stat-change up">↑ 5.3%</span>
+            </div>
+            <div class="stat-value" id="d-customers">843</div>
+            <div class="stat-label">Total Customers</div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-header">
+              <div class="stat-icon red"><i class="fa fa-exclamation-triangle"></i></div>
+              <span class="stat-change down">↓ alert</span>
+            </div>
+            <div class="stat-value" id="d-lowstock">8</div>
+            <div class="stat-label">Low Stock Items</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Sales Overview</div>
+                <div class="card-subtitle">Last 7 days</div>
+              </div>
+              <div class="flex-gap">
+                <button class="btn btn-ghost btn-xs">Week</button>
+                <button class="btn btn-ghost btn-xs">Month</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="chart-container"><canvas id="salesChart"></canvas></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Revenue by Category</div>
+                <div class="card-subtitle">This month</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2-1">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Recent Transactions</div>
+              <button class="btn btn-ghost btn-xs" onclick="navigate('orders')">View All</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Invoice</th><th>Customer</th><th>Items</th><th>Amount</th><th>Method</th><th>Status</th></tr>
+                </thead>
+                <tbody id="recent-tx"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Top Products</div>
+            </div>
+            <div class="card-body" id="top-products-list"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Low Stock Alerts</div>
+            <button class="btn btn-ghost btn-xs" onclick="navigate('inventory')">Manage Stock</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Current Stock</th><th>Min Level</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody id="low-stock-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ POS ═══ -->
+      <div class="page" id="page-pos" style="display:none;flex-direction:column;height:100%;">
+        <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+          <div>
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:2px">POS Billing Terminal</h2>
+            <p style="font-size:12px;color:var(--text-secondary)">Invoice: <span class="td-mono" id="pos-invoice">INV-0001</span> · <span id="pos-date"></span></p>
+          </div>
+          <div class="flex-gap">
+            <div class="search-bar" style="width:260px">
+              <i class="fa fa-search"></i>
+              <input type="text" id="pos-search" placeholder="Search or scan barcode..." oninput="filterPosProducts()">
+            </div>
+            <select class="form-input" id="pos-category" onchange="filterPosProducts()" style="width:160px;padding:9px 14px">
+              <option value="">All Categories</option>
+            </select>
+          </div>
+        </div>
+        <div class="pos-layout" style="flex:1;min-height:0;">
+          <div class="pos-products">
+            <div class="product-grid" id="pos-product-grid"></div>
+          </div>
+          <div class="pos-panel">
+            <div class="pos-panel-header">
+              <div class="pos-panel-title">🛒 Cart</div>
+              <div style="font-size:12px;color:var(--text-secondary)"><span id="cart-count">0</span> items</div>
+            </div>
+            <div class="cart-items" id="cart-items">
+              <div class="cart-empty"><i class="fa fa-shopping-cart"></i><div style="font-size:13px;font-weight:600">Cart is empty</div><div style="font-size:12px">Click products to add</div></div>
+            </div>
+            <div class="pos-totals">
+              <div class="pos-total-row"><span>Subtotal</span><span id="cart-subtotal">$0.00</span></div>
+              <div class="pos-total-row">
+                <span>Discount <input type="number" id="cart-discount" value="0" min="0" max="100" style="width:45px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 4px;font-size:11px;margin-left:4px">%</span>
+                <span id="cart-discount-val" class="text-red">-$0.00</span>
+              </div>
+              <div class="pos-total-row">
+                <span>Tax <input type="number" id="cart-tax" value="8" min="0" max="30" style="width:40px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 4px;font-size:11px;margin-left:4px">%</span>
+                <span id="cart-tax-val" class="text-yellow">+$0.00</span>
+              </div>
+              <div class="divider"></div>
+              <div class="pos-total-row pos-total-grand"><span>TOTAL</span><span id="cart-total">$0.00</span></div>
+            </div>
+            <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+              <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px">Customer (optional)</div>
+              <select class="form-input" id="pos-customer" style="padding:9px 12px;font-size:13px">
+                <option value="">Walk-in Customer</option>
+              </select>
+            </div>
+            <div class="pos-payment">
+              <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px">Payment Method</div>
+              <div class="payment-methods">
+                <div class="payment-method selected" onclick="selectPayment(this,'cash')"><i class="fa fa-money-bill-wave"></i>Cash</div>
+                <div class="payment-method" onclick="selectPayment(this,'card')"><i class="fa fa-credit-card"></i>Card</div>
+                <div class="payment-method" onclick="selectPayment(this,'digital')"><i class="fa fa-mobile-alt"></i>Digital</div>
+              </div>
+              <div class="flex-gap" style="margin-bottom:10px">
+                <input class="form-input" id="cash-received" type="number" placeholder="Cash received" style="flex:1;padding:9px 12px;font-size:13px">
+                <div style="font-size:12px;color:var(--text-secondary);white-space:nowrap">Change: <strong id="change-amt" class="text-green">$0.00</strong></div>
+              </div>
+              <button class="btn btn-green" style="width:100%;justify-content:center;font-size:15px;padding:14px" onclick="processPayment()">
+                <i class="fa fa-check-circle"></i> Process Payment
+              </button>
+              <button class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:8px" onclick="clearCart()">
+                <i class="fa fa-trash"></i> Clear Cart
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ ORDER BOOKING ═══ -->
+      <div class="page" id="page-booking">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>📋 Order Booking</h2>
+            <p>Create and manage customer order bookings</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="navigate('saleslips')"><i class="fa fa-file-invoice"></i> Sale Slips</button>
+            <button class="btn btn-accent btn-sm" onclick="newBookingForm()"><i class="fa fa-plus"></i> New Booking</button>
+          </div>
+        </div>
+
+        <!-- BOOKING FORM -->
+        <div id="booking-form-wrap" style="display:none">
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title" id="booking-form-title">📝 New Order Booking</div>
+              <button class="btn btn-ghost btn-xs" onclick="closeBookingForm()"><i class="fa fa-times"></i> Cancel</button>
+            </div>
+            <div class="card-body">
+              <!-- Row 1: Date, Invoice, Account No -->
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Booking Date *</label>
+                  <input class="form-input" type="date" id="bk-date" style="padding:9px 12px">
+                </div>
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Invoice No (Auto)</label>
+                  <input class="form-input" id="bk-invoice" readonly style="padding:9px 12px;background:var(--bg-primary);color:var(--cyan);font-family:var(--mono)">
+                </div>
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Account No Lookup</label>
+                  <div style="display:flex;gap:8px">
+                    <input class="form-input" id="bk-acc-search" placeholder="ACC-XXXX or name..." style="padding:9px 12px;flex:1" oninput="searchCustomerByAcc(this.value)">
+                    <button class="btn btn-ghost btn-sm" onclick="clearAccSearch()" style="white-space:nowrap"><i class="fa fa-times"></i></button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Row 2: Customer selection -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Customer Name *</label>
+                  <select class="form-input" id="bk-customer" onchange="onBookingCustomerChange()" style="padding:9px 12px">
+                    <option value="">— Select Customer —</option>
+                  </select>
+                </div>
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Account No</label>
+                  <input class="form-input" id="bk-acc-display" readonly style="padding:9px 12px;background:var(--bg-primary);color:var(--purple);font-family:var(--mono);font-weight:700">
+                </div>
+              </div>
+
+              <!-- Customer ledger info -->
+              <div id="bk-customer-info" style="display:none;margin-bottom:16px">
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+                  <div style="background:var(--red-glow);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:12px">
+                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">PREVIOUS BALANCE</div>
+                    <div style="font-size:18px;font-weight:800;color:var(--red)" id="bk-prev-balance">$0.00</div>
+                  </div>
+                  <div style="background:var(--green-glow);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:12px">
+                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">TOTAL PURCHASES</div>
+                    <div style="font-size:18px;font-weight:800;color:var(--green)" id="bk-total-purchases">$0.00</div>
+                  </div>
+                  <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px">
+                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">LAST VISIT</div>
+                    <div style="font-size:16px;font-weight:700;color:var(--accent)" id="bk-last-visit">—</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Products table -->
+              <div style="margin-bottom:12px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <div style="font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Order Items</div>
+                  <button class="btn btn-ghost btn-sm" onclick="addBookingItemRow()"><i class="fa fa-plus"></i> Add Item</button>
+                </div>
+                <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse">
+                    <thead>
+                      <tr>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);width:30%">Product</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Rate</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Qty</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Unit</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Cartons</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Total Pcs</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--yellow);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);text-align:center" title="Auto-applied from product configuration">Tax%</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);text-align:right">Total (inc. tax)</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);width:40px"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="bk-items-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Totals + notes -->
+              <div style="display:grid;grid-template-columns:1fr auto;gap:20px;margin-top:16px">
+                <div>
+                  <div class="form-group-inline" style="margin-bottom:12px">
+                    <label>Notes / Remarks</label>
+                    <textarea class="form-input" id="bk-notes" placeholder="Optional notes..." style="min-height:60px"></textarea>
+                  </div>
+                  <div class="form-group-inline" style="margin-bottom:0">
+                    <label>Payment Method</label>
+                    <select class="form-input" id="bk-payment" style="padding:9px 12px">
+                      <option value="credit">Credit (On Account)</option>
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="digital">Digital</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="min-width:300px">
+                  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:16px">
+
+                    <!-- Base Amount -->
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px;color:var(--text-secondary)">
+                      <span>Base Amount</span>
+                      <span id="bk-subtotal" style="font-family:var(--mono)">Rs.0.00</span>
+                    </div>
+
+                    <!-- Auto Product Tax (read-only, from product config) -->
+                    <div id="bk-auto-tax-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;color:var(--text-secondary)">
+                      <span style="display:flex;align-items:center;gap:5px">
+                        <span style="width:6px;height:6px;border-radius:50%;background:var(--yellow);display:inline-block;flex-shrink:0"></span>
+                        Sale Tax/GST <span id="bk-tax-pct-label" style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">(auto)</span>
+                      </span>
+                      <span id="bk-gst-val" style="color:var(--yellow);font-family:var(--mono)">+Rs.0.00</span>
+                    </div>
+
+                    <!-- Bill Discount -->
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px;color:var(--text-secondary)">
+                      <span style="display:flex;align-items:center;gap:4px">
+                        <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0"></span>
+                        Bill Discount
+                        <input type="number" id="bk-discount" value="0" min="0" max="100" step="0.1"
+                          style="width:46px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 5px;font-size:11px;margin-left:4px;font-family:var(--mono)"
+                          onclick="this.select()" oninput="calcBookingTotals()">%
+                      </span>
+                      <span id="bk-disc-val" class="text-green" style="font-family:var(--mono)">-Rs.0.00</span>
+                    </div>
+
+                    <!-- hidden legacy fields for backward compatibility -->
+                    <input type="hidden" id="bk-tax" value="0">
+                    <input type="hidden" id="bk-gst-toggle" value="false">
+                    <input type="hidden" id="bk-advtax-toggle" value="false">
+
+                    <div style="border-top:1px solid var(--border);padding-top:10px;display:flex;justify-content:space-between;font-size:17px;font-weight:800">
+                      <span>TOTAL</span>
+                      <span id="bk-total" class="text-green" style="font-family:var(--mono)">Rs.0.00</span>
+                    </div>
+                    <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary)">
+                      <span>Prev. Balance</span>
+                      <span id="bk-prev-bal-mini" class="text-red" style="font-family:var(--mono)">Rs.0.00</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:var(--yellow);margin-top:4px">
+                      <span>Net Payable</span>
+                      <span id="bk-net-payable" style="font-family:var(--mono)">Rs.0.00</span>
+                    </div>
+                  </div>
+                  <div style="font-size:10px;color:var(--text-muted);margin-top:6px;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px">
+                    <i class="fa fa-magic" style="color:var(--accent)"></i>
+                    Tax automatically applied from product configuration
+                  </div>
+                </div>
+              </div>
+
+              <!-- Action buttons -->
+              <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+                <button class="btn btn-ghost" onclick="closeBookingForm()"><i class="fa fa-times"></i> Cancel</button>
+                <button class="btn btn-warning" onclick="saveBooking('draft')"><i class="fa fa-save"></i> Save Draft</button>
+                <button class="btn btn-accent" onclick="saveBooking('saved')"><i class="fa fa-check-circle"></i> Save Booking</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- BOOKINGS LIST -->
+        <div id="booking-list-wrap">
+          <div class="card">
+            <div class="card-header">
+              <div style="display:flex;gap:10px;flex:1;flex-wrap:wrap">
+                <div class="search-bar" style="flex:1;min-width:200px">
+                  <i class="fa fa-search"></i>
+                  <input type="text" id="bk-search" placeholder="Search by invoice, customer, account..." oninput="renderBookingList()">
+                </div>
+                <div class="search-bar" style="min-width:180px">
+                  <i class="fa fa-user"></i>
+                  <input type="text" id="bk-name-search" placeholder="Search customer name..." oninput="renderBookingList()" style="font-size:13px">
+                </div>
+                <select class="form-input" id="bk-status-filter" onchange="renderBookingList()" style="padding:9px 12px;width:150px">
+                  <option value="">All Status</option>
+                  <option value="draft">Draft</option>
+                  <option value="saved">Confirmed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <input type="date" class="form-input" id="bk-date-filter" onchange="renderBookingList()" style="padding:9px 12px;width:160px">
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('bk-date-filter').value='';document.getElementById('bk-name-search').value='';document.getElementById('bk-search').value='';renderBookingList()"><i class="fa fa-times"></i> Clear</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Invoice</th><th>Date</th><th>Customer</th><th>Account No</th>
+                    <th>Items</th><th>Amount</th><th>Prev Balance</th><th>Net Payable</th>
+                    <th>Payment</th><th>Status</th><th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="booking-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SALE SLIPS ═══ -->
+      <div class="page" id="page-saleslips">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>🧾 Sale Slips</h2>
+            <p>View, print and manage all saved order bookings</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openModal('ss-settings-modal')" title="Customize sale slip display"><i class="fa fa-sliders-h"></i> Slip Settings</button>
+            <button class="btn btn-ghost btn-sm" onclick="navigate('booking')"><i class="fa fa-plus"></i> New Booking</button>
+          </div>
+        </div>
+
+        <!-- Date filter + bulk print -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="padding:16px">
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Select Date</label>
+                <input class="form-input" type="date" id="ss-date" style="padding:9px 12px" oninput="renderSaleSlips()">
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Status Filter</label>
+                <select class="form-input" id="ss-status" onchange="renderSaleSlips()" style="padding:9px 12px;width:150px">
+                  <option value="">All</option>
+                  <option value="saved">Confirmed</option>
+                  <option value="draft">Draft</option>
+                </select>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Customer Name</label>
+                <div class="search-bar" style="min-width:180px">
+                  <i class="fa fa-user"></i>
+                  <input type="text" id="ss-name" placeholder="Filter by name..." oninput="renderSaleSlips()" style="font-size:13px">
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Invoice / Account No.</label>
+                <div class="search-bar" style="min-width:180px">
+                  <i class="fa fa-file-invoice"></i>
+                  <input type="text" id="ss-invoice" placeholder="Invoice or account #..." oninput="renderSaleSlips()" style="font-size:13px">
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Booked By (Username)</label>
+                <div class="search-bar" style="min-width:180px">
+                  <i class="fa fa-user-tag"></i>
+                  <input type="text" id="ss-username" placeholder="Filter by username..." oninput="renderSaleSlips()" style="font-size:13px">
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Area / Address</label>
+                <div class="search-bar" style="min-width:180px">
+                  <i class="fa fa-map-marker-alt"></i>
+                  <input type="text" id="ss-area" placeholder="Filter by area..." oninput="renderSaleSlips()" style="font-size:13px">
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="clearSaleSlipsFilters()" title="Clear all filters">
+                <i class="fa fa-times"></i> Clear Filters
+              </button>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+              <button class="btn btn-accent btn-sm" onclick="printAllSlipsA4()">
+                <i class="fa fa-print"></i> Print All (Filtered)
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="printAllSlipsA4('summary')">
+                <i class="fa fa-file-alt"></i> Print Summary Sheet
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Sale Slips</div>
+            <div style="font-size:12px;color:var(--text-secondary)" id="ss-count-label">— slips</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Account</th><th>Items</th><th>Amount</th><th>Net Payable</th><th>Status</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="saleslips-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="page" id="page-products">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Product Management</h2>
+            <p>Manage your product catalog, categories, and pricing</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openModal('cat-modal')"><i class="fa fa-tags"></i> Categories</button>
+            <button class="btn btn-ghost btn-sm" onclick="triggerProductImport()"><i class="fa fa-file-import"></i> Import CSV/Excel</button>
+            <input type="file" id="product-import-file" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleProductImport(this)">
+            <button class="btn btn-accent btn-sm" onclick="openProductModal()"><i class="fa fa-plus"></i> Add Product</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="filter-bar" style="margin-bottom:0;flex:1">
+              <div class="search-bar">
+                <i class="fa fa-search"></i>
+                <input type="text" id="prod-search" placeholder="Search products..." oninput="renderProducts()">
+              </div>
+              <select class="form-input" id="prod-cat-filter" onchange="renderProducts()" style="padding:9px 12px;width:160px">
+                <option value="">All Categories</option>
+              </select>
+              <select class="form-input" onchange="" style="padding:9px 12px;width:140px">
+                <option>All Stock</option>
+                <option>Low Stock</option>
+                <option>Out of Stock</option>
+              </select>
+            </div>
+            <div class="flex-gap">
+              <button class="btn btn-ghost btn-sm"><i class="fa fa-file-excel"></i> Export</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Product</th><th>SKU</th><th>Category</th><th>Buy Price</th><th>Sell Price</th><th>Stock</th><th>Carton Info</th><th>Status</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="products-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ INVENTORY ═══ -->
+      <div class="page" id="page-inventory">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Inventory Management</h2>
+            <p>Track stock levels, movements, and adjustments</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm"><i class="fa fa-history"></i> Movement Log</button>
+            <button class="btn btn-accent btn-sm" onclick="openStockModal()"><i class="fa fa-sliders-h"></i> Adjust Stock</button>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-boxes"></i></div></div><div class="stat-value" id="inv-total">0</div><div class="stat-label">Total Products</div></div>
+          <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-check-circle"></i></div></div><div class="stat-value" id="inv-instock">0</div><div class="stat-label">In Stock</div></div>
+          <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-exclamation-circle"></i></div></div><div class="stat-value" id="inv-low">0</div><div class="stat-label">Low Stock</div></div>
+          <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-times-circle"></i></div></div><div class="stat-value" id="inv-out">0</div><div class="stat-label">Out of Stock</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Stock Levels</div>
+            <div class="filter-bar" style="margin-bottom:0">
+              <div class="search-bar">
+                <i class="fa fa-search"></i>
+                <input type="text" id="inv-search" placeholder="Search inventory..." oninput="renderInventory()">
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Product</th><th>Category</th><th>In Stock</th><th>Min Level</th><th>Reorder Point</th><th>Stock Level</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="inventory-table"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card mt-16">
+          <div class="card-header"><div class="card-title">Stock Movement History</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Product</th><th>Type</th><th>Qty Change</th><th>Before</th><th>After</th><th>Reference</th></tr></thead>
+              <tbody id="stock-history"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ ORDERS ═══ -->
+      <div class="page" id="page-orders">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Order Management</h2>
+            <p>Track and manage all sales orders</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openOrderSummary()"><i class="fa fa-warehouse"></i> Warehouse Summary</button>
+            <button class="btn btn-accent btn-sm" onclick="navigate('pos')"><i class="fa fa-plus"></i> New Order</button>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-check-circle"></i></div></div><div class="stat-value" id="ord-completed">0</div><div class="stat-label">Completed</div></div>
+          <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-clock"></i></div></div><div class="stat-value" id="ord-pending">0</div><div class="stat-label">Pending</div></div>
+          <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-times"></i></div></div><div class="stat-value" id="ord-cancelled">0</div><div class="stat-label">Cancelled</div></div>
+          <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-undo"></i></div></div><div class="stat-value" id="ord-refunded">0</div><div class="stat-label">Refunded</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="filter-bar" style="margin-bottom:0;flex:1">
+              <div class="search-bar">
+                <i class="fa fa-search"></i>
+                <input type="text" id="ord-search" placeholder="Search orders..." oninput="renderOrders()">
+              </div>
+              <select class="form-input" id="ord-status-filter" onchange="renderOrders()" style="padding:9px 12px;width:160px">
+                <option value="">All Status</option>
+                <option>Completed</option>
+                <option>Pending</option>
+                <option>Cancelled</option>
+                <option>Refunded</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="orders-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ CUSTOMERS ═══ -->
+      <div class="page" id="page-customers">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Customer Management</h2>
+            <p>Manage customer database and purchase history</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="triggerCustomerImport()"><i class="fa fa-file-import"></i> Import CSV/Excel</button>
+            <input type="file" id="customer-import-file" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleCustomerImport(this)">
+            <button class="btn btn-accent btn-sm" onclick="openCustomerModal()"><i class="fa fa-user-plus"></i> Add Customer</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="search-bar">
+              <i class="fa fa-search"></i>
+              <input type="text" id="cust-search" placeholder="Search customers..." oninput="renderCustomers()">
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Account No</th><th>ID</th><th>Name</th><th>Phone</th><th>CNIC</th><th>Email</th><th>Total Purchases</th><th>Prev Balance</th><th>Loyalty Points</th><th>Last Visit</th><th>Actions</th></tr></thead>
+              <tbody id="customers-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SUPPLIERS ═══ -->
+      <div class="page" id="page-suppliers">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Supplier Management</h2>
+            <p>Manage your supplier database and purchase records</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-accent btn-sm" onclick="openSupplierModal()"><i class="fa fa-plus"></i> Add Supplier</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="search-bar">
+              <i class="fa fa-search"></i>
+              <input type="text" id="sup-search" placeholder="Search suppliers..." oninput="renderSuppliers()">
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="suppliers-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ PURCHASES ═══ -->
+      <div class="page" id="page-purchases">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Purchase Management</h2>
+            <p>Create and manage purchase orders from suppliers</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-accent btn-sm" onclick="openPurchaseModal()"><i class="fa fa-plus"></i> New Purchase</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Purchase ID</th><th>Date</th><th>Supplier</th><th>Items</th><th>Total Cost</th><th>Payment Status</th><th>Actions</th></tr></thead>
+              <tbody id="purchases-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SALE RETURN ═══ -->
+      <div class="page" id="page-salereturn">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Sale Return</h2>
+            <p>Search invoice by number and process customer product returns</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="printSaleReturnReport()"><i class="fa fa-print"></i> Print</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportSaleReturns()"><i class="fa fa-file-csv"></i> Export</button>
+          </div>
+        </div>
+
+        <!-- Invoice Search -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header">
+            <div class="card-title"><i class="fa fa-search" style="color:var(--accent)"></i> Search Invoice</div>
+          </div>
+          <div class="card-body">
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+              <div class="form-group-inline" style="margin-bottom:0;flex:1;min-width:200px">
+                <label>Invoice Number</label>
+                <div class="search-bar">
+                  <i class="fa fa-file-invoice"></i>
+                  <input type="text" id="sr-invoice-search" placeholder="e.g. INV-0001 or account no..." oninput="searchSaleReturnInvoice()">
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0;min-width:160px">
+                <label>Customer Name</label>
+                <div class="search-bar">
+                  <i class="fa fa-user"></i>
+                  <input type="text" id="sr-cust-search" placeholder="Filter by customer..." oninput="searchSaleReturnInvoice()">
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Date From</label>
+                <input class="form-input" type="date" id="sr-date-from" style="padding:9px 12px" onchange="searchSaleReturnInvoice()">
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Date To</label>
+                <input class="form-input" type="date" id="sr-date-to" style="padding:9px 12px" onchange="searchSaleReturnInvoice()">
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="clearSrFilters()"><i class="fa fa-times"></i> Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Invoice results list -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header">
+            <div class="card-title">Matching Invoices</div>
+            <div id="sr-results-count" style="font-size:12px;color:var(--text-muted)">Search above to find invoices</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice No</th><th>Date</th><th>Customer</th><th>Account</th>
+                  <th>Items</th><th>Total</th><th>Tax</th><th>Disc.</th><th>Status</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="sr-invoice-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Return History -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa fa-history" style="color:var(--purple)"></i> Return History</div>
+            <div id="sr-history-count" style="font-size:12px;color:var(--text-muted)">0 returns</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Return ID</th><th>Date</th><th>Orig. Invoice</th><th>Customer</th>
+                  <th>Items Returned</th><th>Refund Amount</th><th>Reason</th><th>By</th>
+                </tr>
+              </thead>
+              <tbody id="sr-history-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ PURCHASE RETURN ═══ -->
+      <div class="page" id="page-purchasereturn">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Purchase Return</h2>
+            <p>Return purchased items back to suppliers and update stock</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-accent btn-sm" onclick="openPurchaseReturnModal(null)"><i class="fa fa-plus"></i> New Return</button>
+            <button class="btn btn-ghost btn-sm" onclick="printPurchaseReturnReport()"><i class="fa fa-print"></i> Print</button>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stat-grid" style="margin-bottom:16px">
+          <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-undo"></i></div></div><div class="stat-value" id="pr-total-returns">0</div><div class="stat-label">Total Returns</div></div>
+          <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-boxes"></i></div></div><div class="stat-value" id="pr-total-items">0</div><div class="stat-label">Items Returned</div></div>
+          <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-dollar-sign"></i></div></div><div class="stat-value" id="pr-total-value">Rs.0</div><div class="stat-label">Total Value</div></div>
+          <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-building"></i></div></div><div class="stat-value" id="pr-suppliers-count">0</div><div class="stat-label">Suppliers Involved</div></div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="padding:12px 18px">
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+              <div class="form-group-inline" style="margin-bottom:0;flex:1;min-width:180px">
+                <label>Search Purchase / Supplier</label>
+                <div class="search-bar"><i class="fa fa-search"></i>
+                  <input type="text" id="pr-search" placeholder="PO no, supplier, product..." oninput="renderPurchaseReturns()">
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>From Date</label>
+                <input class="form-input" type="date" id="pr-date-from" style="padding:9px 12px" onchange="renderPurchaseReturns()">
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>To Date</label>
+                <input class="form-input" type="date" id="pr-date-to" style="padding:9px 12px" onchange="renderPurchaseReturns()">
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="clearPrFilters()"><i class="fa fa-times"></i> Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Returns table -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Purchase Return Records</div>
+            <div id="pr-count-label" style="font-size:12px;color:var(--text-muted)">0 records</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Return ID</th><th>Date</th><th>PO Reference</th><th>Supplier</th>
+                  <th>Products</th><th>Qty</th><th>Total Value</th><th>Reason</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="pr-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ EXPENSES ═══ -->
+      <div class="page" id="page-expenses">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Expense Management</h2>
+            <p>Track and categorize all business expenses</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-accent btn-sm" onclick="openExpenseModal()"><i class="fa fa-plus"></i> Add Expense</button>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-bottom:20px">
+          <div class="card">
+            <div class="card-header"><div class="card-title">Expenses by Category</div></div>
+            <div class="card-body"><div class="chart-container"><canvas id="expenseChart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">Monthly Expenses</div></div>
+            <div class="card-body"><div class="chart-container"><canvas id="expMonthChart"></canvas></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Actions</th></tr></thead>
+              <tbody id="expenses-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ ACCOUNTING ═══ -->
+      <div class="page" id="page-accounting">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Accounting & Ledger</h2>
+            <p>Financial records, ledgers, and payment tracking</p>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-arrow-down"></i></div></div><div class="stat-value" id="acc-income">$0</div><div class="stat-label">Total Income</div></div>
+          <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-arrow-up"></i></div></div><div class="stat-value" id="acc-expenses">$0</div><div class="stat-label">Total Expenses</div></div>
+          <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-chart-line"></i></div></div><div class="stat-value" id="acc-profit">$0</div><div class="stat-label">Net Profit</div></div>
+          <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-hourglass-half"></i></div></div><div class="stat-value" id="acc-outstanding">$0</div><div class="stat-label">Outstanding</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">General Ledger</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+              <tbody id="ledger-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ REPORTS ═══ -->
+      <div class="page" id="page-reports">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Reports & Analytics</h2>
+            <p>Comprehensive business intelligence and performance metrics</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="printReportA4()"><i class="fa fa-print"></i> Print A4</button>
+            <button class="btn btn-ghost btn-sm"><i class="fa fa-file-excel"></i> Export Excel</button>
+          </div>
+        </div>
+        <div class="filter-bar mb-16">
+          <input type="date" class="form-input" id="rpt-from" style="padding:9px 12px;width:160px">
+          <input type="date" class="form-input" id="rpt-to" style="padding:9px 12px;width:160px">
+          <select class="form-input" id="rpt-type" style="padding:9px 12px;width:200px">
+            <option>Sales Report</option>
+            <option>Inventory Report</option>
+            <option>Purchase Report</option>
+            <option>Expense Report</option>
+            <option>Profit & Loss</option>
+          </select>
+          <button class="btn btn-accent btn-sm"><i class="fa fa-filter"></i> Generate</button>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header"><div class="card-title">Monthly Sales Trend</div></div>
+            <div class="card-body"><div class="chart-container" style="height:240px"><canvas id="rptSalesChart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">Profit & Loss Summary</div></div>
+            <div class="card-body" id="pl-summary"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Sales Report</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Items</th><th>Subtotal</th><th>Tax</th><th>Discount</th><th>Total</th><th>Payment</th></tr></thead>
+              <tbody id="report-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ USERS ═══ -->
+      <div class="page" id="page-users">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>User Management</h2>
+            <p>Manage system users and role-based permissions</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-accent btn-sm" onclick="openUserModal()"><i class="fa fa-user-plus"></i> Add User</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>Username</th><th>Role</th><th>Email</th><th>Permissions</th><th>Last Login</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="users-table"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card mt-16">
+          <div class="card-header"><div class="card-title">Activity Log</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th><th>IP</th></tr></thead>
+              <tbody id="activity-log"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SETTINGS ═══ -->
+      <div class="page" id="page-settings">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>⚙️ System Settings</h2>
+            <p>Configure store, invoice branding, tax, and distributor info</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-accent btn-sm" onclick="saveSettings()"><i class="fa fa-save"></i> Save All Settings</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+          <!-- Store Info -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">🏪 Store Information</div></div>
+            <div class="card-body">
+              <div class="form-group-inline"><label>Store Name</label><input class="form-input" id="set-storename" value="SmartRetail Store"></div>
+              <div class="form-group-inline"><label>Address</label><input class="form-input" id="set-address" value="123 Market Street, City"></div>
+              <div class="form-group-inline"><label>Phone</label><input class="form-input" id="set-phone" value="+1 555-000-1234"></div>
+              <div class="form-group-inline"><label>Email</label><input class="form-input" id="set-email" value="store@smartretail.com"></div>
+              <div class="form-group-inline"><label>Currency</label>
+                <select class="form-input" id="set-currency">
+                  <option>USD ($)</option><option>PKR (₨)</option><option>EUR (€)</option><option>GBP (£)</option>
+                </select>
+              </div>
+              <div class="form-group-inline"><label>Default Tax Rate (%)</label>
+                <input class="form-input" type="number" id="set-taxrate" value="8" min="0" max="50" step="0.5">
+              </div>
+              <div class="form-group-inline"><label>Low Stock Threshold</label>
+                <input class="form-input" type="number" id="set-lowstock" value="10" min="1">
+              </div>
+            </div>
+          </div>
+          <!-- Branding -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">🖼️ Invoice Branding</div></div>
+            <div class="card-body">
+              <div class="form-group-inline">
+                <label>Store Logo (Upload)</label>
+                <div style="display:flex;gap:10px;align-items:center">
+                  <input type="file" id="set-logo-file" accept="image/*" onchange="handleLogoUpload(this)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:12px">
+                  <div id="set-logo-preview" style="width:60px;height:60px;border:2px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex-shrink:0">🏪</div>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Logo appears on all A4 invoices & slips. Recommended: 200×60px PNG</div>
+              </div>
+              <div class="form-group-inline"><label>Receipt Header Text</label><textarea class="form-input" id="set-receipt-header" style="min-height:60px">Thank you for shopping at SmartRetail!</textarea></div>
+              <div class="form-group-inline"><label>Receipt Footer Text</label><textarea class="form-input" id="set-receipt-footer" style="min-height:60px">All sales are final. Visit us again!</textarea></div>
+              <div class="form-group-inline"><label>Show Tax on Invoice</label>
+                <select class="form-input" id="set-show-tax"><option value="yes">Yes</option><option value="no">No</option></select>
+              </div>
+            </div>
+          </div>
+          <!-- Distributor Info -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">🚚 Distributor / Agency Info</div></div>
+            <div class="card-body">
+              <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+                <i class="fa fa-info-circle" style="color:var(--accent)"></i> This info prints on every A4 invoice as the distribution party.
+              </div>
+              <div class="form-group-inline"><label>Distributor / Agency Name</label><input class="form-input" id="set-dist-name" placeholder="e.g. City Distributors Co."></div>
+              <div class="form-group-inline"><label>Distributor Phone</label><input class="form-input" id="set-dist-phone" placeholder="+1 555-000-0000"></div>
+              <div class="form-group-inline"><label>Distributor Address</label><input class="form-input" id="set-dist-address" placeholder="Distributor address..."></div>
+              <div class="form-group-inline"><label>Distributor Email</label><input class="form-input" id="set-dist-email" placeholder="distributor@email.com"></div>
+              <div class="form-group-inline"><label>NTN / Tax Registration No</label><input class="form-input" id="set-ntn" placeholder="NTN-0000000-0"></div>
+            </div>
+          </div>
+          <!-- Invoice Preview -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">👁️ Invoice Header Preview</div></div>
+            <div class="card-body">
+              <div id="invoice-header-preview" style="background:#fff;color:#000;border-radius:8px;padding:16px;font-family:Arial,sans-serif;font-size:12px">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:10px">
+                  <div>
+                    <div id="prev-logo-area" style="font-size:22px;font-weight:800;color:#000">🏪 SmartRetail Store</div>
+                    <div style="font-size:11px;color:#555" id="prev-address">123 Market Street, City</div>
+                    <div style="font-size:11px;color:#555" id="prev-phone">+1 555-000-1234</div>
+                  </div>
+                  <div style="text-align:right;font-size:11px;color:#555">
+                    <div id="prev-dist-name" style="font-weight:700;color:#000"></div>
+                    <div id="prev-dist-phone"></div>
+                    <div id="prev-ntn"></div>
+                  </div>
+                </div>
+                <div style="color:#777;font-size:10px;text-align:center" id="prev-header">Thank you for shopping at SmartRetail!</div>
+              </div>
+              <div style="margin-top:12px">
+                <button class="btn btn-ghost btn-sm" onclick="updatePreview()"><i class="fa fa-sync"></i> Refresh Preview</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ LEDGER ACCOUNTS ═══ -->
+      <div class="page" id="page-ledger">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>📒 Ledger Accounts</h2>
+            <p>Customer & Supplier account ledgers — debit, credit, balance</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="navigate('balancesheet')"><i class="fa fa-balance-scale"></i> Balance Sheet</button>
+          </div>
+        </div>
+
+        <!-- Search & Select -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="padding:16px">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+              <div class="form-group-inline" style="margin-bottom:0;flex:1;min-width:200px">
+                <label>Account Type</label>
+                <select class="form-input" id="ldg-type" onchange="renderLedger()" style="padding:9px 12px">
+                  <option value="customer">Customer Accounts</option>
+                  <option value="supplier">Supplier Accounts</option>
+                </select>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0;flex:2;min-width:250px">
+                <label>Search & Select Account</label>
+                <div style="display:flex;gap:8px">
+                  <input class="form-input" id="ldg-search" placeholder="Type name or account no..." style="padding:9px 12px;flex:1" oninput="filterLedgerAccounts()">
+                  <select class="form-input" id="ldg-account-select" onchange="loadLedgerAccount()" style="padding:9px 12px;flex:1">
+                    <option value="">— Select Account —</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-accent btn-sm" onclick="openLedgerEntryModal()"><i class="fa fa-plus"></i> Add Entry</button>
+                <button class="btn btn-ghost btn-sm" onclick="printLedgerA4()"><i class="fa fa-print"></i> Print A4</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Account Summary -->
+        <div id="ldg-account-summary" style="display:none;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+            <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-user"></i></div></div><div class="stat-value" id="ldg-acc-name" style="font-size:16px;margin-bottom:2px">—</div><div class="stat-label" id="ldg-acc-no">Account</div></div>
+            <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-arrow-up"></i></div></div><div class="stat-value" id="ldg-total-debit">$0.00</div><div class="stat-label">Total Debit (Receivable)</div></div>
+            <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-arrow-down"></i></div></div><div class="stat-value" id="ldg-total-credit">$0.00</div><div class="stat-label">Total Credit (Paid)</div></div>
+            <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-balance-scale"></i></div></div><div class="stat-value" id="ldg-net-balance">$0.00</div><div class="stat-label">Net Balance</div></div>
+          </div>
+        </div>
+
+        <!-- Ledger Table -->
+        <div class="card" id="ldg-table-card" style="display:none">
+          <div class="card-header">
+            <div class="card-title" id="ldg-table-title">Transaction History</div>
+            <div style="display:flex;gap:8px">
+              <input type="date" class="form-input" id="ldg-from" style="padding:8px 12px;width:150px" oninput="loadLedgerAccount()">
+              <input type="date" class="form-input" id="ldg-to" style="padding:8px 12px;width:150px" oninput="loadLedgerAccount()">
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Description</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+              <tbody id="ldg-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- All accounts summary -->
+        <div id="ldg-all-accounts" class="card">
+          <div class="card-header"><div class="card-title" id="ldg-all-title">All Customer Accounts</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Account No</th><th>Name</th><th>Phone</th><th>Total Debit</th><th>Total Credit</th><th>Net Balance</th><th>Actions</th></tr></thead>
+              <tbody id="ldg-all-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ BALANCE SHEET ═══ -->
+      <div class="page" id="page-balancesheet">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>⚖️ Balance Sheet</h2>
+            <p>Overall financial position — income, expenses, profit & loss</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="printBalanceSheetA4()"><i class="fa fa-print"></i> Print A4</button>
+          </div>
+        </div>
+
+        <!-- Summary KPIs -->
+        <div id="bs-kpi-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px"></div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+          <!-- Income -->
+          <div class="card">
+            <div class="card-header"><div class="card-title" style="color:var(--green)">💰 Income / Revenue</div></div>
+            <div class="card-body" id="bs-income-body"></div>
+          </div>
+          <!-- Expenses -->
+          <div class="card">
+            <div class="card-header"><div class="card-title" style="color:var(--red)">💸 Expenses</div></div>
+            <div class="card-body" id="bs-expense-body"></div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+          <!-- Customer Receivables -->
+          <div class="card">
+            <div class="card-header"><div class="card-title" style="color:var(--accent)">👥 Customer Receivables</div></div>
+            <div class="table-wrap" id="bs-receivables"></div>
+          </div>
+          <!-- Supplier Payables -->
+          <div class="card">
+            <div class="card-header"><div class="card-title" style="color:var(--yellow)">🏭 Supplier Payables</div></div>
+            <div class="table-wrap" id="bs-payables"></div>
+          </div>
+        </div>
+
+        <!-- Net P&L -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">📊 Profit & Loss Summary</div></div>
+          <div class="card-body" id="bs-pnl-body"></div>
+        </div>
+      </div>
+
+      <!-- ═══ STOCK REPORT ═══ -->
+      <div class="page" id="page-stockreport">
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>📦 Stock Report</h2>
+            <p>Per product detail or full inventory overview — with carton & loose piece breakdown</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" id="sr-print-btn" onclick="printStockReportA4()"><i class="fa fa-print"></i> Print A4</button>
+          </div>
+        </div>
+
+        <!-- MODE TOGGLE -->
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <button class="btn btn-accent btn-sm" id="sr-mode-all" onclick="setSRMode('all')">
+            <i class="fa fa-th-list"></i> All Products Report
+          </button>
+          <button class="btn btn-ghost btn-sm" id="sr-mode-single" onclick="setSRMode('single')">
+            <i class="fa fa-search"></i> Per Product Report
+          </button>
+        </div>
+
+        <!-- FILTERS CARD -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="padding:16px">
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Report Date</label>
+                <input class="form-input" type="date" id="sr-date" style="padding:9px 12px" oninput="renderStockReport()">
+              </div>
+              <div id="sr-all-filters" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Category</label>
+                  <select class="form-input" id="sr-cat" onchange="renderStockReport()" style="padding:9px 12px;width:180px">
+                    <option value="">All Categories</option>
+                  </select>
+                </div>
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Stock Status</label>
+                  <select class="form-input" id="sr-stockfilter" onchange="renderStockReport()" style="padding:9px 12px;width:160px">
+                    <option value="">All Products</option>
+                    <option value="low">Low Stock Only</option>
+                    <option value="out">Out of Stock</option>
+                    <option value="ok">In Stock Only</option>
+                  </select>
+                </div>
+              </div>
+              <div id="sr-single-filters" style="display:none;gap:12px;align-items:flex-end;flex-wrap:wrap">
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Search Product</label>
+                  <input class="form-input" id="sr-product-search" placeholder="Type name or SKU…" oninput="filterSRProducts()" style="padding:9px 12px;width:220px">
+                </div>
+                <div class="form-group-inline" style="margin-bottom:0">
+                  <label>Select Product</label>
+                  <select class="form-input" id="sr-product-select" onchange="renderSingleProductReport()" style="padding:9px 12px;width:220px">
+                    <option value="">— Choose a product —</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ALL PRODUCTS VIEW -->
+        <div id="sr-all-view">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px" id="sr-stats-grid"></div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Current Stock Levels</div>
+              <div style="font-size:12px;color:var(--text-secondary)" id="sr-date-label">—</div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th><th>SKU</th><th>Category</th>
+                    <th>Opening Stock</th><th>Sold Today</th>
+                    <th>Remaining (Pcs)</th><th>Cartons</th><th>Loose Pcs</th><th>Value</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="sr-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- PER PRODUCT VIEW -->
+        <div id="sr-single-view" style="display:none">
+          <div id="sr-single-placeholder" style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+            <i class="fa fa-search" style="font-size:48px;margin-bottom:16px;display:block;opacity:0.3"></i>
+            <div style="font-size:16px;font-weight:600">Select a product to view its stock report</div>
+            <div style="font-size:13px;margin-top:6px">Search by name or SKU above, then pick from the dropdown</div>
+          </div>
+          <div id="sr-single-content" style="display:none">
+            <!-- Product Header Card -->
+            <div class="card" style="margin-bottom:16px">
+              <div class="card-body" style="padding:20px">
+                <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+                  <div id="sr-prod-icon" style="font-size:52px;width:72px;height:72px;background:var(--bg-secondary);border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0"></div>
+                  <div style="flex:1;min-width:200px">
+                    <div id="sr-prod-name" style="font-size:22px;font-weight:800;margin-bottom:4px"></div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary)">
+                      <span>SKU: <strong id="sr-prod-sku" style="color:var(--text-primary)"></strong></span>
+                      <span>Brand: <strong id="sr-prod-brand" style="color:var(--text-primary)"></strong></span>
+                      <span>Category: <strong id="sr-prod-cat" style="color:var(--accent)"></strong></span>
+                      <span>Pcs/Carton: <strong id="sr-prod-ppc" style="color:var(--cyan)"></strong></span>
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <div style="text-align:center;padding:12px 18px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border)">
+                      <div id="sr-prod-stock" style="font-size:26px;font-weight:900;color:var(--green)"></div>
+                      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Current Stock</div>
+                    </div>
+                    <div style="text-align:center;padding:12px 18px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border)">
+                      <div id="sr-prod-cartons" style="font-size:26px;font-weight:900;color:var(--cyan)"></div>
+                      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Cartons</div>
+                    </div>
+                    <div style="text-align:center;padding:12px 18px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border)">
+                      <div id="sr-prod-loose" style="font-size:26px;font-weight:900;color:var(--yellow)"></div>
+                      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Loose Pcs</div>
+                    </div>
+                    <div style="text-align:center;padding:12px 18px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border)">
+                      <div id="sr-prod-value" style="font-size:26px;font-weight:900;color:var(--accent)"></div>
+                      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Stock Value</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stats row -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px" id="sr-prod-stats"></div>
+
+            <!-- Sales History -->
+            <div class="card" style="margin-bottom:16px">
+              <div class="card-header">
+                <div class="card-title"><i class="fa fa-history" style="color:var(--accent)"></i> Sales History</div>
+                <div style="font-size:12px;color:var(--text-secondary)" id="sr-prod-history-label"></div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th><th>Invoice</th><th>Customer</th>
+                      <th>Qty Sold</th><th>Cartons</th><th>Loose Pcs</th><th>Rate</th><th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sr-prod-history-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Stock Movement -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title"><i class="fa fa-exchange-alt" style="color:var(--purple)"></i> Stock Movement Log</div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Date/Time</th><th>Type</th><th>Qty Change</th><th>Stock Before</th><th>Stock After</th><th>Reference</th></tr>
+                  </thead>
+                  <tbody id="sr-prod-movement-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══ SUPPLY ROUTES ═══ -->
+      <div class="page" id="page-supplyroutes">
+      
+        <!-- Page Header -->
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Supply Routes</h2>
+            <p>Manage 7-day supplier visit &amp; order-taking schedules by route</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-accent btn-sm" onclick="openRouteModal()">
+              <i class="fa fa-plus"></i> New Route
+            </button>
+          </div>
+        </div>
+      
+        <!-- Route Stats Row -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px" id="sr-stats-row">
+          <div class="stat-card blue" style="padding:16px 18px">
+            <div class="stat-header"><div class="stat-icon blue"><i class="fa fa-route"></i></div></div>
+            <div class="stat-value" id="sr-stat-total" style="font-size:26px">0</div>
+            <div class="stat-label">Total Routes</div>
+          </div>
+          <div class="stat-card green" style="padding:16px 18px">
+            <div class="stat-header"><div class="stat-icon green"><i class="fa fa-check-circle"></i></div></div>
+            <div class="stat-value" id="sr-stat-active" style="font-size:26px">0</div>
+            <div class="stat-label">Active Routes</div>
+          </div>
+          <div class="stat-card purple" style="padding:16px 18px">
+            <div class="stat-header"><div class="stat-icon purple"><i class="fa fa-calendar-day"></i></div></div>
+            <div class="stat-value" id="sr-stat-today" style="font-size:26px">0</div>
+            <div class="stat-label">Routes Today</div>
+          </div>
+          <div class="stat-card" style="padding:16px 18px;background:var(--yellow-glow);border:1px solid rgba(245,158,11,.2)">
+            <div class="stat-header"><div class="stat-icon" style="background:var(--yellow-glow);color:var(--yellow)"><i class="fa fa-users"></i></div></div>
+            <div class="stat-value text-yellow" id="sr-stat-reps" style="font-size:26px">0</div>
+            <div class="stat-label">Field Reps</div>
+          </div>
+        </div>
+      
+        <!-- Weekly Calendar -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header" style="padding:16px 20px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:34px;height:34px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px">
+                <i class="fa fa-calendar-week"></i>
+              </div>
+              <div>
+                <div class="card-title" style="margin:0">Weekly Route Calendar</div>
+                <div class="card-subtitle" id="sr-week-label" style="margin:0;font-size:11px"></div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button class="btn btn-ghost btn-sm" onclick="shiftRouteWeek(-1)" style="padding:7px 12px">
+                <i class="fa fa-chevron-left"></i> Prev
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="shiftRouteWeek(0)" style="padding:7px 12px">
+                <i class="fa fa-calendar"></i> Today
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="shiftRouteWeek(1)" style="padding:7px 12px">
+                Next <i class="fa fa-chevron-right"></i>
+              </button>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <div id="sr-calendar-grid" style="min-width:700px"></div>
+          </div>
+        </div>
+      
+        <!-- Routes Cards + Table Toggle -->
+        <div class="card">
+          <div class="card-header">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:34px;height:34px;border-radius:8px;background:var(--green-glow);display:flex;align-items:center;justify-content:center;color:var(--green);font-size:15px">
+                <i class="fa fa-map-marked-alt"></i>
+              </div>
+              <div class="card-title">All Routes</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="search-bar" style="width:220px">
+                <i class="fa fa-search"></i>
+                <input type="text" id="sr-search" placeholder="Search routes, area, rep..." oninput="renderRoutesTable()">
+              </div>
+              <select class="form-input" id="sr-status-filter" onchange="renderRoutesTable()" style="padding:8px 12px;width:130px;font-size:12px">
+                <option value="">All Status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <!-- Route Cards Grid -->
+          <div id="sr-route-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;padding:20px"></div>
+        </div>
+      </div>
+      
+      <!-- ═══ ORDER SUMMARY ═══ -->
+      <div class="page" id="page-ordersummary">
+      
+        <!-- Page Header -->
+        <div class="page-header">
+          <div class="page-header-left">
+            <h2>Order Summary</h2>
+            <p>Warehouse dispatch — pieces &amp; cartons dispatched with total supply cost</p>
+          </div>
+          <div class="page-header-actions" style="flex-wrap:wrap;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px 12px">
+              <i class="fa fa-calendar-alt" style="color:var(--text-muted);font-size:12px"></i>
+              <input type="date" id="os-date-from" style="background:transparent;border:none;color:var(--text-primary);font-size:12px;outline:none;width:130px" onchange="renderOrderSummary()">
+              <span style="color:var(--text-muted);font-size:11px">→</span>
+              <input type="date" id="os-date-to" style="background:transparent;border:none;color:var(--text-primary);font-size:12px;outline:none;width:130px" onchange="renderOrderSummary()">
+            </div>
+            <!-- Username filter -->
+            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:5px 10px;min-width:200px">
+              <i class="fa fa-user-tag" style="color:var(--accent);font-size:12px"></i>
+              <select id="os-username-filter" onchange="renderOrderSummary()" style="background:transparent;border:none;color:var(--text-primary);font-size:12px;outline:none;flex:1;cursor:pointer">
+                <option value="">All Users</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="clearOsFilter()"><i class="fa fa-sync-alt"></i> Reset</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportOrderSummaryCsv()"><i class="fa fa-file-csv"></i> Export</button>
+            <button class="btn btn-ghost btn-sm" onclick="openModal('os-settings-modal')" title="Customize visible columns"><i class="fa fa-sliders-h"></i> Settings</button>
+            <button class="btn btn-accent btn-sm" onclick="printOrderSummary()"><i class="fa fa-print"></i> Print</button>
+          </div>
+        </div>
+
+        <!-- Financial KPI strip (username-aware) -->
+        <div id="os-financial-kpis" style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
+          <div id="os-fin-card-orders" class="os-fin-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;border-left:3px solid var(--accent)">
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px"><i class="fa fa-receipt" style="margin-right:4px"></i>Total Orders</div>
+            <div style="font-size:22px;font-weight:800;color:var(--text-primary)" id="os-fin-orders">0</div>
+          </div>
+          <div id="os-fin-card-amount" class="os-fin-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;border-left:3px solid var(--green)">
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px"><i class="fa fa-dollar-sign" style="margin-right:4px"></i>Total Amount</div>
+            <div style="font-size:20px;font-weight:800;color:var(--green);font-family:var(--mono)" id="os-fin-amount">Rs.0</div>
+          </div>
+          <div id="os-fin-card-tax" class="os-fin-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;border-left:3px solid var(--yellow)">
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px"><i class="fa fa-percent" style="margin-right:4px"></i>Total Tax</div>
+            <div style="font-size:20px;font-weight:800;color:var(--yellow);font-family:var(--mono)" id="os-fin-tax">Rs.0</div>
+          </div>
+          <div id="os-fin-card-discount" class="os-fin-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;border-left:3px solid var(--red)">
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px"><i class="fa fa-tag" style="margin-right:4px"></i>Discount</div>
+            <div style="font-size:20px;font-weight:800;color:var(--red);font-family:var(--mono)" id="os-fin-discount">Rs.0</div>
+          </div>
+          <div id="os-fin-card-pending" class="os-fin-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;border-left:3px solid var(--purple)">
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px"><i class="fa fa-clock" style="margin-right:4px"></i>Pending</div>
+            <div style="font-size:20px;font-weight:800;color:var(--purple);font-family:var(--mono)" id="os-fin-pending">Rs.0</div>
+          </div>
+          <div id="os-fin-card-received" class="os-fin-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;border-left:3px solid var(--cyan)">
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px"><i class="fa fa-check-circle" style="margin-right:4px"></i>Received</div>
+            <div style="font-size:20px;font-weight:800;color:var(--cyan);font-family:var(--mono)" id="os-fin-received">Rs.0</div>
+          </div>
+        </div>
+      
+        <!-- KPI Cards -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px">
+      
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#60a5fa)"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Cartons Out</span>
+              <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:16px"><i class="fa fa-boxes"></i></div>
+            </div>
+            <div style="font-size:32px;font-weight:800;color:var(--text-primary);line-height:1" id="os-total-cartons">0</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Total cartons dispatched</div>
+          </div>
+      
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--green),#34d399)"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Pieces Out</span>
+              <div style="width:36px;height:36px;border-radius:8px;background:var(--green-glow);display:flex;align-items:center;justify-content:center;color:var(--green);font-size:16px"><i class="fa fa-cube"></i></div>
+            </div>
+            <div style="font-size:32px;font-weight:800;color:var(--text-primary);line-height:1" id="os-total-pieces">0</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Total individual pieces</div>
+          </div>
+      
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--purple),#a78bfa)"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Orders</span>
+              <div style="width:36px;height:36px;border-radius:8px;background:var(--purple-glow);display:flex;align-items:center;justify-content:center;color:var(--purple);font-size:16px"><i class="fa fa-receipt"></i></div>
+            </div>
+            <div style="font-size:32px;font-weight:800;color:var(--text-primary);line-height:1" id="os-total-orders">0</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Confirmed bookings</div>
+          </div>
+      
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--yellow),#fbbf24)"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Supply Cost</span>
+              <div style="width:36px;height:36px;border-radius:8px;background:var(--yellow-glow);display:flex;align-items:center;justify-content:center;color:var(--yellow);font-size:16px"><i class="fa fa-dollar-sign"></i></div>
+            </div>
+            <div style="font-size:32px;font-weight:800;color:var(--yellow);line-height:1" id="os-total-cost">$0</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Total warehouse cost</div>
+          </div>
+      
+        </div>
+      
+        <!-- Breakdown Table -->
+        <div class="card">
+          <div class="card-header">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:34px;height:34px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px">
+                <i class="fa fa-layer-group"></i>
+              </div>
+              <div>
+                <div class="card-title" style="margin:0">Product-wise Dispatch Breakdown</div>
+                <div class="card-subtitle" style="margin:0">Per product: pieces out, cartons dispatched &amp; cost</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <!-- Active username badge -->
+              <div id="os-username-badge" style="display:none;background:var(--accent-glow);border:1px solid rgba(59,130,246,.25);color:var(--accent);font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px;white-space:nowrap"></div>
+              <div class="search-bar" style="width:220px">
+                <i class="fa fa-search"></i>
+                <input type="text" id="os-search" placeholder="Filter by product or SKU..." oninput="renderOrderSummary()">
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="os-main-table">
+              <thead>
+                <tr>
+                  <th style="width:28%">Product</th>
+                  <th>SKU</th>
+                  <th style="text-align:center">Orders</th>
+                  <th style="text-align:center">Total Pieces</th>
+                  <th style="text-align:center">Pcs / Ctn</th>
+                  <th style="text-align:center">Cartons Out</th>
+                  <th style="text-align:center">Loose Pcs</th>
+                  <th style="text-align:right">Unit Cost</th>
+                  <th style="text-align:right">Total Cost</th>
+                </tr>
+              </thead>
+              <tbody id="os-table-body"></tbody>
+            </table>
+          </div>
+          <!-- Empty state -->
+          <div id="os-empty" style="display:none;padding:60px 20px;text-align:center">
+            <div style="width:64px;height:64px;border-radius:16px;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:var(--text-muted);font-size:28px">
+              <i class="fa fa-inbox"></i>
+            </div>
+            <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:6px">No Orders Found</div>
+            <div style="font-size:13px;color:var(--text-secondary);max-width:360px;margin:0 auto" id="os-empty-msg">
+              Save confirmed bookings in the <strong>Order Booking</strong> module — they will appear here with full carton &amp; piece counts.
+            </div>
+            <button class="btn btn-accent btn-sm" style="margin-top:16px" onclick="navigate('booking')">
+              <i class="fa fa-clipboard-list"></i> Go to Order Booking
+            </button>
+          </div>
+        </div>
+      
+      </div>
+
+    </div><!-- end .content -->
+  </main>
+</div><!-- end #app -->
+
+<!-- ═══ CUSTOMER COLLECTION PAGE (injected as page inside content) ═══ -->
+  <script src="script.js"></script>
+
+<!-- TOAST -->
+<div id="toast-container"></div>
+
+<!-- ═══ MODALS ═══ -->
+
+<!-- Product Modal -->
+<div class="modal-overlay" id="product-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="prod-modal-title">Add Product</div>
+      <button class="modal-close" onclick="closeModal('product-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="prod-edit-id">
+
+      <!-- Basic Info Group -->
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Basic Information</div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Product Name *</label><input class="form-input" id="prod-name" placeholder="e.g. Coca-Cola 330ml"></div>
+        <div class="form-group-inline"><label>SKU Code *</label><input class="form-input" id="prod-sku" placeholder="e.g. SKU-001"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Category</label>
+          <select class="form-input" id="prod-cat">
+            <option value="">Select Category</option>
+          </select>
+        </div>
+        <div class="form-group-inline"><label>Brand</label><input class="form-input" id="prod-brand" placeholder="Brand name"></div>
+      </div>
+
+      <!-- Pricing Group -->
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Pricing & Margins</div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Purchase Price ($) *</label><input class="form-input" type="number" id="prod-buy" placeholder="0.00" step="0.01" oninput="calcProdPricing()"></div>
+        <div class="form-group-inline"><label>Base Selling Price ($) *</label><input class="form-input" type="number" id="prod-sell" placeholder="0.00" step="0.01" oninput="calcProdPricing()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Discount (%)</label>
+          <div style="position:relative">
+            <input class="form-input" type="number" id="prod-discount" placeholder="0" step="0.1" min="0" max="100" oninput="calcProdPricing()" style="padding-right:32px">
+            <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-muted)">%</span>
+          </div>
+        </div>
+        <div class="form-group-inline">
+          <label>Tax / GST (%)</label>
+          <div style="position:relative">
+            <input class="form-input" type="number" id="prod-tax" placeholder="0" step="0.1" min="0" max="100" oninput="calcProdPricing()" style="padding-right:32px">
+            <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-muted)">%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Auto-calculated pricing results -->
+      <div id="prod-pricing-summary" style="display:none;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:10px;padding:14px 18px;margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">💡 Calculated Results</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Discount Amount</div>
+            <div id="prod-calc-disc" style="font-size:16px;font-weight:800;color:var(--red)">$0.00</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Final Sale Price</div>
+            <div id="prod-calc-final" style="font-size:16px;font-weight:800;color:var(--accent)">$0.00</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Tax-Inclusive Price</div>
+            <div id="prod-calc-tax" style="font-size:16px;font-weight:800;color:var(--yellow)">$0.00</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--green-glow);border-radius:8px;border:1px solid rgba(16,185,129,.2)">
+            <span style="font-size:12px;font-weight:600">Profit Margin</span>
+            <span id="prod-calc-margin" style="font-size:14px;font-weight:800;color:var(--green)">0%</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+            <span style="font-size:12px;font-weight:600">Profit Amount</span>
+            <span id="prod-calc-profit" style="font-size:14px;font-weight:800;color:var(--accent)">$0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stock Group -->
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin:4px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Stock & Inventory</div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Stock Quantity</label><input class="form-input" type="number" id="prod-stock" placeholder="0"></div>
+        <div class="form-group-inline"><label>Min Stock Level</label><input class="form-input" type="number" id="prod-minstock" placeholder="10"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Cartons in Stock</label><input class="form-input" type="number" id="prod-carton-qty" placeholder="0" min="0"></div>
+        <div class="form-group-inline"><label>Pieces Per Carton</label><input class="form-input" type="number" id="prod-pieces-per-carton" placeholder="e.g. 24" min="1"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Barcode</label><input class="form-input" id="prod-barcode" placeholder="Barcode number"></div>
+        <div class="form-group-inline"><label>Expiry Date (optional)</label><input class="form-input" type="date" id="prod-expiry"></div>
+      </div>
+      <div class="form-group-inline"><label>Supplier</label>
+        <select class="form-input" id="prod-supplier"><option value="">Select Supplier</option></select>
+      </div>
+      <div class="form-group-inline"><label>Product Emoji Icon</label>
+        <input class="form-input" id="prod-icon" placeholder="e.g. 🥤 or leave blank">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('product-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveProduct()"><i class="fa fa-save"></i> Save Product</button>
+    </div>
+  </div>
+</div>
+
+<!-- Category Modal -->
+<div class="modal-overlay" id="cat-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Category Management</div>
+      <button class="modal-close" onclick="closeModal('cat-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="flex-gap mb-16">
+        <input class="form-input" id="new-cat-name" placeholder="Category name" style="flex:1">
+        <button class="btn btn-accent" onclick="addCategory()"><i class="fa fa-plus"></i> Add</button>
+      </div>
+      <div id="cat-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Customer Modal -->
+<div class="modal-overlay" id="customer-modal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent)"><i class="fa fa-user"></i></div>
+        <div class="modal-title" id="cust-modal-title">Add Customer</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('customer-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="cust-edit-id">
+
+      <!-- Section: Identity -->
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Identity</div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Full Name *</label>
+          <input class="form-input" id="cust-name" placeholder="Customer full name">
+        </div>
+        <div class="form-group-inline">
+          <label>Account No <span style="font-size:10px;color:var(--text-muted)">(Auto)</span></label>
+          <input class="form-input" id="cust-acc" readonly style="color:var(--purple);font-family:var(--mono);font-weight:700;background:var(--bg-primary)">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>
+            CNIC Number
+            <span style="font-size:10px;color:var(--text-muted);margin-left:4px">e.g. 35202-1234567-1</span>
+          </label>
+          <div style="position:relative">
+            <input class="form-input" id="cust-cnic" placeholder="XXXXX-XXXXXXX-X"
+              oninput="formatCnicInput(this)" maxlength="15"
+              style="font-family:var(--mono);letter-spacing:.04em">
+            <div id="cust-cnic-status" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:13px"></div>
+          </div>
+          <div id="cust-cnic-error" style="font-size:11px;color:var(--red);margin-top:4px;display:none"><i class="fa fa-exclamation-circle"></i> Format: 35202-1234567-1 (13 digits)</div>
+        </div>
+        <div class="form-group-inline">
+          <label>Phone</label>
+          <input class="form-input" id="cust-phone" placeholder="+92 300-0000000">
+        </div>
+      </div>
+
+      <!-- Section: Contact -->
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin:14px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Contact & Account</div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Email</label>
+          <input class="form-input" id="cust-email" placeholder="email@example.com">
+        </div>
+        <div class="form-group-inline">
+          <label>Previous Balance (Rs.)</label>
+          <input class="form-input" type="number" id="cust-prev-balance" value="0" step="0.01">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Loyalty Points</label>
+          <input class="form-input" type="number" id="cust-points" value="0">
+        </div>
+      </div>
+      <div class="form-group-inline">
+        <label>Address</label>
+        <textarea class="form-input" id="cust-address" placeholder="Full address" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('customer-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveCustomer()"><i class="fa fa-save"></i> Save Customer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Supplier Modal -->
+<div class="modal-overlay" id="supplier-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="sup-modal-title">Add Supplier</div>
+      <button class="modal-close" onclick="closeModal('supplier-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="sup-edit-id">
+      <div class="form-row">
+        <div class="form-group-inline"><label>Company Name *</label><input class="form-input" id="sup-name" placeholder="Supplier name"></div>
+        <div class="form-group-inline"><label>Phone</label><input class="form-input" id="sup-phone" placeholder="+1 555-000-0000"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Email</label><input class="form-input" id="sup-email" placeholder="email@supplier.com"></div>
+        <div class="form-group-inline"><label>Balance ($)</label><input class="form-input" type="number" id="sup-balance" value="0" step="0.01"></div>
+      </div>
+      <div class="form-group-inline"><label>Address</label><textarea class="form-input" id="sup-address" placeholder="Full address"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('supplier-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveSupplier()"><i class="fa fa-save"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Expense Modal -->
+<div class="modal-overlay" id="expense-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="exp-modal-title">Add Expense</div>
+      <button class="modal-close" onclick="closeModal('expense-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="exp-edit-id">
+      <div class="form-row">
+        <div class="form-group-inline"><label>Category *</label>
+          <select class="form-input" id="exp-cat">
+            <option>Rent</option><option>Electricity</option><option>Salary</option>
+            <option>Transport</option><option>Maintenance</option><option>Marketing</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group-inline"><label>Amount ($) *</label><input class="form-input" type="number" id="exp-amount" placeholder="0.00" step="0.01"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Date *</label><input class="form-input" type="date" id="exp-date"></div>
+        <div class="form-group-inline"><label>Reference #</label><input class="form-input" id="exp-ref" placeholder="Optional"></div>
+      </div>
+      <div class="form-group-inline"><label>Description</label><textarea class="form-input" id="exp-desc" placeholder="Expense details..."></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('expense-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveExpense()"><i class="fa fa-save"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SALE RETURN MODAL ═══ -->
+<div class="modal-overlay" id="sr-process-modal">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:rgba(239,68,68,.15);display:flex;align-items:center;justify-content:center;color:var(--red)"><i class="fa fa-undo-alt"></i></div>
+        <div>
+          <div class="modal-title">Process Sale Return</div>
+          <div id="sr-modal-invoice-label" style="font-size:11px;color:var(--text-muted)">Select items to return</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('sr-process-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Invoice summary -->
+      <div id="sr-invoice-summary" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Invoice</div><div id="sr-inv-no" style="font-weight:800;color:var(--accent);font-family:var(--mono)">—</div></div>
+          <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Customer</div><div id="sr-inv-cust" style="font-weight:700">—</div></div>
+          <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Date</div><div id="sr-inv-date" style="font-weight:600">—</div></div>
+          <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Original Total</div><div id="sr-inv-total" style="font-weight:800;color:var(--green);font-family:var(--mono)">Rs.0</div></div>
+        </div>
+      </div>
+
+      <!-- Items to return -->
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Select Items & Quantities to Return</div>
+      <div class="table-wrap" style="margin-bottom:14px">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px"><input type="checkbox" id="sr-check-all" onchange="srToggleAll(this.checked)" title="Select all"></th>
+              <th>Product</th><th>Orig. Qty</th><th>Return Qty</th><th>Unit Price</th><th>Refund</th>
+            </tr>
+          </thead>
+          <tbody id="sr-items-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Return Reason *</label>
+          <select class="form-input" id="sr-reason">
+            <option value="Defective Product">Defective / Damaged Product</option>
+            <option value="Wrong Item">Wrong Item Delivered</option>
+            <option value="Customer Changed Mind">Customer Changed Mind</option>
+            <option value="Expired Product">Expired Product</option>
+            <option value="Over-billing">Over-billing / Price Error</option>
+            <option value="Quantity Error">Quantity Error</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group-inline">
+          <label>Refund Method</label>
+          <select class="form-input" id="sr-refund-method">
+            <option>Cash Refund</option>
+            <option>Credit Note</option>
+            <option>Exchange</option>
+            <option>Adjust in Next Bill</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group-inline">
+        <label>Notes <span style="color:var(--text-muted);font-size:10px">(optional)</span></label>
+        <textarea class="form-input" id="sr-notes" rows="2" placeholder="Additional notes about this return..."></textarea>
+      </div>
+
+      <!-- Refund summary -->
+      <div style="background:var(--green-glow);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">Total Refund Amount</div>
+          <div style="font-size:10px;color:var(--text-muted)" id="sr-return-items-count">0 items selected</div>
+        </div>
+        <div id="sr-refund-total" style="font-size:24px;font-weight:900;color:var(--green);font-family:var(--mono)">Rs.0.00</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('sr-process-modal')">Cancel</button>
+      <button class="btn" style="background:var(--red);color:#fff" onclick="saveSaleReturn()"><i class="fa fa-undo-alt"></i> Process Return</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PURCHASE RETURN MODAL ═══ -->
+<div class="modal-overlay" id="pr-modal">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:rgba(245,158,11,.15);display:flex;align-items:center;justify-content:center;color:var(--yellow)"><i class="fa fa-truck-loading"></i></div>
+        <div>
+          <div class="modal-title">Purchase Return</div>
+          <div style="font-size:11px;color:var(--text-muted)">Return items to supplier and reverse stock</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('pr-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Supplier *</label>
+          <select class="form-input" id="pr-supplier" onchange="prLoadPurchases()">
+            <option value="">— Select Supplier —</option>
+          </select>
+        </div>
+        <div class="form-group-inline">
+          <label>Original Purchase Order</label>
+          <select class="form-input" id="pr-po-select" onchange="prLoadPoItems()">
+            <option value="">— Select PO (optional) —</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Return Date</label>
+          <input class="form-input" type="date" id="pr-date" style="padding:9px 12px">
+        </div>
+        <div class="form-group-inline">
+          <label>Return Reason *</label>
+          <select class="form-input" id="pr-reason">
+            <option>Defective / Damaged</option>
+            <option>Wrong Item Received</option>
+            <option>Expired Stock</option>
+            <option>Quality Issue</option>
+            <option>Over-supply</option>
+            <option>Price Discrepancy</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Return Items -->
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;margin-top:4px">Return Items</div>
+      <div id="pr-items-list"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addPrItem()" style="margin-top:8px"><i class="fa fa-plus"></i> Add Item</button>
+
+      <!-- Total -->
+      <div style="margin-top:14px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700">Total Return Value</span>
+        <span id="pr-total-val" style="font-size:18px;font-weight:900;color:var(--yellow);font-family:var(--mono)">Rs.0.00</span>
+      </div>
+
+      <div class="form-group-inline" style="margin-top:10px">
+        <label>Notes</label>
+        <textarea class="form-input" id="pr-notes" rows="2" placeholder="Optional notes..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('pr-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="savePurchaseReturn()"><i class="fa fa-save"></i> Save Return</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="stock-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent)"><i class="fa fa-sliders-h"></i></div>
+        <div>
+          <div class="modal-title">Stock Adjustment</div>
+          <div style="font-size:11px;color:var(--text-muted)">Search product and adjust inventory</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('stock-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Product live search -->
+      <div class="form-group-inline" style="position:relative">
+        <label><i class="fa fa-search" style="margin-right:4px;color:var(--accent)"></i>Search Product (name, SKU, barcode)</label>
+        <div style="position:relative">
+          <input class="form-input" id="adj-search" placeholder="Type to search product..." autocomplete="off"
+            oninput="adjSearchProducts(this.value)"
+            style="padding-right:36px">
+          <i class="fa fa-barcode" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px"></i>
+        </div>
+        <!-- Autocomplete dropdown -->
+        <div id="adj-search-drop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.35);margin-top:2px"></div>
+      </div>
+
+      <!-- Selected product card -->
+      <div id="adj-product-card" style="display:none;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="adj-prod-icon" style="font-size:26px">📦</span>
+            <div>
+              <div id="adj-prod-name" style="font-weight:700;font-size:14px"></div>
+              <div id="adj-prod-sku" style="font-size:11px;color:var(--text-muted);font-family:var(--mono)"></div>
+            </div>
+          </div>
+          <button onclick="clearAdjProduct()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px" title="Change product">✕</button>
+        </div>
+        <!-- Stock visualization -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center">
+          <div style="padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Current Stock</div>
+            <div id="adj-current-stock" style="font-size:22px;font-weight:800;color:var(--text-primary)">0</div>
+            <div style="font-size:9px;color:var(--text-muted)">units</div>
+          </div>
+          <div style="padding:10px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+            <div style="font-size:10px;color:var(--accent);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:700">Adjustment</div>
+            <div id="adj-delta-display" style="font-size:22px;font-weight:800;color:var(--accent)">±0</div>
+            <div style="font-size:9px;color:var(--accent)">units</div>
+          </div>
+          <div style="padding:10px;background:var(--green-glow);border-radius:8px;border:1px solid rgba(16,185,129,.2)">
+            <div style="font-size:10px;color:var(--green);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:700">New Stock</div>
+            <div id="adj-new-stock" style="font-size:22px;font-weight:800;color:var(--green)">0</div>
+            <div style="font-size:9px;color:var(--green)">units</div>
+          </div>
+        </div>
+        <!-- Low stock warning -->
+        <div id="adj-low-warn" style="display:none;margin-top:10px;padding:7px 12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:6px;font-size:12px;color:var(--red);font-weight:600">
+          <i class="fa fa-exclamation-triangle"></i> Warning: Result will be below minimum stock level
+        </div>
+        <div id="adj-negative-warn" style="display:none;margin-top:6px;padding:7px 12px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);border-radius:6px;font-size:12px;color:var(--red);font-weight:700">
+          <i class="fa fa-times-circle"></i> Cannot go below zero — adjustment will be capped
+        </div>
+      </div>
+
+      <!-- Hidden product id -->
+      <input type="hidden" id="adj-product">
+
+      <!-- Adjustment type — 4 options with icon tiles -->
+      <div class="form-group-inline">
+        <label>Adjustment Type *</label>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          <label id="adj-tile-increase" class="adj-type-tile" onclick="selectAdjType('increase')"
+            style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;background:var(--bg-secondary);border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;text-align:center">
+            <i class="fa fa-arrow-up" style="font-size:16px;color:var(--green)"></i>
+            <span style="font-size:11px;font-weight:700">Increase</span>
+          </label>
+          <label id="adj-tile-decrease" class="adj-type-tile" onclick="selectAdjType('decrease')"
+            style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;background:var(--bg-secondary);border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;text-align:center">
+            <i class="fa fa-arrow-down" style="font-size:16px;color:var(--red)"></i>
+            <span style="font-size:11px;font-weight:700">Decrease</span>
+          </label>
+          <label id="adj-tile-damaged" class="adj-type-tile" onclick="selectAdjType('damaged')"
+            style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;background:var(--bg-secondary);border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;text-align:center">
+            <i class="fa fa-exclamation-triangle" style="font-size:16px;color:var(--yellow)"></i>
+            <span style="font-size:11px;font-weight:700">Damaged</span>
+          </label>
+          <label id="adj-tile-returned" class="adj-type-tile" onclick="selectAdjType('returned')"
+            style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;background:var(--bg-secondary);border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;text-align:center">
+            <i class="fa fa-undo" style="font-size:16px;color:var(--cyan)"></i>
+            <span style="font-size:11px;font-weight:700">Returned</span>
+          </label>
+        </div>
+        <input type="hidden" id="adj-type" value="increase">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Quantity *</label>
+          <input class="form-input" type="number" id="adj-qty" placeholder="0" min="1" step="1"
+            oninput="updateAdjPreview()" onclick="this.select()">
+        </div>
+        <div class="form-group-inline">
+          <label>Reason</label>
+          <select class="form-input" id="adj-reason">
+            <option value="Stock Count">Stock Count / Audit</option>
+            <option value="Damage/Waste">Damage / Waste</option>
+            <option value="Returned">Customer Return</option>
+            <option value="Supplier Return">Supplier Return</option>
+            <option value="Theft">Theft / Shrinkage</option>
+            <option value="Correction">Data Correction</option>
+            <option value="Purchase">New Purchase</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group-inline">
+        <label>Notes <span style="font-size:10px;color:var(--text-muted)">(optional)</span></label>
+        <textarea class="form-input" id="adj-notes" placeholder="Additional notes about this adjustment..." rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('stock-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveStockAdj()"><i class="fa fa-check"></i> Apply Adjustment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Purchase Modal -->
+<div class="modal-overlay" id="purchase-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">New Purchase Order</div>
+      <button class="modal-close" onclick="closeModal('purchase-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group-inline"><label>Supplier *</label>
+          <select class="form-input" id="pur-supplier"></select>
+        </div>
+        <div class="form-group-inline"><label>Date *</label><input class="form-input" type="date" id="pur-date"></div>
+      </div>
+      <div style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Purchase Items</div>
+        <div id="pur-items-list"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addPurItem()" style="margin-top:8px"><i class="fa fa-plus"></i> Add Item</button>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Payment Status</label>
+          <select class="form-input" id="pur-payment"><option>Paid</option><option>Pending</option><option>Partial</option></select>
+        </div>
+        <div class="form-group-inline"><label>Notes</label><input class="form-input" id="pur-notes" placeholder="Optional"></div>
+      </div>
+      <div style="text-align:right;font-size:16px;font-weight:800">Total: <span id="pur-total" class="text-accent">$0.00</span></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('purchase-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="savePurchase()"><i class="fa fa-save"></i> Save Purchase</button>
+    </div>
+  </div>
+</div>
+
+<!-- User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="user-modal-title">Add User</div>
+      <button class="modal-close" onclick="closeModal('user-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="user-edit-id">
+      <div class="form-row">
+        <div class="form-group-inline"><label>Full Name *</label><input class="form-input" id="usr-name" placeholder="Full name"></div>
+        <div class="form-group-inline"><label>Username *</label><input class="form-input" id="usr-username" placeholder="username"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Email</label><input class="form-input" id="usr-email" placeholder="email@example.com"></div>
+        <div class="form-group-inline"><label>Role *</label>
+          <select class="form-input" id="usr-role" onchange="togglePermissionsPanel()">
+            <option value="Admin">Admin</option><option value="Sub-Admin">Sub-Admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group-inline"><label>Password *</label><input class="form-input" type="password" id="usr-pass" placeholder="••••••••"></div>
+      <div id="permissions-panel" style="display:none;margin-top:12px">
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Module Access (Sub-Admin)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="dashboard"> Dashboard</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="pos"> POS Terminal</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="booking"> Order Booking</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="saleslips"> Sale Slips</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="orders"> Orders</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="products"> Products</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="inventory"> Inventory</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="purchases"> Purchases</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="customers"> Customers</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="suppliers"> Suppliers</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="expenses"> Expenses</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="accounting"> Accounting</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="reports"> Reports</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="perm-check" value="settings"> Settings</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveUser()"><i class="fa fa-save"></i> Save User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt Modal -->
+<div class="modal-overlay" id="receipt-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🧾 Receipt</div>
+      <button class="modal-close" onclick="closeModal('receipt-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="receipt-body"></div>
+    <!-- ── Customer Info for Bill ── -->
+    <div style="padding:12px 20px 0;display:flex;gap:12px;align-items:flex-end">
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px">Customer Name</label>
+        <input id="bill-customer-name" class="form-input" type="text" placeholder="e.g. Ahmed Hassan" style="padding:8px 12px;font-size:13px;width:100%">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px">Contact No.</label>
+        <input id="bill-customer-contact" class="form-input" type="text" placeholder="e.g. +92 300 1234567" style="padding:8px 12px;font-size:13px;width:100%">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('receipt-modal')">Close</button>
+      <button class="btn btn-ghost btn-sm" onclick="window.print()"><i class="fa fa-receipt"></i> Small Print</button>
+      <button class="btn btn-accent" onclick="printA4Invoice(_lastOrder)"><i class="fa fa-print"></i> Print A4</button>
+    </div>
+  </div>
+</div>
+
+<!-- Route Modal -->
+<div class="modal-overlay" id="route-modal">
+  <div class="modal" style="max-width:580px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:16px">
+          <i class="fa fa-route"></i>
+        </div>
+        <div class="modal-title" id="route-modal-title">Add New Route</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('route-modal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px 24px">
+      <input type="hidden" id="route-edit-id">
+
+      <!-- Basic Info -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)">Route Information</div>
+        <div class="form-row">
+          <div class="form-group-inline">
+            <label>Route Name <span style="color:var(--red)">*</span></label>
+            <input class="form-input" id="rt-name" placeholder="e.g. North Zone A">
+          </div>
+          <div class="form-group-inline">
+            <label>Area / Zone</label>
+            <input class="form-input" id="rt-area" placeholder="e.g. Model Town, DHA">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group-inline">
+            <label>Field Representative</label>
+            <input class="form-input" id="rt-person" placeholder="Salesperson name">
+          </div>
+          <div class="form-group-inline">
+            <label>Status</label>
+            <select class="form-input" id="rt-status">
+              <option value="Active">🟢 Active</option>
+              <option value="Inactive">🔴 Inactive</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Days Picker -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)">Visit Days</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px" id="rt-days-picker">
+          <label class="rt-day-toggle" data-day="Monday">Mon</label>
+          <label class="rt-day-toggle" data-day="Tuesday">Tue</label>
+          <label class="rt-day-toggle" data-day="Wednesday">Wed</label>
+          <label class="rt-day-toggle" data-day="Thursday">Thu</label>
+          <label class="rt-day-toggle" data-day="Friday">Fri</label>
+          <label class="rt-day-toggle" data-day="Saturday">Sat</label>
+          <label class="rt-day-toggle" data-day="Sunday">Sun</label>
+        </div>
+        <input type="hidden" id="rt-days-value">
+      </div>
+
+      <!-- Suppliers -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)">Assigned Suppliers</div>
+        <div id="rt-supplier-list" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+      </div>
+
+      <!-- Notes -->
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Notes (Optional)</div>
+        <textarea class="form-input" id="rt-notes" placeholder="Any notes or instructions for this route..." style="min-height:56px;resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('route-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveRoute()"><i class="fa fa-save"></i> Save Route</button>
+    </div>
+  </div>
+</div>
+
+<!-- Order Detail Modal -->
+<div class="modal-overlay" id="order-detail-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="od-title">Order Details</div>
+      <button class="modal-close" onclick="closeModal('order-detail-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="order-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('order-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORDER SUMMARY / WAREHOUSE DISPATCH MODAL -->
+<div class="modal-overlay" id="order-summary-modal">
+  <div class="modal" style="width:860px;max-width:97vw">
+    <div class="modal-header">
+      <div class="modal-title">📦 Warehouse Dispatch Summary</div>
+      <button class="modal-close" onclick="closeModal('order-summary-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <div class="form-group-inline" style="margin-bottom:0;flex:1">
+          <label>From Date</label>
+          <input class="form-input" type="date" id="ws-from" style="padding:9px 12px">
+        </div>
+        <div class="form-group-inline" style="margin-bottom:0;flex:1">
+          <label>To Date</label>
+          <input class="form-input" type="date" id="ws-to" style="padding:9px 12px">
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:8px">
+          <button class="btn btn-accent btn-sm" onclick="generateWarehouseSummary()"><i class="fa fa-warehouse"></i> Generate</button>
+          <button class="btn btn-ghost btn-sm" onclick="printA4('order-summary-print')"><i class="fa fa-print"></i> Print A4</button>
+        </div>
+      </div>
+      <div id="warehouse-summary-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PRODUCT IMPORT PREVIEW MODAL -->
+<div class="modal-overlay" id="product-import-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">📥 Import Products — Preview</div>
+      <button class="modal-close" onclick="closeModal('product-import-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">📋 Expected CSV Columns:</strong> name, sku, category, brand, buyPrice, sellPrice, stock, minStock, barcode, piecesPerCarton, icon<br>
+        <span style="color:var(--yellow)">⚠ Rows with missing name or sku will be skipped. Existing SKUs will be updated.</span>
+      </div>
+      <div class="table-wrap" id="product-import-preview"></div>
+      <div id="product-import-stats" style="margin-top:10px;font-size:12px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('product-import-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="confirmProductImport()"><i class="fa fa-check"></i> Import All</button>
+    </div>
+  </div>
+</div>
+
+<!-- CUSTOMER IMPORT PREVIEW MODAL -->
+<div class="modal-overlay" id="customer-import-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">📥 Import Customers / Shopkeepers — Preview</div>
+      <button class="modal-close" onclick="closeModal('customer-import-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">📋 Expected CSV Columns:</strong> name, phone, email, address, loyaltyPoints<br>
+        <span style="color:var(--yellow)">⚠ Rows with matching phone numbers will be updated, new ones added automatically.</span>
+      </div>
+      <div class="table-wrap" id="customer-import-preview"></div>
+      <div id="customer-import-stats" style="margin-top:10px;font-size:12px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('customer-import-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="confirmCustomerImport()"><i class="fa fa-check"></i> Import All</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ledger Entry Modal -->
+<div class="modal-overlay" id="ledger-entry-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">➕ Add Ledger Entry</div>
+      <button class="modal-close" onclick="closeModal('ledger-entry-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group-inline"><label>Date *</label><input class="form-input" type="date" id="le-date" style="padding:9px 12px"></div>
+        <div class="form-group-inline"><label>Reference</label><input class="form-input" id="le-ref" placeholder="e.g. INV-001, PAY-001"></div>
+      </div>
+      <div class="form-group-inline"><label>Description *</label><input class="form-input" id="le-desc" placeholder="e.g. Payment received, Invoice issued..."></div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Debit Amount (Receivable / Charge)</label><input class="form-input" type="number" id="le-debit" value="0" step="0.01" min="0"></div>
+        <div class="form-group-inline"><label>Credit Amount (Payment / Discount)</label><input class="form-input" type="number" id="le-credit" value="0" step="0.01" min="0"></div>
+      </div>
+      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">Note:</strong> Debit = amount owed by customer / owed to supplier. Credit = payment received / discount given.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('ledger-entry-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveLedgerEntry()"><i class="fa fa-save"></i> Add Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- A4 PRINT AREA (hidden, shown on print) -->
+<div id="print-area"></div>
+
+</body>

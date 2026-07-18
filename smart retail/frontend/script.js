@@ -1012,7 +1012,8 @@ async function deleteCategory(id) {
     toast(err.message || 'Failed to delete category — it may still be used by products', 'error');
   }
 }
-document.getElementById('cat-modal').addEventListener('click', e => { if(e.target===document.getElementById('cat-modal')) return; renderCatList(); });
+const _catModalEl = document.getElementById('cat-modal');
+if (_catModalEl) _catModalEl.addEventListener('click', e => { if(e.target===_catModalEl) return; renderCatList(); });
 
 // ═══════════════════════════════════════════════════════
 // INVENTORY
@@ -5224,46 +5225,12 @@ function calcProdPricing() {
   }
 }
 
-// Patch openProductModal to reset new fields
-const _origOpenProductModal = window.openProductModal;
-window.openProductModal = function(id) {
-  if (!id) {
-    ['prod-discount','prod-tax'].forEach(fid => { const el=document.getElementById(fid); if(el) el.value=''; });
-    const summ = document.getElementById('prod-pricing-summary');
-    if (summ) summ.style.display = 'none';
-  }
-  if (_origOpenProductModal) _origOpenProductModal(id);
-};
-
-// Patch editProduct to load discount/tax
-const _origEditProduct = window.editProduct;
-window.editProduct = function(id) {
-  if (_origEditProduct) _origEditProduct(id);
-  const p = DB.products.find(x => x.id === id);
-  if (!p) return;
-  const disc = document.getElementById('prod-discount');
-  const tax  = document.getElementById('prod-tax');
-  if (disc) disc.value = p.discount || '';
-  if (tax)  tax.value  = p.tax || '';
-  calcProdPricing();
-};
-
-// Patch saveProduct to persist discount/tax + propagate to booking items
-const _origSaveProduct = window.saveProduct;
-window.saveProduct = function() {
-  const discount = parseFloat(document.getElementById('prod-discount')?.value) || 0;
-  const tax      = parseFloat(document.getElementById('prod-tax')?.value) || 0;
-  const editId   = parseInt(document.getElementById('prod-edit-id')?.value);
-  if (_origSaveProduct) _origSaveProduct();
-  // Attach discount/tax to saved product
-  if (editId) {
-    const p = DB.products.find(x => x.id === editId);
-    if (p) { p.discount = discount; p.tax = tax; }
-  } else {
-    const last = DB.products[DB.products.length - 1];
-    if (last) { last.discount = discount; last.tax = tax; }
-  }
-};
+// NOTE: This used to re-override openProductModal/editProduct/saveProduct
+// with a version that read/wrote the fake DB.products array on top of the
+// real API calls (and called the real async saveProduct() without awaiting
+// it, racing the DB.products write against the actual save). The real
+// implementations above already handle discount_percent/tax_rate directly
+// against the backend, so this whole patch was redundant AND buggy — removed.
 
 // ── CUSTOMER COLLECTION — full v2 with username filter ─
 if (!DB.collectionPayments) DB.collectionPayments = [];

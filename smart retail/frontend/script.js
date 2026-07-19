@@ -563,7 +563,7 @@ let _posStockByProduct = {};
 
 async function _loadPosProducts() {
   const [prodData, stockData] = await Promise.all([
-    ProductsAPI.list({ page_size: 500, status: 'active' }),
+    ProductsAPI.list({ page_size: 500 }),  // status filter removed — was silently hiding products whose status wasn't exactly 'active'
     InventoryAPI.stockItems({ page_size: 1000 }),
   ]);
   _posProductCache = prodData.results || prodData;
@@ -1647,14 +1647,32 @@ function purItemChange(i,field,val) {
 function addPurItem() { purItems.push({productId:'',qty:1,price:0}); renderPurItems(); }
 function removePurItem(i) { purItems.splice(i,1); renderPurItems(); }
 
+let _savingPurchase = false;
+
 async function savePurchase() {
-  if(!purItems.length||!purItems[0].productId) { toast('Add at least one product','error'); return; }
+  if (_savingPurchase) return; // guards against double-click firing this twice
+  const validItems = purItems.filter(i=>i.productId);
+  if (!validItems.length) { toast('Add at least one product','error'); return; }
   const supplierId = parseInt(document.getElementById('pur-supplier').value);
   if (!supplierId) { toast('Select a supplier','error'); return; }
 
+  // A $0 line item almost always means the product's cost price was never
+  // set (or the price field wasn't edited) — block save with a clear message
+  // instead of letting the backend reject a $0 "Paid" payment cryptically.
+  const zeroPriceItems = validItems.filter(i => !i.price || i.price <= 0);
+  if (zeroPriceItems.length) {
+    toast('Set a price greater than $0 for every item before saving (check: ' +
+      zeroPriceItems.map(i => _purProductCache.find(p=>p.id==i.productId)?.name || 'item').join(', ') + ')', 'error');
+    return;
+  }
+
+  _savingPurchase = true;
+  const saveBtn = document.querySelector('#purchase-modal .btn-accent, #purchase-modal [onclick="savePurchase()"]');
+  if (saveBtn) saveBtn.disabled = true;
+
   try {
     const warehouseId = await _ensureDefaultWarehouse();
-    const items = purItems.filter(i=>i.productId).map(i => ({
+    const items = validItems.map(i => ({
       product: i.productId, quantity_ordered: i.qty, unit_cost: i.price,
     }));
 
@@ -1670,9 +1688,10 @@ async function savePurchase() {
       items: po.items.map(it => ({ purchase_order_item: it.id, quantity: it.quantity_ordered })),
     });
 
-    // Pay in full if the form says "Paid"
+    // Pay in full if the form says "Paid" — total_amount is guaranteed > 0
+    // here since we already blocked $0-priced items above.
     const paymentStatus = document.getElementById('pur-payment').value;
-    if (paymentStatus === 'Paid') {
+    if (paymentStatus === 'Paid' && Number(po.total_amount) > 0) {
       await PurchaseAPI.pay(po.id, { amount: po.total_amount, method: 'bank_transfer' });
     }
 
@@ -1682,6 +1701,9 @@ async function savePurchase() {
     toast('Purchase order saved and stock received!','success');
   } catch (err) {
     toast(err.message || 'Failed to save purchase', 'error');
+  } finally {
+    _savingPurchase = false;
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -2213,7 +2235,7 @@ let _bkStockByProduct = {};
 async function _loadBookingLookups() {
   const [custData, prodData, stockData] = await Promise.all([
     CustomersAPI.list({ page_size: 500 }),
-    ProductsAPI.list({ page_size: 500, status: 'active' }),
+    ProductsAPI.list({ page_size: 500 }),  // status filter removed — was silently hiding products whose status wasn't exactly 'active'
     InventoryAPI.stockItems({ page_size: 1000 }),
   ]);
   _bkCustomerCache = custData.results || custData;

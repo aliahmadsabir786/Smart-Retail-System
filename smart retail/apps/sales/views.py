@@ -11,7 +11,7 @@ from rest_framework import viewsets, filters as drf_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from apps.core.permissions import IsAdminOrAbove
 
-from .models import User, UserActivityLog
+from apps.authentication.models import User, UserActivityLog
 from .serializers import (
     RegisterSerializer,
     UserSerializer,

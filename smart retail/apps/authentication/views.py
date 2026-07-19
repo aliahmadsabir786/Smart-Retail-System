@@ -7,9 +7,14 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema
 
+from rest_framework import viewsets, filters as drf_filters
+from django_filters.rest_framework import DjangoFilterBackend
+from apps.core.permissions import IsAdminOrAbove
+
 from .models import User, UserActivityLog
 from .serializers import (
-    RegisterSerializer, UserSerializer, CustomTokenObtainPairSerializer,
+    RegisterSerializer, UserSerializer, UserManagementSerializer,
+    CustomTokenObtainPairSerializer,
     ChangePasswordSerializer, PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer, EmailVerificationConfirmSerializer,
     build_uid_token_link,
@@ -179,3 +184,23 @@ class ProfileView(generics.RetrieveUpdateAPIView):
     def perform_update(self, serializer):
         serializer.save()
         _log_activity(self.request.user, UserActivityLog.Action.PROFILE_UPDATE, self.request)
+
+
+class UserManagementViewSet(viewsets.ModelViewSet):
+    """
+    Admin-only CRUD over all user accounts (/api/v1/auth/users/).
+    Distinct from ProfileView, which only ever touches request.user.
+    Deleting a user here is a soft "deactivate" (is_active=False) rather
+    than a hard delete, to preserve FK history (audit logs, sales served_by, etc).
+    """
+    queryset = User.objects.all().order_by("-date_joined")
+    serializer_class = UserManagementSerializer
+    permission_classes = [IsAdminOrAbove]
+    filter_backends = [DjangoFilterBackend, drf_filters.SearchFilter, drf_filters.OrderingFilter]
+    filterset_fields = ["role", "is_active"]
+    search_fields = ["email", "first_name", "last_name", "phone"]
+    ordering_fields = ["date_joined", "email"]
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=["is_active"])

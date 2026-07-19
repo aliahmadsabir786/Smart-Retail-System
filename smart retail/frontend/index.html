@@ -489,9 +489,20 @@
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
                 <div class="form-group-inline" style="margin-bottom:0">
                   <label>Customer Name *</label>
-                  <select class="form-input" id="bk-customer" onchange="onBookingCustomerChange()" style="padding:9px 12px">
-                    <option value="">— Select Customer —</option>
-                  </select>
+                  <div style="position:relative">
+                    <input type="hidden" id="bk-customer" value="">
+                    <input class="form-input" id="bk-customer-search"
+                      placeholder="&#x1F50D; Search customer by name or phone..."
+                      autocomplete="off" style="padding:9px 12px;width:100%"
+                      oninput="bkCustSearch(this.value)"
+                      onfocus="bkCustSearchFocus()"
+                      onblur="setTimeout(bkCustDropClose,180)">
+                    <div id="bk-cust-drop"
+                      style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;z-index:500;
+                             background:var(--bg-card);border:1px solid var(--border);border-radius:8px;
+                             max-height:240px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,.5)">
+                    </div>
+                  </div>
                 </div>
                 <div class="form-group-inline" style="margin-bottom:0">
                   <label>Account No</label>

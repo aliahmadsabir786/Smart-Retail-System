@@ -878,12 +878,26 @@ async function _ensureDefaultWarehouse() {
 }
 
 async function _findOrCreateBrand(name) {
+  name = (name||'').trim();
   if (!name) return null;
-  const existing = _brandCache.find(b => b.name.toLowerCase() === name.toLowerCase());
+  const existing = _brandCache.find(b => b.name.trim().toLowerCase() === name.toLowerCase());
   if (existing) return existing.id;
-  const created = await BrandsAPI.create({ name });
-  _brandCache.push(created);
-  return created.id;
+  try {
+    const created = await BrandsAPI.create({ name });
+    _brandCache.push(created);
+    return created.id;
+  } catch (err) {
+    // Cache was stale (e.g. brand created by someone else, or sitting beyond
+    // whatever page size we last fetched) — the backend says it already
+    // exists, so look it up for real instead of surfacing the error.
+    const isDuplicate = err.status === 400 &&
+      JSON.stringify(err.data||{}).toLowerCase().includes('already exists');
+    if (!isDuplicate) throw err;
+    const found = await BrandsAPI.list({ search: name, page_size: 500 });
+    const match = (found.results||found).find(b => b.name.trim().toLowerCase() === name.toLowerCase());
+    if (match) { _brandCache.push(match); return match.id; }
+    throw err;
+  }
 }
 
 async function renderProducts(page) {
@@ -942,7 +956,12 @@ async function renderProducts(page) {
 }
 
 async function populateCategorySelects() {
-  const catData = await CategoriesAPI.list();
+  // page_size:500 so these caches hold the FULL list, not just the default
+  // first-20 page — otherwise a brand/category that exists but isn't in the
+  // first page looks "missing" to the frontend (see _findOrCreateBrand),
+  // and it tries to re-create it, which the backend then rejects as a
+  // duplicate ("brand with this name already exists").
+  const catData = await CategoriesAPI.list({ page_size: 500 });
   _catCache = catData.results || catData;
   ['prod-cat','prod-cat-filter'].forEach(id => {
     const el = document.getElementById(id);
@@ -952,11 +971,11 @@ async function populateCategorySelects() {
     el.innerHTML = (isFilter ? '<option value="">All Categories</option>' : '<option value="">Select Category</option>') +
       _catCache.map(c => `<option value="${c.id}" ${String(c.id)===wasVal?'selected':''}>${c.name}</option>`).join('');
   });
-  const brandData = await BrandsAPI.list();
+  const brandData = await BrandsAPI.list({ page_size: 500 });
   _brandCache = brandData.results || brandData;
   const ps = document.getElementById('prod-supplier');
   if (ps) {
-    const supData = await SuppliersAPI.list();
+    const supData = await SuppliersAPI.list({ page_size: 500 });
     const suppliers = supData.results || supData;
     ps.innerHTML = '<option value="">Select Supplier</option>' + suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
   }
@@ -2279,6 +2298,7 @@ async function newBookingForm(editId) {
   document.getElementById('bk-date').value = today;
   document.getElementById('bk-invoice').value = 'Assigned on save';
   document.getElementById('bk-customer').value = '';
+  document.getElementById('bk-customer-search').value = '';
   document.getElementById('bk-payment').value = 'credit';
   document.getElementById('bk-notes').value = '';
   document.getElementById('bk-discount').value = 0;
@@ -2300,8 +2320,9 @@ function closeBookingForm() {
 function searchCustomerByAcc(val) {
   const v = val.trim().toLowerCase();
   if (!v) return;
-  const cust = DB.customers.find(c=>
-    (c.accountNo||'').toLowerCase()===v || c.name.toLowerCase().includes(v)
+  const cust = _bkCustomerCache.find(c =>
+    ('acc-'+String(c.id).padStart(4,'0')).toLowerCase()===v ||
+    (c.name||'').toLowerCase().includes(v)
   );
   if (cust) {
     document.getElementById('bk-customer').value = cust.id;
@@ -2313,6 +2334,7 @@ function searchCustomerByAcc(val) {
 function clearAccSearch() {
   document.getElementById('bk-acc-search').value='';
   document.getElementById('bk-customer').value='';
+  document.getElementById('bk-customer-search').value='';
   document.getElementById('bk-acc-display').value='';
   document.getElementById('bk-customer-info').style.display='none';
   calcBookingTotals();
@@ -2334,28 +2356,102 @@ async function _loadBookingLookups() {
   (stockData.results || stockData).forEach(si => {
     _bkStockByProduct[si.product] = (_bkStockByProduct[si.product] || 0) + si.quantity;
   });
-  const sel = document.getElementById('bk-customer');
-  if (sel) sel.innerHTML = '<option value="">— Select Customer —</option>' +
-    _bkCustomerCache.map(c=>`<option value="${c.id}">${c.name} (ACC-${String(c.id).padStart(4,'0')})</option>`).join('');
 }
 
 function onBookingCustomerChange() {
   const id = parseInt(document.getElementById('bk-customer').value);
   const cust = _bkCustomerCache.find(c=>c.id===id);
+  const searchEl = document.getElementById('bk-customer-search');
   if (!cust) {
     document.getElementById('bk-acc-display').value='';
     document.getElementById('bk-customer-info').style.display='none';
+    if (searchEl) searchEl.value='';
     calcBookingTotals();
     return;
   }
   const acc = 'ACC-'+String(cust.id).padStart(4,'0');
   document.getElementById('bk-acc-display').value = acc;
   document.getElementById('bk-acc-search').value = acc;
+  if (searchEl) searchEl.value = `${cust.name} (${acc})`;
   document.getElementById('bk-customer-info').style.display='';
   document.getElementById('bk-prev-balance').textContent = '$'+Number(cust.outstanding_balance).toFixed(2);
   document.getElementById('bk-total-purchases').textContent = '$'+Number(cust.credit_limit).toFixed(2);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
   calcBookingTotals();
+}
+
+// ── Customer search-as-you-type (Order Booking) ───────────────────
+// Same UX as the product search box: type any part of the name or phone
+// number and matching customers drop down below the field.
+function _bkCustDropRows(list) {
+  return list.map(c => {
+    const acc = 'ACC-'+String(c.id).padStart(4,'0');
+    const bal = Number(c.outstanding_balance)||0;
+    const balColor = bal>0 ? 'var(--red)' : 'var(--green)';
+    return `<div onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
+      <span style="font-size:18px;flex-shrink:0">👤</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${acc}${c.phone ? ' · '+c.phone : ''}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:12px;font-weight:800;color:${balColor}">$${bal.toFixed(2)}</div>
+        <div style="font-size:9px;color:var(--text-muted)">balance</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function bkCustSearch(q) {
+  const drop = document.getElementById('bk-cust-drop');
+  if (!drop) return;
+  const lc = (q||'').toLowerCase().trim();
+  if (!lc) { drop.style.display='none'; return; }
+  const rank = (c) => {
+    const name = (c.name||'').toLowerCase();
+    const phone = (c.phone||'').toLowerCase(), email = (c.email||'').toLowerCase();
+    const acc = ('acc-'+String(c.id).padStart(4,'0'));
+    if (name.startsWith(lc)) return 0;   // starts-with → top of the list
+    if (name.includes(lc) || phone.includes(lc) || email.includes(lc) || acc.includes(lc)) return 1;
+    return -1; // no match
+  };
+  const results = _bkCustomerCache
+    .map(c => ({ c, r: rank(c) }))
+    .filter(x => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name))
+    .slice(0, 20)
+    .map(x => x.c);
+  if (!results.length) {
+    drop.style.display='';
+    drop.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
+    return;
+  }
+  drop.style.display='';
+  drop.innerHTML = _bkCustDropRows(results);
+}
+
+function bkCustSearchFocus() {
+  const inp = document.getElementById('bk-customer-search');
+  if (!inp) return;
+  if (!inp.value.trim()) {
+    const drop = document.getElementById('bk-cust-drop');
+    if (!drop || !_bkCustomerCache.length) return;
+    drop.style.display='';
+    drop.innerHTML = _bkCustDropRows(_bkCustomerCache.slice(0, 20));
+  } else {
+    bkCustSearch(inp.value);
+  }
+}
+
+function bkCustSelect(id) {
+  document.getElementById('bk-customer').value = id;
+  onBookingCustomerChange();
+  bkCustDropClose();
+}
+
+function bkCustDropClose() {
+  const drop = document.getElementById('bk-cust-drop');
+  if (drop) drop.style.display='none';
 }
 
 function addBookingItemRow() {
@@ -2454,11 +2550,18 @@ function bkProdSearch(i, q) {
   if (!drop) return;
   const lc = (q||'').toLowerCase().trim();
   if (!lc) { drop.style.display='none'; return; }
-  const results = _bkProductCache.filter(p=>
-    (p.name||'').toLowerCase().includes(lc) ||
-    (p.sku||'').toLowerCase().includes(lc) ||
-    (p.barcode||'').toLowerCase().includes(lc)
-  ).slice(0,12);
+  const rank = (p) => {
+    const name = (p.name||'').toLowerCase(), sku = (p.sku||'').toLowerCase(), bc = (p.barcode||'').toLowerCase();
+    if (name.startsWith(lc) || sku.startsWith(lc)) return 0;   // starts-with → top of the list
+    if (name.includes(lc) || sku.includes(lc) || bc.includes(lc)) return 1;
+    return -1; // no match
+  };
+  const results = _bkProductCache
+    .map(p => ({ p, r: rank(p) }))
+    .filter(x => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.p.name.localeCompare(b.p.name))
+    .slice(0, 20)
+    .map(x => x.p);
   if (!results.length) {
     drop.style.display='';
     drop.innerHTML='<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No product found</div>';

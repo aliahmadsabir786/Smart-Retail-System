@@ -2469,6 +2469,21 @@ function removeBookingItemRow(i) {
 function renderBookingItemRows() {
   const tbody = document.getElementById('bk-items-tbody');
   if (!tbody) return;
+
+  // Preserve focus + cursor position across the innerHTML rebuild below —
+  // otherwise every keystroke in a Rate/Qty/Cartons field would knock focus
+  // out of the input after a single character, since innerHTML destroys and
+  // recreates every row's DOM nodes.
+  const active = document.activeElement;
+  let focusId = null, selStart = null, selEnd = null;
+  if (active && tbody.contains(active) && active.id) {
+    focusId = active.id;
+    if (typeof active.selectionStart === 'number') {
+      selStart = active.selectionStart;
+      selEnd = active.selectionEnd;
+    }
+  }
+
   const units = ['Pcs','Lbs','Kg','Carton','Box','Dozen','Litre'];
   tbody.innerHTML = _bookingItems.map((item,i)=>{
     const unit     = item.unit||'Pcs';
@@ -2542,6 +2557,16 @@ function renderBookingItemRows() {
       </td>
     </tr>`;
   }).join('');
+
+  if (focusId) {
+    const el = document.getElementById(focusId);
+    if (el) {
+      el.focus();
+      if (selStart !== null && el.setSelectionRange) {
+        try { el.setSelectionRange(selStart, selEnd); } catch (_) { /* not a text-selectable input, ignore */ }
+      }
+    }
+  }
 }
 
 // Product search autocomplete for booking rows
@@ -2668,6 +2693,15 @@ function onBookingProductChange(i, productId) {
 
 function updateBookingItem(i, field, val) {
   _bookingItems[i][field] = parseFloat(val)||0;
+
+  // Once a quantity is typed against a picked product on the LAST row,
+  // automatically append a fresh empty row so the next product can be
+  // entered right away — no need to click "Add Item" every time.
+  const isLastRow = i === _bookingItems.length - 1;
+  if (field === 'qty' && isLastRow && _bookingItems[i].productId && _bookingItems[i].qty > 0) {
+    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0 });
+  }
+
   renderBookingItemRows();
   calcBookingTotals();
 }

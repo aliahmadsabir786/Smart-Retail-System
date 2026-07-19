@@ -181,7 +181,10 @@ def process_return(sale, return_items, reason, user):
     sale_return.refund_amount = total_refund
     sale_return.save(update_fields=["refund_amount"])
 
-    all_returned = all(i.quantity_returned >= i.quantity for i in sale.items.all())
+    all_returned = all(
+        i.quantity_returned >= i.quantity
+        for i in SaleItem.objects.filter(sale=sale)
+    )
     sale.status = Sale.Status.RETURNED if all_returned else Sale.Status.PARTIALLY_RETURNED
     sale.save(update_fields=["status"])
 

@@ -69,6 +69,22 @@ class TestReportsAPI:
         assert response.status_code == status.HTTP_200_OK
         assert "spreadsheetml" in response["Content-Type"]
 
+    def test_sales_report_pdf_export(self, api_client, manager, sale_setup):
+        api_client.force_authenticate(manager)
+        url = reverse("reports:sales-report")
+        response = api_client.get(url, {"export": "pdf"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response["Content-Type"] == "application/pdf"
+
+    def test_format_query_param_is_never_used_for_export(self, api_client, manager, sale_setup):
+        """Regression guard: ?format=csv must NOT be used for export — 'format' is a
+        reserved DRF query param for content-negotiation and colliding with it
+        causes a 404 instead of a file download. Only ?export= is supported."""
+        api_client.force_authenticate(manager)
+        url = reverse("reports:sales-report")
+        response = api_client.get(url, {"format": "csv"})
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_cashier_cannot_access_reports(self, api_client, sale_setup):
         cashier = User.objects.create_user(
             email="c@smartretail.com", password="Pass123!",

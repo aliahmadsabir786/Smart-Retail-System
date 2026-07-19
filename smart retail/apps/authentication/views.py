@@ -13,8 +13,7 @@ from apps.core.permissions import IsAdminOrAbove
 
 from .models import User, UserActivityLog
 from .serializers import (
-    RegisterSerializer, UserSerializer, UserManagementSerializer,
-    CustomTokenObtainPairSerializer,
+    RegisterSerializer, UserSerializer, UserManagementSerializer, CustomTokenObtainPairSerializer,
     ChangePasswordSerializer, PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer, EmailVerificationConfirmSerializer,
     build_uid_token_link,

@@ -20,6 +20,7 @@ class StockItem(BaseModel):
     class Meta:
         db_table = "stock_item"
         unique_together = [("product", "variant", "warehouse")]
+        ordering = ["id"]
         indexes = [models.Index(fields=["product", "warehouse"])]
 
     def __str__(self):

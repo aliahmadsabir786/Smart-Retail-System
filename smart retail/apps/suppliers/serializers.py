@@ -7,4 +7,4 @@ class SupplierSerializer(serializers.ModelSerializer):
         model = Supplier
         fields = ["id", "name", "contact_person", "email", "phone", "address", "city",
                   "outstanding_payable", "is_active", "created_at", "updated_at"]
-        read_only_fields = ["id", "outstanding_payable", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]

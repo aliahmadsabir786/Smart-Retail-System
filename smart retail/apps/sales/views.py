@@ -13,11 +13,16 @@ from apps.core.permissions import IsAdminOrAbove
 
 from .models import User, UserActivityLog
 from .serializers import (
-    RegisterSerializer, UserSerializer, UserManagementSerializer, CustomTokenObtainPairSerializer,
-    ChangePasswordSerializer, PasswordResetRequestSerializer,
-    PasswordResetConfirmSerializer, EmailVerificationConfirmSerializer,
-    build_uid_token_link,
-)
+    RegisterSerializer,
+    UserSerializer,
+    UserManagementSerializer,
+    CustomTokenObtainPairSerializer,
+    ChangePasswordSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    EmailVerificationConfirmSerializer,
+    build_uid_token_link, 
+)   
 from .tokens import email_verification_token
 from .tasks import send_verification_email, send_password_reset_email
 

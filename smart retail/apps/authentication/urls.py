@@ -1,7 +1,11 @@
 from django.urls import path
+from rest_framework.routers import DefaultRouter
 from . import views
 
 app_name = "authentication"
+
+router = DefaultRouter()
+router.register("users", views.UserManagementViewSet, basename="user-management")
 
 urlpatterns = [
     path("register/", views.RegisterView.as_view(), name="register"),
@@ -16,4 +20,4 @@ urlpatterns = [
     path("verify-email/confirm/", views.EmailVerificationConfirmView.as_view(), name="verify-email-confirm"),
 
     path("profile/", views.ProfileView.as_view(), name="profile"),
-]
+] + router.urls

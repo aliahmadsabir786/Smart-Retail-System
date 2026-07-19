@@ -7,10 +7,11 @@ from apps.core.permissions import IsInventoryManagerOrAbove, IsManagerOrAbove
 from apps.suppliers.models import Supplier
 from apps.warehouse.models import Warehouse
 from . import services
-from .models import PurchaseOrder, PurchaseOrderItem
+from .models import PurchaseOrder, PurchaseOrderItem, PurchaseReturn
 from .serializers import (
     PurchaseOrderSerializer, CreatePurchaseOrderSerializer,
     ReceiveStockSerializer, AddSupplierPaymentSerializer, SupplierPaymentSerializer,
+    ProcessPurchaseReturnSerializer, PurchaseReturnSerializer,
 )
 
 
@@ -57,6 +58,23 @@ class PurchaseOrderViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
         po = services.receive_stock(po, received_items, user=request.user)
         return Response(PurchaseOrderSerializer(po).data)
 
+    @action(detail=True, methods=["post"], url_path="return")
+    def process_return(self, request, pk=None):
+        """POST /purchase-orders/{id}/return/ — return received stock to the supplier."""
+        po = self.get_object()
+        serializer = ProcessPurchaseReturnSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        return_items = []
+        for entry in serializer.validated_data["items"]:
+            po_item = PurchaseOrderItem.objects.get(pk=entry["purchase_order_item"], purchase_order=po)
+            return_items.append({"purchase_order_item": po_item, "quantity": entry["quantity"]})
+
+        purchase_return = services.process_purchase_return(
+            po, return_items, serializer.validated_data.get("reason", ""), user=request.user,
+        )
+        return Response(PurchaseReturnSerializer(purchase_return).data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["post"], url_path="pay", permission_classes=[IsManagerOrAbove])
     def pay(self, request, pk=None):
         """POST /purchase-orders/{id}/pay/ — record a payment to the supplier."""
@@ -68,3 +86,13 @@ class PurchaseOrderViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             user=request.user, reference=serializer.validated_data.get("reference", ""),
         )
         return Response(SupplierPaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+
+class PurchaseReturnViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Read-only history of processed purchase returns (/api/v1/purchase-orders/returns/)."""
+    queryset = PurchaseReturn.objects.select_related("purchase_order", "purchase_order__supplier", "processed_by")
+    serializer_class = PurchaseReturnSerializer
+    permission_classes = [IsInventoryManagerOrAbove]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["purchase_order", "status"]
+    ordering_fields = ["created_at"]

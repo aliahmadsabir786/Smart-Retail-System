@@ -1,7 +1,7 @@
 from decimal import Decimal
 from rest_framework import serializers
 from apps.products.models import Product, ProductVariant
-from .models import PurchaseOrder, PurchaseOrderItem, SupplierPayment
+from .models import PurchaseOrder, PurchaseOrderItem, SupplierPayment, PurchaseReturn, PurchaseReturnItem
 
 
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
@@ -76,3 +76,32 @@ class AddSupplierPaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
     method = serializers.ChoiceField(choices=SupplierPayment.Method.choices, default=SupplierPayment.Method.BANK_TRANSFER)
     reference = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class PurchaseReturnItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PurchaseReturnItem
+        fields = ["id", "purchase_order_item", "quantity", "refund_amount"]
+        read_only_fields = fields
+
+
+class PurchaseReturnSerializer(serializers.ModelSerializer):
+    items = PurchaseReturnItemSerializer(many=True, read_only=True)
+    po_number = serializers.CharField(source="purchase_order.po_number", read_only=True)
+    supplier_name = serializers.CharField(source="purchase_order.supplier.name", read_only=True)
+
+    class Meta:
+        model = PurchaseReturn
+        fields = ["id", "purchase_order", "po_number", "supplier_name", "reason",
+                  "refund_amount", "status", "processed_by", "items", "created_at"]
+        read_only_fields = fields
+
+
+class ReturnPurchaseItemInputSerializer(serializers.Serializer):
+    purchase_order_item = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class ProcessPurchaseReturnSerializer(serializers.Serializer):
+    items = ReturnPurchaseItemInputSerializer(many=True)
+    reason = serializers.CharField(required=False, allow_blank=True, default="")

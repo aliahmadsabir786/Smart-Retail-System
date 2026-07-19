@@ -99,3 +99,37 @@ class SupplierPayment(BaseModel):
 
     def __str__(self):
         return f"{self.purchase_order.po_number} — {self.amount}"
+
+
+class PurchaseReturn(BaseModel):
+    """A return of previously-received stock back to the supplier (defective
+    goods, wrong shipment, etc). Reduces the supplier's outstanding_payable
+    and removes the returned quantity from inventory."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, related_name="returns")
+    reason = models.TextField(blank=True)
+    refund_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.APPROVED)
+    processed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        db_table = "purchase_return"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Return for {self.purchase_order.po_number}"
+
+
+class PurchaseReturnItem(BaseModel):
+    purchase_return = models.ForeignKey(PurchaseReturn, on_delete=models.CASCADE, related_name="items")
+    purchase_order_item = models.ForeignKey(PurchaseOrderItem, on_delete=models.PROTECT, related_name="return_items")
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    refund_amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = "purchase_return_item"

@@ -4,7 +4,7 @@ from django.db import transaction
 from apps.core.exceptions import ServiceException
 from apps.inventory import services as inventory_services
 from apps.inventory.models import StockTransaction
-from .models import PurchaseOrder, PurchaseOrderItem, SupplierPayment
+from .models import PurchaseOrder, PurchaseOrderItem, SupplierPayment, PurchaseReturn, PurchaseReturnItem
 
 
 @transaction.atomic
@@ -87,7 +87,10 @@ def receive_stock(purchase_order, received_items, user):
     purchase_order.supplier.outstanding_payable += received_value
     purchase_order.supplier.save(update_fields=["outstanding_payable"])
 
-    all_received = all(i.quantity_received >= i.quantity_ordered for i in purchase_order.items.all())
+    all_received = all(
+        i.quantity_received >= i.quantity_ordered
+        for i in PurchaseOrderItem.objects.filter(purchase_order=purchase_order)
+    )
     purchase_order.status = (
         PurchaseOrder.Status.RECEIVED if all_received else PurchaseOrder.Status.PARTIALLY_RECEIVED
     )
@@ -115,3 +118,60 @@ def add_supplier_payment(purchase_order, amount, method, user, reference=""):
     supplier.save(update_fields=["outstanding_payable"])
 
     return payment
+
+
+@transaction.atomic
+def process_purchase_return(purchase_order, return_items, reason, user):
+    """
+    Returns previously-received stock to the supplier:
+      1. Validates quantities against what's actually on hand from this PO
+         (can't return more than was received)
+      2. Removes the returned quantity from inventory (PURCHASE_RETURN ledger entry)
+      3. Reduces the supplier's outstanding_payable by the refund value
+      4. Records a PurchaseReturn + PurchaseReturnItem for the audit trail
+
+    `return_items`: list of dicts {"purchase_order_item": PurchaseOrderItem, "quantity": int}
+    """
+    if not return_items:
+        raise ServiceException("At least one item must be specified for a return.")
+
+    purchase_return = PurchaseReturn.objects.create(
+        purchase_order=purchase_order, reason=reason, processed_by=user, created_by=user,
+    )
+
+    total_refund = Decimal("0")
+
+    for entry in return_items:
+        po_item = entry["purchase_order_item"]
+        qty = entry["quantity"]
+
+        if qty > po_item.quantity_received:
+            raise ServiceException(
+                f"Cannot return {qty} of {po_item.product.sku}; only {po_item.quantity_received} were received."
+            )
+
+        refund_amount = (po_item.unit_cost * qty).quantize(Decimal("0.01"))
+
+        PurchaseReturnItem.objects.create(
+            purchase_return=purchase_return, purchase_order_item=po_item,
+            quantity=qty, refund_amount=refund_amount,
+        )
+
+        inventory_services.stock_out(
+            product=po_item.product, warehouse=purchase_order.warehouse, quantity=qty,
+            variant=po_item.variant, reference=purchase_order.po_number,
+            notes=f"Return to supplier against {purchase_order.po_number}", user=user,
+            transaction_type=StockTransaction.TransactionType.PURCHASE_RETURN,
+        )
+
+        total_refund += refund_amount
+
+    purchase_return.refund_amount = total_refund
+    purchase_return.save(update_fields=["refund_amount"])
+
+    purchase_order.supplier.outstanding_payable = max(
+        Decimal("0"), purchase_order.supplier.outstanding_payable - total_refund
+    )
+    purchase_order.supplier.save(update_fields=["outstanding_payable"])
+
+    return purchase_return

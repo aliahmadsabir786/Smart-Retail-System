@@ -2309,6 +2309,10 @@ async function newBookingForm(editId) {
   _bookingItems = [{ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 }];
   renderBookingItemRows();
   calcBookingTotals();
+
+  // No manual clicks needed to get started — land the cursor straight in
+  // the customer search box.
+  setTimeout(()=>{ document.getElementById('bk-customer-search')?.focus(); }, 60);
 }
 
 function closeBookingForm() {
@@ -2447,6 +2451,13 @@ function bkCustSelect(id) {
   document.getElementById('bk-customer').value = id;
   onBookingCustomerChange();
   bkCustDropClose();
+  // Customer picked → send the user straight into product selection,
+  // whichever row is still empty and waiting for a product.
+  setTimeout(()=>{
+    const emptyIdx = _bookingItems.findIndex(it => !it.productId);
+    const idx = emptyIdx >= 0 ? emptyIdx : 0;
+    document.getElementById('bk-prod-input-'+idx)?.focus();
+  }, 60);
 }
 
 function bkCustDropClose() {
@@ -2512,12 +2523,8 @@ function renderBookingItemRows() {
             onblur="setTimeout(()=>bkProdDropClose(${i}),180)">
           ${item.productId ? `<button onmousedown="bkProdClear(${i})" title="Change product"
             style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:12px;padding:0;line-height:1">✕</button>` : ''}
-          <div id="bk-prod-drop-${i}"
-            style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;z-index:500;
-                   background:var(--bg-card);border:1px solid var(--border);border-radius:8px;
-                   max-height:220px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,.5)">
-          </div>
         </div>
+
       </td>
       <td style="padding:5px 8px">
         <input class="form-input" type="number" value="${item.rate||0}" step="0.01" min="0"
@@ -2570,9 +2577,63 @@ function renderBookingItemRows() {
 }
 
 // Product search autocomplete for booking rows
+// ── Product search dropdown (Order Booking) ───────────────────────
+// A single floating panel shared by every row, positioned with
+// getBoundingClientRect and rendered fixed at the very top of the page.
+// This sidesteps the table row stacking/overflow issues that made a
+// per-row absolutely-positioned dropdown get clipped or buried behind
+// the next row.
+let _bkProdActiveRow = null;
+
+function _bkProdFloatEl() {
+  let el = document.getElementById('bk-prod-float-drop');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'bk-prod-float-drop';
+    el.style.cssText = 'display:none;position:fixed;z-index:99999;'
+      + 'background:var(--bg-card);border:1px solid var(--border);border-radius:8px;'
+      + 'max-height:260px;overflow-y:auto;box-shadow:0 12px 32px rgba(0,0,0,.55)';
+    document.body.appendChild(el);
+    // Keep it glued to the input while the page scrolls/resizes, and close
+    // it if the row it belongs to has since scrolled out of view entirely.
+    window.addEventListener('scroll', () => { if (_bkProdActiveRow !== null) _bkProdReposition(); }, true);
+    window.addEventListener('resize', () => { if (_bkProdActiveRow !== null) _bkProdReposition(); });
+  }
+  return el;
+}
+
+function _bkProdReposition() {
+  const i = _bkProdActiveRow;
+  const inp = document.getElementById('bk-prod-input-'+i);
+  const drop = document.getElementById('bk-prod-float-drop');
+  if (!inp || !drop) return;
+  const r = inp.getBoundingClientRect();
+  drop.style.left = r.left + 'px';
+  drop.style.top = (r.bottom + 4) + 'px';
+  drop.style.width = r.width + 'px';
+}
+
+function _bkProdRenderRows(list) {
+  return list.map(p => {
+    const stock = _bkStockByProduct[p.id]||0;
+    const sc = stock<=0?'var(--red)':stock<=(p.reorder_level||10)?'var(--yellow)':'var(--green)';
+    return `<div onmousedown="bkProdSelect(${_bkProdActiveRow},${p.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
+      <span style="font-size:18px;flex-shrink:0">📦</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${p.sku||'—'}${p.barcode?' · '+p.barcode:''}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:13px;font-weight:800;color:${sc}">${stock}</div>
+        <div style="font-size:9px;color:var(--text-muted)">in stock</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function bkProdSearch(i, q) {
-  const drop = document.getElementById('bk-prod-drop-'+i);
-  if (!drop) return;
+  _bkProdActiveRow = i;
+  const drop = _bkProdFloatEl();
   const lc = (q||'').toLowerCase().trim();
   if (!lc) { drop.style.display='none'; return; }
   const rank = (p) => {
@@ -2587,53 +2648,25 @@ function bkProdSearch(i, q) {
     .sort((a, b) => a.r - b.r || a.p.name.localeCompare(b.p.name))
     .slice(0, 20)
     .map(x => x.p);
-  if (!results.length) {
-    drop.style.display='';
-    drop.innerHTML='<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No product found</div>';
-    return;
-  }
+  _bkProdReposition();
   drop.style.display='';
-  drop.innerHTML = results.map(p=>{
-    const stock = _bkStockByProduct[p.id]||0;
-    const sc = stock<=0?'var(--red)':stock<=(p.reorder_level||10)?'var(--yellow)':'var(--green)';
-    return '<div onmousedown="bkProdSelect('+i+','+p.id+')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg-secondary)\'" onmouseout="this.style.background=\'\'">'
-      +'<span style="font-size:18px;flex-shrink:0">📦</span>'
-      +'<div style="flex:1;min-width:0">'
-        +'<div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+p.name+'</div>'
-        +'<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">'+(p.sku||'—')+(p.barcode?' · '+p.barcode:'')+'</div>'
-      +'</div>'
-      +'<div style="text-align:right;flex-shrink:0">'
-        +'<div style="font-size:13px;font-weight:800;color:'+sc+'">'+stock+'</div>'
-        +'<div style="font-size:9px;color:var(--text-muted)">in stock</div>'
-      +'</div>'
-    +'</div>';
-  }).join('');
+  drop.innerHTML = results.length
+    ? _bkProdRenderRows(results)
+    : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No product found</div>';
 }
 
 function bkProdSearchFocus(i) {
   const inp = document.getElementById('bk-prod-input-'+i);
-  // Show all products if field empty and no product selected yet
-  if (inp && !_bookingItems[i].productId) {
-    if (!inp.value.trim()) {
-      const drop = document.getElementById('bk-prod-drop-'+i);
-      if (drop) {
-        const top12 = _bkProductCache.slice(0,12);
-        if (!top12.length) return;
-        drop.style.display='';
-        drop.innerHTML = top12.map(p=>{
-          const stock = _bkStockByProduct[p.id]||0;
-          const sc=stock<=0?'var(--red)':stock<=(p.reorder_level||10)?'var(--yellow)':'var(--green)';
-          return '<div onmousedown="bkProdSelect('+i+','+p.id+')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg-secondary)\'" onmouseout="this.style.background=\'\'">'
-            +'<span style="font-size:18px;flex-shrink:0">📦</span>'
-            +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px">'+p.name+'</div>'
-            +'<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">'+(p.sku||'—')+'</div></div>'
-            +'<div style="text-align:right"><div style="font-size:13px;font-weight:800;color:'+sc+'">'+stock+'</div>'
-            +'<div style="font-size:9px;color:var(--text-muted)">in stock</div></div></div>';
-        }).join('');
-      }
-    } else {
-      bkProdSearch(i, inp.value);
-    }
+  if (!inp || _bookingItems[i].productId) return;
+  _bkProdActiveRow = i;
+  if (!inp.value.trim()) {
+    if (!_bkProductCache.length) return;
+    const drop = _bkProdFloatEl();
+    _bkProdReposition();
+    drop.style.display='';
+    drop.innerHTML = _bkProdRenderRows(_bkProductCache.slice(0, 20));
+  } else {
+    bkProdSearch(i, inp.value);
   }
 }
 
@@ -2647,6 +2680,7 @@ function bkProdSelect(i, productId) {
   _bookingItems[i].icon      = '📦';
   _bookingItems[i].taxPct    = 0;
   _bookingItems[i].discount  = 0;
+  bkProdDropClose();
   renderBookingItemRows();
   calcBookingTotals();
   // Auto-focus the qty field — no extra click needed
@@ -2663,9 +2697,10 @@ function bkProdClear(i) {
   setTimeout(()=>{ const el=document.getElementById('bk-prod-input-'+i); if(el){el.focus();el.value='';} },30);
 }
 
-function bkProdDropClose(i) {
-  const drop = document.getElementById('bk-prod-drop-'+i);
+function bkProdDropClose() {
+  const drop = document.getElementById('bk-prod-float-drop');
   if (drop) drop.style.display='none';
+  _bkProdActiveRow = null;
 }
 
 function updateBookingItemStr(i, field, val) {

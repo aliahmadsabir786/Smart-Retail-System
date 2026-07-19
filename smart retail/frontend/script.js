@@ -4872,7 +4872,7 @@ function handleProductImport(input) {
   if (!file) return;
   const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     let rows = [];
     if (file.name.endsWith('.csv')) {
       rows = parseCSV(e.target.result);
@@ -4911,12 +4911,19 @@ function handleProductImport(input) {
       expiry: r.expiry || r['expiry date'] || '',
     })).filter(r => r.name && r.sku);
 
-    // Build preview table
+    // Build preview table — checked against the real backend catalog, not the old mock DB.
     const valid = _pendingProductImport;
+    let existingProducts = [];
+    try {
+      const data = await ProductsAPI.list({ page_size: 1000 });
+      existingProducts = data.results || data;
+    } catch (err) {
+      toast('Could not load existing products for comparison: ' + (err.message || 'unknown error'), 'warning');
+    }
     const previewHTML = `<table>
       <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th>Buy</th><th>Sell</th><th>Stock</th><th>Pcs/Ctn</th><th>Status</th></tr></thead>
       <tbody>${valid.map(r => {
-        const existing = DB.products.find(p => p.sku === r.sku);
+        const existing = existingProducts.find(p => p.sku === r.sku);
         return `<tr>
           <td>${r.icon} ${r.name}</td>
           <td class="td-mono">${r.sku}</td>
@@ -4930,7 +4937,7 @@ function handleProductImport(input) {
       }).join('')}</tbody>
     </table>`;
     document.getElementById('product-import-preview').innerHTML = previewHTML;
-    const newCount = valid.filter(r => !DB.products.find(p => p.sku === r.sku)).length;
+    const newCount = valid.filter(r => !existingProducts.find(p => p.sku === r.sku)).length;
     const updateCount = valid.length - newCount;
     document.getElementById('product-import-stats').innerHTML =
       `<span class="badge badge-green" style="margin-right:6px">✅ ${newCount} New</span><span class="badge badge-yellow">${updateCount} Updates</span><span style="font-size:11px;color:var(--text-muted);margin-left:8px">${rows.length - valid.length} rows skipped (missing name/sku)</span>`;
@@ -4940,16 +4947,73 @@ function handleProductImport(input) {
   if (isExcel) { reader.readAsArrayBuffer(file); } else { reader.readAsText(file); }
 }
 
-function confirmProductImport() {
-  let added = 0, updated = 0;
-  _pendingProductImport.forEach(r => {
-    const existing = DB.products.find(p => p.sku === r.sku);
-    if (existing) { Object.assign(existing, r); updated++; }
-    else { r.id = Math.max(...DB.products.map(p=>p.id),0)+1; DB.products.push(r); added++; }
-  });
+let _categoryCache = null;
+
+async function _findOrCreateCategory(name) {
+  if (!name) return null;
+  if (!_categoryCache) {
+    const data = await CategoriesAPI.list({ page_size: 500 });
+    _categoryCache = data.results || data;
+  }
+  const existing = _categoryCache.find(c => (c.name || '').toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const created = await CategoriesAPI.create({ name });
+  _categoryCache.push(created);
+  return created.id;
+}
+
+async function confirmProductImport() {
+  let added = 0, updated = 0, failed = 0;
+  const warehouseId = await _ensureDefaultWarehouse();
+
+  let existingProducts = [];
+  try {
+    const data = await ProductsAPI.list({ page_size: 1000 });
+    existingProducts = data.results || data;
+  } catch (err) {
+    toast('Could not load existing products: ' + (err.message || 'unknown error'), 'error');
+    return;
+  }
+
+  for (const r of _pendingProductImport) {
+    try {
+      const categoryId = await _findOrCreateCategory(r.category);
+      const brandId = await _findOrCreateBrand(r.brand);
+      const payload = {
+        name: r.name,
+        sku: r.sku,
+        category: categoryId,
+        brand: brandId,
+        cost_price: r.buyPrice,
+        selling_price: r.sellPrice,
+        reorder_level: r.minStock,
+      };
+      if (r.barcode) payload.barcode = r.barcode;
+
+      const existing = existingProducts.find(p => p.sku === r.sku);
+      let product;
+      if (existing) {
+        product = await ProductsAPI.update(existing.id, payload);
+        updated++;
+      } else {
+        product = await ProductsAPI.create(payload);
+        added++;
+        if (r.stock > 0) {
+          await InventoryAPI.stockIn({
+            product: product.id, warehouse: warehouseId,
+            quantity: r.stock, reference: 'Bulk import',
+          });
+        }
+      }
+    } catch (err) {
+      failed++;
+      console.error('Product import row failed:', r.sku, err);
+    }
+  }
+
   closeModal('product-import-modal');
-  renderProducts();
-  toast(`Import done: ${added} added, ${updated} updated`, 'success');
+  await renderProducts();
+  toast(`Import done: ${added} added, ${updated} updated${failed ? `, ${failed} failed` : ''}`, failed ? 'warning' : 'success');
   _pendingProductImport = [];
 }
 
@@ -4958,7 +5022,7 @@ function handleCustomerImport(input) {
   if (!file) return;
   const isExcelC = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     let rows = [];
     if (file.name.endsWith('.csv')) {
       rows = parseCSV(e.target.result);
@@ -4986,14 +5050,24 @@ function handleCustomerImport(input) {
       phone: r.phone || r['mobile'] || r['contact'] || '',
       email: r.email || '',
       address: r.address || '',
+      prevBalance: parseFloat(r.previousbalance || r['previous balance'] || r['previous balance (rs.)'] || r.balance || 0),
+      creditLimit: parseFloat(r.creditlimit || r['credit limit'] || r['credit limit (rs.)'] || 0),
       loyaltyPoints: parseInt(r.loyaltypoints || r['loyalty points'] || r.points || 0),
     })).filter(r => r.name);
 
+    // Checked against the real backend customer list, not the old mock DB.
     const valid = _pendingCustomerImport;
+    let existingCustomers = [];
+    try {
+      const data = await CustomersAPI.list({ page_size: 1000 });
+      existingCustomers = data.results || data;
+    } catch (err) {
+      toast('Could not load existing customers for comparison: ' + (err.message || 'unknown error'), 'warning');
+    }
     const previewHTML = `<table>
       <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>Points</th><th>Status</th></tr></thead>
       <tbody>${valid.map(r => {
-        const existing = DB.customers.find(c => c.phone && c.phone === r.phone);
+        const existing = existingCustomers.find(c => c.phone && c.phone === r.phone);
         return `<tr>
           <td class="fw-700">${r.name}</td>
           <td>${r.phone}</td>
@@ -5005,7 +5079,7 @@ function handleCustomerImport(input) {
       }).join('')}</tbody>
     </table>`;
     document.getElementById('customer-import-preview').innerHTML = previewHTML;
-    const newCount = valid.filter(r => !DB.customers.find(c => c.phone && c.phone === r.phone)).length;
+    const newCount = valid.filter(r => !existingCustomers.find(c => c.phone && c.phone === r.phone)).length;
     const updateCount = valid.length - newCount;
     document.getElementById('customer-import-stats').innerHTML =
       `<span class="badge badge-green" style="margin-right:6px">✅ ${newCount} New</span><span class="badge badge-yellow">${updateCount} Updates</span>`;
@@ -5015,17 +5089,46 @@ function handleCustomerImport(input) {
   if (isExcelC) { reader.readAsArrayBuffer(file); } else { reader.readAsText(file); }
 }
 
-function confirmCustomerImport() {
-  let added = 0, updated = 0;
-  _pendingCustomerImport.forEach(r => {
-    const existing = DB.customers.find(c => c.phone && c.phone === r.phone);
-    if (existing) { Object.assign(existing, r); updated++; }
-    else { DB.customers.push({ id: Math.max(...DB.customers.map(c=>c.id),0)+1, totalPurchases:0, lastVisit: new Date().toISOString().split('T')[0], ...r }); added++; }
-  });
+async function confirmCustomerImport() {
+  let added = 0, updated = 0, failed = 0;
+
+  let existingCustomers = [];
+  try {
+    const data = await CustomersAPI.list({ page_size: 1000 });
+    existingCustomers = data.results || data;
+  } catch (err) {
+    toast('Could not load existing customers: ' + (err.message || 'unknown error'), 'error');
+    return;
+  }
+
+  for (const r of _pendingCustomerImport) {
+    try {
+      const payload = {
+        name: r.name,
+        phone: r.phone,
+        email: r.email,
+        address: r.address,
+        outstanding_balance: r.prevBalance,
+        credit_limit: r.creditLimit,
+      };
+      const existing = existingCustomers.find(c => c.phone && c.phone === r.phone);
+      if (existing) {
+        await CustomersAPI.update(existing.id, payload);
+        updated++;
+      } else {
+        await CustomersAPI.create(payload);
+        added++;
+      }
+    } catch (err) {
+      failed++;
+      console.error('Customer import row failed:', r.name, err);
+    }
+  }
+
   closeModal('customer-import-modal');
-  renderCustomers();
-  updatePosCustomers();
-  toast(`Import done: ${added} added, ${updated} updated`, 'success');
+  await renderCustomers();
+  if (typeof updatePosCustomers === 'function') updatePosCustomers();
+  toast(`Import done: ${added} added, ${updated} updated${failed ? `, ${failed} failed` : ''}`, failed ? 'warning' : 'success');
   _pendingCustomerImport = [];
 }
 

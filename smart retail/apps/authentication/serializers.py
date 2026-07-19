@@ -24,6 +24,49 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "is_verified", "is_active", "date_joined"]
 
 
+class UserManagementSerializer(serializers.ModelSerializer):
+    """
+    Admin-facing user CRUD (list/create/update/deactivate other users).
+    Distinct from UserSerializer (self-profile) and RegisterSerializer
+    (public self-signup, restricted to non-privileged roles) — this one is
+    gated by IsAdminOrAbove and allows setting any role, including staff ones.
+    """
+
+    full_name = serializers.CharField(source="get_full_name", read_only=True)
+    password = serializers.CharField(write_only=True, required=False,
+                                      validators=[password_validation.validate_password])
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "email", "first_name", "last_name", "full_name", "phone",
+            "role", "is_active", "is_verified", "date_joined", "last_login", "password",
+        ]
+        read_only_fields = ["id", "is_verified", "date_joined", "last_login"]
+
+    def create(self, validated_data):
+        password = validated_data.pop("password", None)
+        if not password:
+            raise serializers.ValidationError({"password": "Password is required when creating a user."})
+        # Admin-created accounts always skip email verification — is_verified
+        # is read-only on this serializer specifically so it can't be spoofed
+        # via the request, but is still unconditionally set true here.
+        validated_data["is_verified"] = True
+        user = User(**{k: v for k, v in validated_data.items() if k != "password"})
+        user.set_password(password)
+        user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[password_validation.validate_password])
     password_confirm = serializers.CharField(write_only=True)

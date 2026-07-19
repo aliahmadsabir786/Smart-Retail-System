@@ -804,6 +804,66 @@ function showReceipt(sale) {
 let _catCache = [];
 let _brandCache = [];
 let _defaultWarehouseId = null;
+let _prodPage = 1;
+const _prodPageSize = 20;
+
+// ═══════════════════════════════════════════════════════
+// PAGINATION — shared helper used by Products & Customers
+// (and any other list page that wants a numbered pager
+// instead of "load everything at once").
+// ═══════════════════════════════════════════════════════
+/**
+ * Renders a "« Prev  1 2 3 … 9  Next »" bar into the given container.
+ * @param {string} containerId - id of the element to render into
+ * @param {number} currentPage - 1-based current page
+ * @param {number} totalPages  - total number of pages
+ * @param {number} totalCount  - total number of records (for the "Showing X of Y" label)
+ * @param {number} pageSize    - records per page (for the "Showing X of Y" label)
+ * @param {function(number)} onPageChange - called with the new page number
+ */
+function renderPaginationBar(containerId, currentPage, totalPages, totalCount, pageSize, onPageChange) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!totalPages || totalPages <= 0) totalPages = 1;
+  if (currentPage < 1) currentPage = 1;
+  if (currentPage > totalPages) currentPage = totalPages;
+
+  window.__paginationCallbacks = window.__paginationCallbacks || {};
+  window.__paginationCallbacks[containerId] = onPageChange;
+
+  const rangeStart = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(currentPage * pageSize, totalCount);
+
+  // Build the list of page numbers to show: first, last, current ±1, with
+  // "…" filling the gaps so wide page counts don't produce a huge button row.
+  const pages = [];
+  const addPage = (n) => { if (!pages.includes(n)) pages.push(n); };
+  addPage(1);
+  for (let n = currentPage - 1; n <= currentPage + 1; n++) if (n >= 1 && n <= totalPages) addPage(n);
+  addPage(totalPages);
+  pages.sort((a, b) => a - b);
+
+  let pageBtns = '';
+  let prevNum = null;
+  pages.forEach(n => {
+    if (prevNum !== null && n - prevNum > 1) {
+      pageBtns += `<span class="pagination-ellipsis">…</span>`;
+    }
+    pageBtns += `<button type="button" class="pagination-btn ${n === currentPage ? 'active' : ''}"
+      onclick="window.__paginationCallbacks['${containerId}'](${n})">${n}</button>`;
+    prevNum = n;
+  });
+
+  el.innerHTML = `
+    <div class="pagination-info">Showing ${rangeStart}-${rangeEnd} of ${totalCount}</div>
+    <div class="pagination-controls">
+      <button type="button" class="pagination-btn" ${currentPage <= 1 ? 'disabled' : ''}
+        onclick="window.__paginationCallbacks['${containerId}'](${currentPage - 1})"><i class="fa fa-chevron-left"></i></button>
+      ${pageBtns}
+      <button type="button" class="pagination-btn" ${currentPage >= totalPages ? 'disabled' : ''}
+        onclick="window.__paginationCallbacks['${containerId}'](${currentPage + 1})"><i class="fa fa-chevron-right"></i></button>
+    </div>`;
+}
 
 async function _ensureDefaultWarehouse() {
   if (_defaultWarehouseId) return _defaultWarehouseId;
@@ -826,25 +886,41 @@ async function _findOrCreateBrand(name) {
   return created.id;
 }
 
-async function renderProducts() {
+async function renderProducts(page) {
   try {
     await populateCategorySelects();
   } catch (err) {
     toast('Failed to load categories: ' + (err.message||'unknown error'), 'error');
   }
+  // A fresh search/filter always jumps back to page 1; otherwise keep (or
+  // move to) whichever page was requested by the pagination bar.
+  const isNewQuery = page === undefined;
+  _prodPage = isNewQuery ? 1 : page;
+
   const q = (document.getElementById('prod-search')?.value||'').toLowerCase();
   const catId = document.getElementById('prod-cat-filter')?.value||'';
   const tbody = document.getElementById('products-table');
-  const params = { search: q || undefined, category: catId || undefined };
+  const params = {
+    search: q || undefined,
+    category: catId || undefined,
+    ordering: 'name',        // A → Z by product name
+    page: _prodPage,
+    page_size: _prodPageSize,
+  };
   let prods = [];
+  let totalCount = 0, totalPages = 1;
   try {
     const data = await ProductsAPI.list(params);
     prods = data.results || data;
+    totalCount = data.count ?? prods.length;
+    totalPages = data.total_pages ?? Math.max(1, Math.ceil(totalCount / _prodPageSize));
+    _prodPage = data.current_page ?? _prodPage;
   } catch (err) {
     toast('Failed to load products: ' + (err.message||'unknown error'), 'error');
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--red)">Could not load products — ${err.message||'server error'}</td></tr>`;
     return;
   }
+  renderPaginationBar('products-pagination', _prodPage, totalPages, totalCount, _prodPageSize, (p) => renderProducts(p));
   tbody.innerHTML = prods.map(p => {
     const status = p.status !== 'active' ? ['badge-yellow', p.status]
       : ['badge-green', 'Active'];
@@ -1369,12 +1445,26 @@ function isCnicDuplicate(cnic, excludeId) {
 }
 
 let _customerCache = [];
+let _custPage = 1;
+const _custPageSize = 20;
 
-async function renderCustomers() {
+async function renderCustomers(page) {
+  const isNewQuery = page === undefined;
+  _custPage = isNewQuery ? 1 : page;
+
   const q = (document.getElementById('cust-search')?.value||'').toLowerCase();
-  const data = await CustomersAPI.list({ search: q || undefined });
+  const data = await CustomersAPI.list({
+    search: q || undefined,
+    ordering: 'name',        // A → Z by customer name
+    page: _custPage,
+    page_size: _custPageSize,
+  });
   const filtered = data.results || data;
   _customerCache = filtered;
+  const totalCount = data.count ?? filtered.length;
+  const totalPages = data.total_pages ?? Math.max(1, Math.ceil(totalCount / _custPageSize));
+  _custPage = data.current_page ?? _custPage;
+  renderPaginationBar('customers-pagination', _custPage, totalPages, totalCount, _custPageSize, (p) => renderCustomers(p));
   document.getElementById('customers-table').innerHTML = filtered.map(c=>`
     <tr>
       <td><span class="badge badge-purple" style="font-family:var(--mono)">ACC-${String(c.id).padStart(4,'0')}</span></td>

@@ -8,7 +8,7 @@ from apps.customers.models import Customer
 from apps.warehouse.models import Warehouse
 from apps.sales.models import SaleItem
 from . import services
-from .models import Sale, Coupon
+from .models import Sale, Coupon, SaleReturn
 from .serializers import (
     SaleSerializer, CreateSaleSerializer, AddPaymentSerializer,
     ProcessReturnSerializer, SaleReturnSerializer, PaymentSerializer,
@@ -94,3 +94,13 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             sale, return_items, serializer.validated_data.get("reason", ""), user=request.user,
         )
         return Response(SaleReturnSerializer(sale_return).data, status=status.HTTP_201_CREATED)
+
+
+class SaleReturnViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Read-only history of processed sale returns (/api/v1/sales/returns/)."""
+    queryset = SaleReturn.objects.select_related("sale", "processed_by").prefetch_related("items")
+    serializer_class = SaleReturnSerializer
+    permission_classes = [IsCashierOrAbove]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["sale", "status"]
+    ordering_fields = ["created_at"]

@@ -89,6 +89,12 @@ class AddPaymentSerializer(serializers.Serializer):
     reference = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class FinalizeSaleSerializer(serializers.Serializer):
+    """Converts a held (draft) invoice into a completed sale."""
+    coupon_code = serializers.CharField(required=False, allow_blank=True, default="")
+    is_credit_sale = serializers.BooleanField(required=False, default=False)
+
+
 class ReturnItemInputSerializer(serializers.Serializer):
     sale_item = serializers.IntegerField()
     quantity = serializers.IntegerField(min_value=1)

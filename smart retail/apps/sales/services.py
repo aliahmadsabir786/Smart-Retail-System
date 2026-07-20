@@ -100,6 +100,151 @@ def create_sale(customer, warehouse, items, user, discount_amount=Decimal("0"),
 
 
 @transaction.atomic
+def create_draft_sale(customer, warehouse, items, user, discount_amount=Decimal("0"), notes=""):
+    """
+    "Hold Invoice" — parks a booking as a DRAFT sale. Line items and totals are
+    computed exactly like a normal sale, but every side effect that only makes
+    sense for a *finalized* transaction is skipped: no stock is deducted, no
+    customer balance or loyalty points are touched. A held invoice can be
+    freely edited (see update_draft_sale) or deleted until it's converted into
+    a real sale with finalize_draft_sale.
+    """
+    if not items:
+        raise ServiceException("A sale must contain at least one item.")
+
+    sale = Sale.objects.create(
+        invoice_number=Sale.generate_invoice_number(),
+        customer=customer, warehouse=warehouse, served_by=user,
+        status=Sale.Status.DRAFT, notes=notes, created_by=user,
+    )
+    _set_draft_items(sale, items, discount_amount)
+    return sale
+
+
+@transaction.atomic
+def update_draft_sale(sale, customer, warehouse, items, discount_amount=Decimal("0"), notes=""):
+    """Replaces every line item on a still-held (DRAFT) invoice and recomputes
+    totals. Refuses to touch anything once the invoice has been finalized —
+    editing a completed sale's items would silently desync stock and ledgers
+    that have already moved; use a Sale Return for that instead."""
+    if sale.status != Sale.Status.DRAFT:
+        raise InvalidTransitionException("Only a held invoice can be edited — this one is already finalized.")
+    if not items:
+        raise ServiceException("A sale must contain at least one item.")
+
+    sale.customer = customer
+    sale.warehouse = warehouse
+    sale.notes = notes
+    sale.items.all().delete()
+    _set_draft_items(sale, items, discount_amount)
+    return sale
+
+
+def _set_draft_items(sale, items, discount_amount):
+    """Shared item/total-building step for create_draft_sale and update_draft_sale
+    — deliberately has no stock or customer side effects."""
+    subtotal = Decimal("0")
+    total_discount = Decimal(discount_amount or 0)
+    total_tax = Decimal("0")
+
+    for item in items:
+        sale_item = SaleItem.objects.create(
+            sale=sale, product=item["product"], variant=item.get("variant"),
+            quantity=item["quantity"], unit_price=item["unit_price"],
+            discount_percent=item.get("discount_percent", Decimal("0")),
+            tax_percent=item.get("tax_percent", Decimal("0")),
+            created_by=sale.created_by,
+        )
+        subtotal += sale_item.line_subtotal
+        total_discount += sale_item.line_discount
+        total_tax += sale_item.line_tax
+
+    total_amount = (subtotal - total_discount + total_tax).quantize(Decimal("0.01"))
+    if total_amount < 0:
+        total_amount = Decimal("0.00")
+
+    sale.subtotal = subtotal.quantize(Decimal("0.01"))
+    sale.discount_amount = total_discount.quantize(Decimal("0.01"))
+    sale.tax_amount = total_tax.quantize(Decimal("0.01"))
+    sale.total_amount = total_amount
+    sale.save(update_fields=[
+        "subtotal", "discount_amount", "tax_amount", "total_amount",
+        "customer", "warehouse", "notes",
+    ])
+
+
+@transaction.atomic
+def finalize_draft_sale(sale, user, coupon=None, is_credit_sale=False):
+    """
+    Converts a held (DRAFT) invoice into a real, completed sale — this is the
+    moment stock actually leaves the warehouse and the customer's balance/
+    loyalty points are updated, exactly like a normal checkout via create_sale.
+    """
+    if sale.status != Sale.Status.DRAFT:
+        raise InvalidTransitionException("This invoice has already been finalized.")
+
+    items = list(sale.items.select_related("product", "variant"))
+    if not items:
+        raise ServiceException("A sale must contain at least one item.")
+
+    subtotal = sum((i.line_subtotal for i in items), Decimal("0"))
+    line_discount = sum((i.line_discount for i in items), Decimal("0"))
+    total_tax = sum((i.line_tax for i in items), Decimal("0"))
+    # Whatever was stored beyond the per-line discounts is the manual/flat
+    # discount that was entered while the invoice was held.
+    manual_discount = max(sale.discount_amount - line_discount, Decimal("0"))
+    total_discount = line_discount + manual_discount
+
+    for sale_item in items:
+        inventory_services.stock_out(
+            product=sale_item.product, warehouse=sale.warehouse, quantity=sale_item.quantity,
+            variant=sale_item.variant, reference=sale.invoice_number,
+            notes=f"Sale {sale.invoice_number}", user=user,
+            transaction_type=StockTransaction.TransactionType.SALE,
+        )
+
+    if coupon:
+        if not coupon.is_valid():
+            raise ServiceException("Coupon is invalid, expired, or has reached its usage limit.")
+        total_discount += coupon.calculate_discount(subtotal)
+        coupon.used_count += 1
+        coupon.save(update_fields=["used_count"])
+        sale.coupon = coupon
+
+    total_amount = (subtotal - total_discount + total_tax).quantize(Decimal("0.01"))
+    if total_amount < 0:
+        total_amount = Decimal("0.00")
+
+    sale.subtotal = subtotal.quantize(Decimal("0.01"))
+    sale.discount_amount = total_discount.quantize(Decimal("0.01"))
+    sale.tax_amount = total_tax.quantize(Decimal("0.01"))
+    sale.total_amount = total_amount
+    sale.status = Sale.Status.COMPLETED
+
+    if is_credit_sale:
+        if not sale.customer:
+            raise ServiceException("Credit sales require a registered customer.")
+        if not sale.customer.can_purchase_on_credit(total_amount):
+            raise CreditLimitExceededException(
+                f"Sale of {total_amount} exceeds available credit of {sale.customer.available_credit}."
+            )
+        sale.customer.outstanding_balance += total_amount
+        sale.customer.save(update_fields=["outstanding_balance"])
+        sale.payment_status = Sale.PaymentStatus.UNPAID
+
+    sale.save(update_fields=[
+        "subtotal", "discount_amount", "tax_amount", "total_amount", "status", "payment_status", "coupon",
+    ])
+
+    if sale.customer:
+        points_earned = int(total_amount)
+        sale.customer.loyalty_points += points_earned
+        sale.customer.save(update_fields=["loyalty_points"])
+
+    return sale
+
+
+@transaction.atomic
 def add_payment(sale, amount, method, user, reference=""):
     """Records a payment against a sale and updates paid_amount/payment_status
     (and reduces the customer's outstanding_balance for credit sales)."""

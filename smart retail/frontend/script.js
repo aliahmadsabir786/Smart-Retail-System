@@ -2331,14 +2331,6 @@ function initBooking() {
 }
 
 async function newBookingForm(editId) {
-  // Bookings map directly onto real Sale records now — Sales aren't editable
-  // once created (matches real invoicing behavior), so "editing" a past
-  // booking isn't supported. Use Sale Return from the Returns page instead
-  // to correct a mistaken booking.
-  if (editId) {
-    toast('Editing a saved booking isn\'t supported — use Sale Return to correct it.', 'warning');
-    return;
-  }
   _editingBookingId = null;
   document.getElementById('booking-form-wrap').style.display = '';
   document.getElementById('booking-list-wrap').style.display = 'none';
@@ -2347,7 +2339,6 @@ async function newBookingForm(editId) {
   await _loadBookingLookups();
 
   const today = new Date().toISOString().split('T')[0];
-  document.getElementById('booking-form-title').textContent = '📝 New Order Booking';
   document.getElementById('bk-date').value = today;
   document.getElementById('bk-invoice').value = 'Assigned on save';
   document.getElementById('bk-customer').value = '';
@@ -2360,15 +2351,43 @@ async function newBookingForm(editId) {
   document.getElementById('bk-acc-display').value = '';
   document.getElementById('bk-customer-info').style.display = 'none';
   _bookingItems = [{ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 }];
+
+  if (editId) {
+    // Editing a held (draft) invoice — pull its saved items/customer back in.
+    let sale;
+    try { sale = await SalesAPI.get(editId); }
+    catch (err) { toast(err.message || 'Failed to load invoice', 'error'); return; }
+    if (sale.status !== 'draft') {
+      toast('Only a held invoice can be edited — use Sale Return to correct a completed one.', 'warning');
+      return;
+    }
+    _editingBookingId = editId;
+    document.getElementById('booking-form-title').textContent = `✏️ Editing Held Invoice — ${sale.invoice_number}`;
+    document.getElementById('bk-invoice').value = sale.invoice_number;
+    document.getElementById('bk-notes').value = (sale.notes||'').replace(/^Order Booking\s*(—\s*)?/,'').replace(/\s*\(date:[^)]*\)\s*$/,'');
+    if (sale.customer) {
+      document.getElementById('bk-customer').value = sale.customer;
+      onBookingCustomerChange();
+    }
+    _bookingItems = sale.items.map(it => ({
+      productId: it.product, name: it.product_name, rate: Number(it.unit_price),
+      qty: it.quantity, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent)||0,
+    }));
+    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 });
+  } else {
+    document.getElementById('booking-form-title').textContent = '📝 New Order Booking';
+  }
+
   renderBookingItemRows();
   calcBookingTotals();
 
   // No manual clicks needed to get started — land the cursor straight in
-  // the customer search box.
-  setTimeout(()=>{ document.getElementById('bk-customer-search')?.focus(); }, 60);
+  // the customer search box (unless we just loaded an editing customer).
+  if (!editId) setTimeout(()=>{ document.getElementById('bk-customer-search')?.focus(); }, 60);
 }
 
 function closeBookingForm() {
+  _editingBookingId = null;
   document.getElementById('booking-form-wrap').style.display = 'none';
   document.getElementById('booking-list-wrap').style.display = '';
   renderBookingList();
@@ -2887,16 +2906,38 @@ async function saveBooking(status) {
   const items = validItems.map(i => {
     const prod = _bkProductCache.find(p=>p.id==i.productId);
     const tp = (i.qty||0)+(i.cartons||0)*(i.ppc||1);
-    return { product: i.productId, quantity: tp, unit_price: i.rate, tax_percent: Number(prod?.tax_rate)||0 };
+    return { product: i.productId, quantity: tp, unit_price: i.rate, tax_percent: Number(prod?.tax_rate ?? i.taxPct) || 0 };
   });
 
   try {
     const warehouseId = await _ensureDefaultWarehouse();
-    const sale = await SalesAPI.create({
+    const payload = {
       warehouse: warehouseId, customer: custId, items,
-      discount_amount: discountAmount, is_credit_sale: payMethod === 'credit',
+      discount_amount: discountAmount,
       notes: `Order Booking${notes ? ' — '+notes : ''} (date: ${bookDate})`,
-    });
+    };
+
+    if (status === 'draft') {
+      // "Hold Invoice" — parks it with no stock/balance impact yet. Editing
+      // an already-held invoice updates it in place instead of making a
+      // second copy.
+      const sale = _editingBookingId
+        ? await SalesAPI.updateHold(_editingBookingId, payload)
+        : await SalesAPI.hold(payload);
+      toast(`Invoice held — ${sale.invoice_number}. Edit or finalize it anytime from the list.`, 'success');
+      closeBookingForm();
+      return;
+    }
+
+    // status === 'saved' → a real, completed sale.
+    let sale;
+    if (_editingBookingId) {
+      // Save the edits back to the held invoice, then finalize it.
+      await SalesAPI.updateHold(_editingBookingId, payload);
+      sale = await SalesAPI.finalize(_editingBookingId, { is_credit_sale: payMethod === 'credit' });
+    } else {
+      sale = await SalesAPI.create({ ...payload, is_credit_sale: payMethod === 'credit' });
+    }
     if (payMethod !== 'credit') {
       await SalesAPI.pay(sale.id, { amount: sale.total_amount, method: payMethod === 'cash' ? 'cash' : 'other' });
     }
@@ -2904,6 +2945,21 @@ async function saveBooking(status) {
     closeBookingForm();
   } catch (err) {
     toast(err.message || 'Failed to save booking', 'error');
+  }
+}
+
+async function editBooking(id) {
+  await newBookingForm(id);
+}
+
+async function deleteHeldBooking(id, invoiceNumber) {
+  if (!confirm(`Delete held invoice ${invoiceNumber||''}? This can't be undone.`)) return;
+  try {
+    await SalesAPI.remove(id);
+    toast('Held invoice deleted','warning');
+    renderBookingList();
+  } catch (err) {
+    toast(err.message || 'Failed to delete invoice', 'error');
   }
 }
 
@@ -2935,13 +2991,14 @@ async function renderBookingList() {
   if (df) filtered = filtered.filter(b => (b.created_at||'').slice(0,10) === df);
 
   const statusMap = { completed:['badge-green','Confirmed'], returned:['badge-red','Cancelled'],
-    partially_returned:['badge-yellow','Partial Return'], cancelled:['badge-red','Cancelled'], draft:['badge-yellow','Draft'] };
+    partially_returned:['badge-yellow','Partial Return'], cancelled:['badge-red','Cancelled'], draft:['badge-yellow','⏸ On Hold'] };
 
   document.getElementById('booking-table-body').innerHTML = filtered.length
     ? filtered.map(b=>{
         const [badgeClass, label] = statusMap[b.status] || ['badge-gray', b.status];
+        const isHeld = b.status === 'draft';
         return `
-        <tr>
+        <tr${isHeld?' style="background:rgba(234,179,8,.05)"':''}>
           <td class="td-mono" style="color:var(--cyan)">${b.invoice_number}</td>
           <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
           <td class="fw-700">${b.customer_name||'Walk-in'}</td>
@@ -2955,7 +3012,12 @@ async function renderBookingList() {
           <td>
             <div class="flex-gap">
               <button class="btn btn-ghost btn-xs" onclick="viewOrder('${b.invoice_number}')" title="View"><i class="fa fa-eye"></i></button>
-              ${!['returned','cancelled'].includes(b.status)?`<button class="btn btn-ghost btn-xs" onclick="cancelBooking(${b.id})" style="color:var(--red)" title="Cancel"><i class="fa fa-ban"></i></button>`:''}
+              ${isHeld ? `
+                <button class="btn btn-ghost btn-xs" onclick="editBooking(${b.id})" style="color:var(--accent)" title="Edit held invoice"><i class="fa fa-pen"></i></button>
+                <button class="btn btn-ghost btn-xs" onclick="deleteHeldBooking(${b.id},'${b.invoice_number}')" style="color:var(--red)" title="Delete held invoice"><i class="fa fa-trash"></i></button>
+              ` : !['returned','cancelled'].includes(b.status) ? `
+                <button class="btn btn-ghost btn-xs" onclick="cancelBooking(${b.id})" style="color:var(--red)" title="Cancel"><i class="fa fa-ban"></i></button>
+              ` : ''}
             </div>
           </td>
         </tr>`;

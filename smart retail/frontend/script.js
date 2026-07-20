@@ -714,6 +714,11 @@ async function processPayment() {
     if (cash < total) { toast('Insufficient cash received!', 'error'); return; }
   }
 
+  if (total <= 0) {
+    toast('Total is $0.00 — check that the items in the cart have a price set before charging.', 'error');
+    return;
+  }
+
   const custId = document.getElementById('pos-customer').value;
   const payBtn = document.querySelector('.btn-checkout, #checkout-btn') || null;
   if (payBtn) payBtn.disabled = true;
@@ -2216,13 +2221,56 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 // ═══════════════════════════════════════════════════════
 // TOAST
 // ═══════════════════════════════════════════════════════
-function toast(msg, type='success') {
-  const icons = { success:'fa-check-circle', error:'fa-times-circle', warning:'fa-exclamation-triangle' };
+const _toastIcons = { success:'fa-check-circle', error:'fa-times-circle', warning:'fa-exclamation-triangle' };
+const _toastMaxVisible = 4;
+const _toastDefaultDuration = 4200;
+
+function toast(msg, type='success', duration=_toastDefaultDuration) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  // De-dupe: if the exact same message/type is already showing, just bump
+  // its counter and restart the auto-dismiss timer instead of stacking a
+  // second identical box (this is what used to spam 4 copies of the same
+  // backend error onto the screen).
+  const key = type + '::' + msg;
+  const existing = container.querySelector(`.toast[data-key="${CSS.escape(key)}"]`);
+  if (existing) {
+    const countEl = existing.querySelector('.toast-count');
+    const n = (parseInt(existing.dataset.count||'1', 10) + 1);
+    existing.dataset.count = n;
+    if (countEl) countEl.textContent = '×' + n;
+    else existing.querySelector('.toast-msg').insertAdjacentHTML('beforeend', ` <span class="toast-count">×${n}</span>`);
+    const bar = existing.querySelector('.toast-progress');
+    if (bar) { bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = `toastProgress ${duration}ms linear forwards`; }
+    clearTimeout(existing._dismissTimer);
+    existing._dismissTimer = setTimeout(() => _dismissToast(existing), duration);
+    return;
+  }
+
+  // Cap how many can pile up on screen at once — oldest goes first.
+  const visible = container.querySelectorAll('.toast');
+  if (visible.length >= _toastMaxVisible) _dismissToast(visible[0]);
+
   const t = document.createElement('div');
   t.className = 'toast ' + type;
-  t.innerHTML = `<i class="fa ${icons[type]||icons.success}"></i><div class="toast-msg">${msg}</div>`;
-  document.getElementById('toast-container').appendChild(t);
-  setTimeout(() => t.remove(), 3500);
+  t.dataset.key = key;
+  t.dataset.count = '1';
+  t.innerHTML = `
+    <div class="toast-icon"><i class="fa ${_toastIcons[type]||_toastIcons.success}"></i></div>
+    <div class="toast-body"><div class="toast-msg">${msg}</div></div>
+    <button class="toast-close" onclick="_dismissToast(this.closest('.toast'))" aria-label="Dismiss"><i class="fa fa-times"></i></button>
+    <div class="toast-progress" style="animation-duration:${duration}ms"></div>`;
+  container.appendChild(t);
+  t._dismissTimer = setTimeout(() => _dismissToast(t), duration);
+}
+
+function _dismissToast(el) {
+  if (!el || el.classList.contains('toast-out')) return;
+  clearTimeout(el._dismissTimer);
+  el.classList.add('toast-out');
+  el.addEventListener('animationend', () => el.remove(), { once: true });
+  setTimeout(() => el.remove(), 400); // safety net if animationend doesn't fire
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2616,16 +2664,17 @@ function _bkProdReposition() {
 function _bkProdRenderRows(list) {
   return list.map(p => {
     const stock = _bkStockByProduct[p.id]||0;
-    const sc = stock<=0?'var(--red)':stock<=(p.reorder_level||10)?'var(--yellow)':'var(--green)';
-    return `<div onmousedown="bkProdSelect(${_bkProdActiveRow},${p.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
+    const oos = stock <= 0;
+    const sc = oos?'var(--red)':stock<=(p.reorder_level||10)?'var(--yellow)':'var(--green)';
+    return `<div onmousedown="bkProdSelect(${_bkProdActiveRow},${p.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:${oos?'not-allowed':'pointer'};border-bottom:1px solid var(--border);${oos?'opacity:.55':''}" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
       <span style="font-size:18px;flex-shrink:0">📦</span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
         <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${p.sku||'—'}${p.barcode?' · '+p.barcode:''}</div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:13px;font-weight:800;color:${sc}">${stock}</div>
-        <div style="font-size:9px;color:var(--text-muted)">in stock</div>
+        <div style="font-size:13px;font-weight:800;color:${sc}">${oos?'—':stock}</div>
+        <div style="font-size:9px;color:${oos?'var(--red)':'var(--text-muted)'}">${oos?'out of stock':'in stock'}</div>
       </div>
     </div>`;
   }).join('');
@@ -2673,6 +2722,12 @@ function bkProdSearchFocus(i) {
 function bkProdSelect(i, productId) {
   const prod = _bkProductCache.find(p=>p.id===productId);
   if (!prod) return;
+  const stock = _bkStockByProduct[productId] || 0;
+  if (stock <= 0) {
+    toast(`${prod.name} is out of stock and can't be added to this order.`, 'error');
+    bkProdDropClose();
+    return;
+  }
   _bookingItems[i].productId = prod.id;
   _bookingItems[i].name      = prod.name;
   _bookingItems[i].rate      = Number(prod.final_price)||0;
@@ -2728,12 +2783,27 @@ function onBookingProductChange(i, productId) {
 
 function updateBookingItem(i, field, val) {
   _bookingItems[i][field] = parseFloat(val)||0;
+  const item = _bookingItems[i];
+
+  // Defensive re-check: stock can shift between opening the form and typing
+  // the quantity (another sale, another booking). Cap to what's actually
+  // available rather than letting the order go through with more than we have.
+  if (field === 'qty' && item.productId) {
+    const stock = _bkStockByProduct[item.productId] || 0;
+    if (stock <= 0) {
+      item.qty = 0;
+      toast('That product is out of stock — quantity can\'t be added.', 'error');
+    } else if (item.qty > stock) {
+      item.qty = stock;
+      toast(`Only ${stock} in stock — quantity capped.`, 'warning');
+    }
+  }
 
   // Once a quantity is typed against a picked product on the LAST row,
   // automatically append a fresh empty row so the next product can be
   // entered right away — no need to click "Add Item" every time.
   const isLastRow = i === _bookingItems.length - 1;
-  if (field === 'qty' && isLastRow && _bookingItems[i].productId && _bookingItems[i].qty > 0) {
+  if (field === 'qty' && isLastRow && item.productId && item.qty > 0) {
     _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0 });
   }
 

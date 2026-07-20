@@ -64,7 +64,7 @@ async function apiRequest(path, { method = 'GET', body = null, isForm = false, a
   }
 
   if (!response.ok) {
-    const message = (data && data.error && data.error.message) || (data && data.detail) || response.statusText;
+    const message = _formatApiErrorMessage(data, response.statusText) || response.statusText;
     const err = new Error(message);
     err.status = response.status;
     err.data = data;
@@ -72,6 +72,46 @@ async function apiRequest(path, { method = 'GET', body = null, isForm = false, a
   }
 
   return data;
+}
+
+/**
+ * Turns whatever the backend sent back for a failed request into one clean,
+ * human-readable sentence — instead of showing the raw DRF error shape
+ * (nested {field: [messages]} dicts, per-item lists from a many=True
+ * serializer, or occasionally a raw Python repr string like
+ * "{'amount': [ErrorDetail(string='...', code='...')]}") straight to the user.
+ */
+function _formatApiErrorMessage(data, fallback) {
+  if (data === null || data === undefined) return fallback;
+
+  if (typeof data === 'string') {
+    // Backend occasionally stringifies a Python ValidationError directly —
+    // pull the human sentence back out of the ErrorDetail(...) repr rather
+    // than showing that raw text.
+    const matches = [...data.matchAll(/string=['"]([^'"]+)['"]/g)].map(m => m[1]);
+    if (matches.length) return [...new Set(matches)].join(' ');
+    return data;
+  }
+
+  if (Array.isArray(data)) {
+    const msgs = data.map(d => _formatApiErrorMessage(d, '')).filter(Boolean);
+    return [...new Set(msgs)].join(' ') || fallback;
+  }
+
+  if (typeof data === 'object') {
+    if (data.error && data.error.message) return data.error.message;
+    if (data.detail) return _formatApiErrorMessage(data.detail, fallback);
+    const parts = [];
+    for (const [field, val] of Object.entries(data)) {
+      const text = _formatApiErrorMessage(val, '');
+      if (!text) continue;
+      if (field === 'non_field_errors' || field === 'detail') parts.push(text);
+      else parts.push(`${field.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())}: ${text}`);
+    }
+    return parts.length ? [...new Set(parts)].join(' · ') : fallback;
+  }
+
+  return fallback;
 }
 
 function buildQuery(params = {}) {

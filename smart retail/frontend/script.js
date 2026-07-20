@@ -6544,10 +6544,13 @@ async function saveSaleReturn() {
     const saleReturn = await SalesAPI.processReturn(_srCurrentBooking.id, {
       items: returnItems, reason: notes ? `${reason} — ${notes}` : reason,
     });
+    // The return is saved as of this point — everything below is just
+    // refreshing what's on screen. A glitch in either refresh call must
+    // never again be allowed to look like the return itself didn't save.
     closeModal('sr-process-modal');
-    await renderSaleReturnHistory();
-    await searchSaleReturnInvoice();
     toast(`Return processed — Refund: Rs.${Number(saleReturn.refund_amount).toFixed(2)}`, 'success');
+    try { await renderSaleReturnHistory(); } catch (e) { console.error('Failed to refresh return history list', e); }
+    try { await searchSaleReturnInvoice(); } catch (e) { console.error('Failed to refresh invoice search results', e); }
   } catch (err) {
     toast(err.message || 'Failed to process return', 'error');
   }
@@ -6711,9 +6714,11 @@ async function savePurchaseReturn() {
     const result = await PurchaseAPI.processReturn(_prSelectedPo.id, {
       items: returnItems, reason: notes ? `${reason} — ${notes}` : reason,
     });
+    // The return is saved as of this point — the list refresh below is just
+    // updating what's on screen, and must never mask a successful save.
     closeModal('pr-modal');
-    await renderPurchaseReturns();
     toast(`Purchase Return saved — Rs.${Number(result.refund_amount).toFixed(2)} credited from ${result.supplier_name}`, 'success');
+    try { await renderPurchaseReturns(); } catch (e) { console.error('Failed to refresh purchase return list', e); }
   } catch (err) {
     toast(err.message || 'Failed to process return', 'error');
   }

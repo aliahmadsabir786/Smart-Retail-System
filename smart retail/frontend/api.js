@@ -157,6 +157,15 @@ const AuthAPI = {
   },
 };
 
+// ── USER MANAGEMENT ──────────────────────────────────────────────
+const UsersAPI = {
+  list(params = {}) { return apiRequest(`/auth/users/${buildQuery(params)}`); },
+  get(id) { return apiRequest(`/auth/users/${id}/`); },
+  create(data) { return apiRequest('/auth/users/', { method: 'POST', body: data }); },
+  update(id, data) { return apiRequest(`/auth/users/${id}/`, { method: 'PATCH', body: data }); },
+  remove(id) { return apiRequest(`/auth/users/${id}/`, { method: 'DELETE' }); },
+};
+
 // ── PRODUCTS / CATALOG ───────────────────────────────────────────
 const ProductsAPI = {
   list(params = {}) { return apiRequest(`/products/${buildQuery(params)}`); },
@@ -191,6 +200,15 @@ const WarehousesAPI = {
   remove(id) { return apiRequest(`/warehouses/${id}/`, { method: 'DELETE' }); },
 };
 
+// ── SUPPLY ROUTES ────────────────────────────────────────────────
+const RoutesAPI = {
+  list(params = {}) { return apiRequest(`/routes/${buildQuery(params)}`); },
+  get(id) { return apiRequest(`/routes/${id}/`); },
+  create(data) { return apiRequest('/routes/', { method: 'POST', body: data }); },
+  update(id, data) { return apiRequest(`/routes/${id}/`, { method: 'PATCH', body: data }); },
+  remove(id) { return apiRequest(`/routes/${id}/`, { method: 'DELETE' }); },
+};
+
 // ── INVENTORY ────────────────────────────────────────────────────
 const InventoryAPI = {
   stockItems(params = {}) { return apiRequest(`/inventory/stock-items/${buildQuery(params)}`); },
@@ -212,6 +230,7 @@ const CustomersAPI = {
   update(id, data) { return apiRequest(`/customers/${id}/`, { method: 'PATCH', body: data }); },
   remove(id) { return apiRequest(`/customers/${id}/`, { method: 'DELETE' }); },
   groups() { return apiRequest('/customers/groups/'); },
+  ledger(id) { return apiRequest(`/customers/${id}/ledger/`); },
 };
 
 const SuppliersAPI = {
@@ -219,6 +238,7 @@ const SuppliersAPI = {
   create(data) { return apiRequest('/suppliers/', { method: 'POST', body: data }); },
   update(id, data) { return apiRequest(`/suppliers/${id}/`, { method: 'PATCH', body: data }); },
   remove(id) { return apiRequest(`/suppliers/${id}/`, { method: 'DELETE' }); },
+  ledger(id) { return apiRequest(`/suppliers/${id}/ledger/`); },
 };
 
 // ── SALES / POS ──────────────────────────────────────────────────
@@ -228,6 +248,7 @@ const SalesAPI = {
   create(data) { return apiRequest('/sales/', { method: 'POST', body: data }); },
   pay(id, data) { return apiRequest(`/sales/${id}/pay/`, { method: 'POST', body: data }); },
   processReturn(id, data) { return apiRequest(`/sales/${id}/return/`, { method: 'POST', body: data }); },
+  returnHistory(params = {}) { return apiRequest(`/sales/returns/${buildQuery(params)}`); },
   coupons() { return apiRequest('/sales/coupons/'); },
 };
 
@@ -238,6 +259,8 @@ const PurchaseAPI = {
   create(data) { return apiRequest('/purchase-orders/', { method: 'POST', body: data }); },
   receive(id, data) { return apiRequest(`/purchase-orders/${id}/receive/`, { method: 'POST', body: data }); },
   pay(id, data) { return apiRequest(`/purchase-orders/${id}/pay/`, { method: 'POST', body: data }); },
+  processReturn(id, data) { return apiRequest(`/purchase-orders/${id}/return/`, { method: 'POST', body: data }); },
+  returnHistory(params = {}) { return apiRequest(`/purchase-orders/returns/${buildQuery(params)}`); },
 };
 
 // ── MONEY ────────────────────────────────────────────────────────
@@ -247,6 +270,7 @@ const ExpensesAPI = {
   update(id, data) { return apiRequest(`/expenses/${id}/`, { method: 'PATCH', body: data }); },
   remove(id) { return apiRequest(`/expenses/${id}/`, { method: 'DELETE' }); },
   categories() { return apiRequest('/expenses/categories/'); },
+  createCategory(data) { return apiRequest('/expenses/categories/', { method: 'POST', body: data }); },
   summary(params = {}) { return apiRequest(`/expenses/summary/${buildQuery(params)}`); },
 };
 
@@ -299,4 +323,9 @@ const AuditAPI = {
 const SettingsAPI = {
   getCompany() { return apiRequest('/settings/company/'); },
   updateCompany(data) { return apiRequest('/settings/company/', { method: 'PATCH', body: data }); },
+  updateCompanyLogo(file) {
+    const form = new FormData();
+    form.append('logo', file);
+    return apiRequest('/settings/company/', { method: 'PATCH', body: form, isForm: true });
+  },
 };

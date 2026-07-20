@@ -6,11 +6,16 @@ from apps.purchase.models import PurchaseOrder
 from .models import OtherIncome
 
 
-def _date_filter(qs, field, date_from, date_to):
+def _date_filter(qs, field, date_from, date_to, is_datetime=True):
+    """See apps.reports.services._date_filter for why this uses `{field}__date`
+    for DateTimeField columns — without it, "Date To" excludes anything
+    created after midnight on that day, silently hiding today's activity
+    (today's sales, purchases, payments) from Profit & Loss."""
+    lookup = f"{field}__date" if is_datetime else field
     if date_from:
-        qs = qs.filter(**{f"{field}__gte": date_from})
+        qs = qs.filter(**{f"{lookup}__gte": date_from})
     if date_to:
-        qs = qs.filter(**{f"{field}__lte": date_to})
+        qs = qs.filter(**{f"{lookup}__lte": date_to})
     return qs
 
 
@@ -22,7 +27,7 @@ def get_sales_income(date_from=None, date_to=None):
 
 
 def get_other_income(date_from=None, date_to=None):
-    qs = _date_filter(OtherIncome.objects.all(), "income_date", date_from, date_to)
+    qs = _date_filter(OtherIncome.objects.all(), "income_date", date_from, date_to, is_datetime=False)
     return qs.aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
 
@@ -42,7 +47,7 @@ def get_cost_of_goods_sold(date_from=None, date_to=None):
 
 
 def get_total_expenses(date_from=None, date_to=None):
-    qs = _date_filter(Expense.objects.filter(status=Expense.Status.APPROVED), "expense_date", date_from, date_to)
+    qs = _date_filter(Expense.objects.filter(status=Expense.Status.APPROVED), "expense_date", date_from, date_to, is_datetime=False)
     return qs.aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
 

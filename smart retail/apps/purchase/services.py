@@ -82,6 +82,17 @@ def receive_stock(purchase_order, received_items, user):
         po_item.quantity_received += qty
         po_item.save(update_fields=["quantity_received"])
 
+        # Keep the product's cost_price in sync with what was actually just
+        # paid — reports (Cost of Goods Sold, Profit & Loss, Inventory
+        # valuation) read Product.cost_price directly, so without this they'd
+        # silently keep using whatever price was set when the product was
+        # first created, even after later purchases at a different price.
+        # This uses "last purchase cost" (simplest, most predictable for a
+        # small retail catalog) rather than a weighted average.
+        if po_item.unit_cost != po_item.product.cost_price:
+            po_item.product.cost_price = po_item.unit_cost
+            po_item.product.save(update_fields=["cost_price"])
+
         received_value += (po_item.unit_cost * qty).quantize(Decimal("0.01"))
 
     purchase_order.supplier.outstanding_payable += received_value

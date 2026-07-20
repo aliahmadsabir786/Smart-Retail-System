@@ -1,3 +1,5 @@
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
@@ -16,11 +18,18 @@ from .utils.barcode_utils import generate_barcode_image, generate_qr_code_image
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.select_related("category", "brand").prefetch_related("images", "variants")
+    # current_stock is annotated here (summed across all warehouses) so the
+    # list/detail serializers can expose it in a single query instead of
+    # each product firing its own StockItem lookup.
+    queryset = (
+        Product.objects.select_related("category", "brand")
+        .prefetch_related("images", "variants")
+        .annotate(current_stock=Coalesce(Sum("stock_items__quantity"), 0))
+    )
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status", "category", "brand", "unit"]
     search_fields = ["sku", "barcode", "name", "description"]
-    ordering_fields = ["name", "selling_price", "created_at", "reorder_level"]
+    ordering_fields = ["name", "selling_price", "created_at", "reorder_level", "current_stock"]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_serializer_class(self):
@@ -34,18 +43,13 @@ class ProductViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def low_stock(self, request):
         """GET /products/low_stock/ — products whose total stock is at/below reorder_level."""
-        from apps.inventory.models import StockItem
-        from django.db.models import Sum
-
-        # Compared per-product against its own reorder_level in Python (fine for typical
-        # catalog sizes); for very large catalogs this would move to a DB-level annotation.
+        # current_stock now comes from the annotated queryset itself, so no
+        # more per-product StockItem query here.
         products = self.get_queryset()
         result = []
         for p in products:
-            total = StockItem.objects.filter(product=p).aggregate(total=Sum("quantity"))["total"] or 0
-            if total <= p.reorder_level:
+            if p.current_stock <= p.reorder_level:
                 data = ProductListSerializer(p, context={"request": request}).data
-                data["current_stock"] = total
                 result.append(data)
         return Response({"success": True, "count": len(result), "results": result})
 

@@ -7,30 +7,43 @@ from apps.suppliers.models import Supplier
 from apps.expenses.models import Expense
 
 
-def _date_filter(qs, field, date_from, date_to):
+def _date_filter(qs, field, date_from, date_to, is_datetime=True):
+    """
+    Filters a queryset by a date range.
+
+    `field` is a DateTimeField (created_at, etc.) by default — in that case we
+    filter on `{field}__date` so "Date To" includes the WHOLE day. Without
+    this, `created_at__lte=2026-07-20` compares against midnight
+    (2026-07-20 00:00:00), silently excluding everything created later that
+    same day — which made today's purchases/sales vanish from every report
+    that defaults "Date To" to today. Pass is_datetime=False for plain
+    DateField columns (e.g. Expense.expense_date), which don't support the
+    `__date` lookup and don't need it.
+    """
+    lookup = f"{field}__date" if is_datetime else field
     if date_from:
-        qs = qs.filter(**{f"{field}__gte": date_from})
+        qs = qs.filter(**{f"{lookup}__gte": date_from})
     if date_to:
-        qs = qs.filter(**{f"{field}__lte": date_to})
+        qs = qs.filter(**{f"{lookup}__lte": date_to})
     return qs
 
 
 def sales_report(date_from=None, date_to=None):
     qs = _date_filter(Sale.objects.exclude(status=Sale.Status.CANCELLED), "created_at", date_from, date_to)
     columns = [
-        ("invoice_number", "Invoice #"), ("customer", "Customer"), ("warehouse", "Warehouse"),
+        ("date", "Date"), ("invoice_number", "Invoice #"), ("customer", "Customer"), ("warehouse", "Warehouse"),
         ("subtotal", "Subtotal"), ("discount_amount", "Discount"), ("tax_amount", "Tax"),
-        ("total_amount", "Total"), ("paid_amount", "Paid"), ("status", "Status"), ("date", "Date"),
+        ("total_amount", "Total"), ("paid_amount", "Paid"), ("status", "Status"),
     ]
     rows = [
         {
+            "date": s.created_at.strftime("%Y-%m-%d"),
             "invoice_number": s.invoice_number,
             "customer": s.customer.name if s.customer else "Walk-in",
             "warehouse": s.warehouse.name,
             "subtotal": str(s.subtotal), "discount_amount": str(s.discount_amount),
             "tax_amount": str(s.tax_amount), "total_amount": str(s.total_amount),
             "paid_amount": str(s.paid_amount), "status": s.status,
-            "date": s.created_at.strftime("%Y-%m-%d"),
         }
         for s in qs.select_related("customer", "warehouse")
     ]
@@ -41,14 +54,15 @@ def purchase_report(date_from=None, date_to=None):
     qs = _date_filter(PurchaseOrder.objects.exclude(status=PurchaseOrder.Status.CANCELLED),
                        "created_at", date_from, date_to)
     columns = [
-        ("po_number", "PO #"), ("supplier", "Supplier"), ("warehouse", "Warehouse"),
-        ("total_amount", "Total"), ("paid_amount", "Paid"), ("status", "Status"), ("date", "Date"),
+        ("date", "Date"), ("po_number", "PO #"), ("supplier", "Supplier"), ("warehouse", "Warehouse"),
+        ("total_amount", "Total"), ("paid_amount", "Paid"), ("status", "Status"),
     ]
     rows = [
         {
+            "date": po.created_at.strftime("%Y-%m-%d"),
             "po_number": po.po_number, "supplier": po.supplier.name, "warehouse": po.warehouse.name,
             "total_amount": str(po.total_amount), "paid_amount": str(po.paid_amount),
-            "status": po.status, "date": po.created_at.strftime("%Y-%m-%d"),
+            "status": po.status,
         }
         for po in qs.select_related("supplier", "warehouse")
     ]
@@ -112,21 +126,21 @@ def supplier_report():
 
 def tax_report(date_from=None, date_to=None):
     qs = _date_filter(Sale.objects.exclude(status=Sale.Status.CANCELLED), "created_at", date_from, date_to)
-    columns = [("invoice_number", "Invoice #"), ("subtotal", "Subtotal"), ("tax_amount", "Tax Collected"), ("date", "Date")]
+    columns = [("date", "Date"), ("invoice_number", "Invoice #"), ("subtotal", "Subtotal"), ("tax_amount", "Tax Collected")]
     rows = [
-        {"invoice_number": s.invoice_number, "subtotal": str(s.subtotal),
-         "tax_amount": str(s.tax_amount), "date": s.created_at.strftime("%Y-%m-%d")}
+        {"date": s.created_at.strftime("%Y-%m-%d"), "invoice_number": s.invoice_number,
+         "subtotal": str(s.subtotal), "tax_amount": str(s.tax_amount)}
         for s in qs
     ]
     return rows, columns
 
 
 def expense_report(date_from=None, date_to=None):
-    qs = _date_filter(Expense.objects.filter(status=Expense.Status.APPROVED), "expense_date", date_from, date_to)
-    columns = [("title", "Title"), ("category", "Category"), ("amount", "Amount"), ("date", "Date")]
+    qs = _date_filter(Expense.objects.filter(status=Expense.Status.APPROVED), "expense_date", date_from, date_to, is_datetime=False)
+    columns = [("date", "Date"), ("title", "Title"), ("category", "Category"), ("amount", "Amount")]
     rows = [
-        {"title": e.title, "category": e.category.name, "amount": str(e.amount),
-         "date": e.expense_date.strftime("%Y-%m-%d")}
+        {"date": e.expense_date.strftime("%Y-%m-%d"), "title": e.title, "category": e.category.name,
+         "amount": str(e.amount)}
         for e in qs.select_related("category")
     ]
     return rows, columns

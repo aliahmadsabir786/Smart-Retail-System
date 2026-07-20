@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
       <div class="page-header-actions">
         <button class="btn btn-ghost btn-sm" onclick="exportCollectionReport()"><i class="fa fa-file-excel"></i> Export</button>
+        <button class="btn btn-warning btn-sm" onclick="printTodaysCollectionSheet()"><i class="fa fa-hand-holding-usd"></i> Today's Collection Sheet</button>
         <button class="btn btn-accent btn-sm" onclick="printCollectionReport()"><i class="fa fa-print"></i> Print Report</button>
       </div>
     </div>
@@ -943,12 +944,16 @@ async function renderProducts(page) {
   tbody.innerHTML = prods.map(p => {
     const status = p.status !== 'active' ? ['badge-yellow', p.status]
       : ['badge-green', 'Active'];
+    const stock = Number(p.current_stock) || 0;
+    const stockBadge = stock <= 0 ? 'badge-red' : stock <= (p.reorder_level ?? 10) ? 'badge-yellow' : 'badge-green';
     return `<tr>
       <td><div class="flex-gap"><span style="font-size:20px">📦</span><div><div style="font-weight:600">${p.name}</div><div style="font-size:11px;color:var(--text-muted)">${p.brand_name||''}</div></div></div></td>
       <td class="td-mono">${p.sku}</td>
       <td><span class="badge badge-blue">${p.category_name||''}</span></td>
+      <td class="fw-700">$${Number(p.cost_price ?? 0).toFixed(2)}</td>
       <td class="fw-700 text-green">$${Number(p.selling_price).toFixed(2)}</td>
-      <td class="fw-700 text-green">$${Number(p.final_price).toFixed(2)}</td>
+      <td><span class="badge ${stockBadge}">${stock}</span></td>
+      <td style="font-size:11px;color:var(--text-muted)">—</td>
       <td><span class="badge ${status[0]}">${status[1]}</span></td>
       <td>
         <div class="flex-gap">
@@ -5832,6 +5837,102 @@ function clearCollectionFilters() {
   renderCollection();
 }
 
+// A focused, field-ready sheet for order bookers: just the customers who
+// actually owe money, the exact amount to collect, and a signature line —
+// deliberately simpler than the full Collection Ledger so there's no
+// ambiguity about what to collect or from whom.
+function printTodaysCollectionSheet() {
+  const todayLabel = new Date().toLocaleDateString('en-PK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const now = new Date().toLocaleString('en-PK');
+
+  const rows = _colCustomerCache.map(c => {
+    const bal = getCustomerBalance(c.id);
+    const todayOrders = getTodayOrders(c.id);
+    const totalDue = Math.max(0, bal.totalOrders - bal.payments);
+    return {
+      name: c.name,
+      phone: c.phone || '—',
+      acct: c.accountNo || '—',
+      todayBill: todayOrders,
+      totalDue,
+    };
+  }).filter(r => r.totalDue > 0).sort((a, b) => b.totalDue - a.totalDue);
+
+  if (!rows.length) {
+    toast('No pending balances to collect today.', 'success');
+    return;
+  }
+
+  const grandTotal = rows.reduce((s, r) => s + r.totalDue, 0);
+  const grandTodayBill = rows.reduce((s, r) => s + r.todayBill, 0);
+
+  const html = `<div class="a4-doc" style="font-family:Arial,sans-serif;color:#000">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:14px">
+      <div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">🏪 SmartRetail ERP</div>
+        <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Today's Collection Sheet</div>
+        <div style="font-size:11px;color:#666;margin-top:2px">Date: ${todayLabel}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:#555">Order Booker: ______________________</div>
+        <div style="font-size:11px;color:#555;margin-top:4px">Accounts to visit: <strong>${rows.length}</strong></div>
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="background:#1a1a1a;color:#fff">
+          <th style="padding:8px 10px;text-align:left">#</th>
+          <th style="padding:8px 10px;text-align:left">Customer</th>
+          <th style="padding:8px 10px;text-align:left">Phone</th>
+          <th style="padding:8px 10px;text-align:left">Account</th>
+          <th style="padding:8px 10px;text-align:right">Today's Bill</th>
+          <th style="padding:8px 10px;text-align:right">Total to Collect</th>
+          <th style="padding:8px 10px;text-align:center">Collected (Rs.)</th>
+          <th style="padding:8px 10px;text-align:center">Signature</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((r, i) => `
+        <tr style="background:${i % 2 ? '#f8f8f8' : '#fff'};border-bottom:1px solid #e5e7eb">
+          <td style="padding:8px 10px;color:#666">${i + 1}</td>
+          <td style="padding:8px 10px;font-weight:700">${r.name}</td>
+          <td style="padding:8px 10px">${r.phone}</td>
+          <td style="padding:8px 10px;font-family:monospace;font-size:10.5px">${r.acct}</td>
+          <td style="padding:8px 10px;text-align:right">${r.todayBill > 0 ? 'Rs.' + r.todayBill.toFixed(2) : '—'}</td>
+          <td style="padding:8px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${r.totalDue.toFixed(2)}</td>
+          <td style="padding:8px 10px;border:1px solid #ccc;height:28px"></td>
+          <td style="padding:8px 10px;border:1px solid #ccc;height:28px"></td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background:#1a1a1a;color:#fff">
+          <td colspan="4" style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL TO COLLECT TODAY</td>
+          <td style="padding:11px 10px;text-align:right;font-size:11px;color:#94a3b8">Today's bills: Rs.${grandTodayBill.toFixed(2)}</td>
+          <td style="padding:11px 10px;text-align:right;font-size:18px;font-weight:900;color:#f87171">Rs.${grandTotal.toFixed(2)}</td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div style="margin-top:14px;font-size:10.5px;color:#555;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;background:#fefce8">
+      ⚠ Collect exactly the amount shown in <strong>"Total to Collect"</strong> — this already includes any previous balance plus today's bill.
+      Record the payment in the app immediately after collecting to avoid mismatch with office records.
+    </div>
+
+    <div style="margin-top:10px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between">
+      <span>SmartRetail ERP — Today's Collection Sheet</span>
+      <span>Printed: ${now} by ${currentUser?.full_name || 'Admin'}</span>
+    </div>
+  </div>`;
+
+  const pa = document.getElementById('print-area');
+  pa.innerHTML = html;
+  pa.style.display = 'block';
+  window.print();
+  setTimeout(() => { pa.style.display = 'none'; }, 1400);
+}
+
 function printCollectionReport() {
   const rows = [];
   _colCustomerCache.forEach(c => {
@@ -6198,6 +6299,7 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
       <div class="page-header-actions">
         <button class="btn btn-ghost btn-sm" onclick="exportCollectionReport()"><i class="fa fa-file-csv"></i> Export CSV</button>
+        <button class="btn btn-warning btn-sm" onclick="printTodaysCollectionSheet()"><i class="fa fa-hand-holding-usd"></i> Today's Collection Sheet</button>
         <button class="btn btn-accent btn-sm" onclick="printCollectionReport()"><i class="fa fa-print"></i> Print Report</button>
       </div>
     </div>

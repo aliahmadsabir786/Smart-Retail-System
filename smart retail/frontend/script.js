@@ -444,7 +444,7 @@ async function renderDashboard() {
   }
 
   document.getElementById('d-revenue').textContent = '$' + Number(summary.today_sales).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  document.getElementById('d-orders').textContent = summary.sales_orders_count;
+  document.getElementById('d-orders').textContent = summary.today_orders_count;
   document.getElementById('d-customers').textContent = summary.total_customers;
   document.getElementById('d-lowstock').textContent = summary.low_stock_items.length;
 

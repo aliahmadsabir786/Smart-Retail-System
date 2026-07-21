@@ -4,7 +4,7 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 from datetime import timedelta
 
-from apps.sales.models import Sale, SaleItem
+from apps.sales.models import Sale, SaleItem, SaleReturn
 from apps.purchase.models import PurchaseOrder
 from apps.inventory.models import StockItem
 from apps.products.models import Product
@@ -14,7 +14,19 @@ from apps.finance import services as finance_services
 
 
 def _sales_total(qs):
-    return qs.exclude(status=Sale.Status.CANCELLED).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+    """
+    Net revenue for a set of sales: total_amount minus any refunds recorded
+    against those sales via SaleReturn. Only CANCELLED sales are excluded
+    from the base sum — everything else stays in, but a return (full or
+    partial) reduces the total by exactly what was refunded. This means a
+    fully-returned sale nets to ~$0 automatically, and today's revenue drops
+    the moment a return is processed today, without depending on
+    Sale.total_amount being rewritten at return time.
+    """
+    qs = qs.exclude(status=Sale.Status.CANCELLED)
+    gross = qs.aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+    refunds = SaleReturn.objects.filter(sale__in=qs).aggregate(total=Sum("refund_amount"))["total"] or Decimal("0")
+    return gross - refunds
 
 
 def get_sales_summary():
@@ -23,10 +35,19 @@ def get_sales_summary():
     week_start = today_start - timedelta(days=today_start.weekday())
     month_start = today_start.replace(day=1)
 
+    today_qs = Sale.objects.filter(created_at__gte=today_start)
+
     return {
-        "today_sales": _sales_total(Sale.objects.filter(created_at__gte=today_start)),
+        "today_sales": _sales_total(today_qs),
         "weekly_sales": _sales_total(Sale.objects.filter(created_at__gte=week_start)),
         "monthly_sales": _sales_total(Sale.objects.filter(created_at__gte=month_start)),
+        # Orders actually placed today — excludes cancelled and fully
+        # returned sales (a return today should bring this back down),
+        # but keeps partially-returned ones since those are still real
+        # orders, just with part of the amount refunded.
+        "today_orders_count": today_qs.exclude(
+            status__in=[Sale.Status.CANCELLED, Sale.Status.RETURNED]
+        ).count(),
     }
 
 

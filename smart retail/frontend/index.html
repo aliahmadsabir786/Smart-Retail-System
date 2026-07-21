@@ -1488,6 +1488,7 @@
             <p>Per product detail or full inventory overview — with carton & loose piece breakdown</p>
           </div>
           <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openStockReportSettings()"><i class="fa fa-cog"></i> Report Settings</button>
             <button class="btn btn-ghost btn-sm" id="sr-print-btn" onclick="printStockReportA4()"><i class="fa fa-print"></i> Print A4</button>
           </div>
         </div>
@@ -2683,6 +2684,37 @@
         </div>
       </div>
       <div id="warehouse-summary-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- STOCK REPORT PRINT SETTINGS MODAL -->
+<div class="modal-overlay" id="sr-settings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">⚙ Stock Report — Print Settings</div>
+      <button class="modal-close" onclick="closeModal('sr-settings-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Choose what appears on the printed A4 Stock Report. Saved on this device.</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-logo"> Show company logo</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-address"> Show company address &amp; contact</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-sku"> Show SKU column</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-category"> Show Category column</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-cartons"> Show Cartons column</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-loose"> Show Loose column</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-value"> Show stock Value column</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sr-pref-sold"> Show Sold column</label>
+      </div>
+      <div class="form-group" style="margin-top:16px">
+        <label>Footer note (optional)</label>
+        <input type="text" class="form-input" id="sr-pref-footer" placeholder="e.g. Prepared for internal audit use only">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('sr-settings-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveStockReportSettings()"><i class="fa fa-check"></i> Save Settings</button>
     </div>
   </div>
 </div>

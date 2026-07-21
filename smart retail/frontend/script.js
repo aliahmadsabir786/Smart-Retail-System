@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="form-group-inline"><label>Payment Date</label><input class="form-input" type="date" id="col-pay-date"></div>
           <div class="form-group-inline"><label>Payment Method</label>
             <select class="form-input" id="col-pay-method">
-              <option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Online</option>
+              <option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_wallet">Mobile Wallet</option><option value="other">Other</option>
             </select>
           </div>
         </div>
@@ -3651,21 +3651,24 @@ function updatePreview() {
 }
 
 // Get store header HTML for invoices
-function getInvoiceHeaderHtml(docTitle, refNo, refDate) {
+function getInvoiceHeaderHtml(docTitle, refNo, refDate, opts = {}) {
+  const { showLogo = true, showAddress = true } = opts;
   const real = _companySettingsCache;
   const s = real ? {
     storeName: real.company_name, address: real.address, phone: real.phone, email: real.email,
     logoDataUrl: real.logo, distributorName: '', distributorContact: '',
   } : DB.sysSettings;
-  const logoHtml = s.logoDataUrl
-    ? `<img src="${s.logoDataUrl}" style="height:50px;object-fit:contain;margin-bottom:4px">`
-    : `<span style="font-size:24px">🏪</span>`;
+  const logoHtml = showLogo
+    ? (s.logoDataUrl
+        ? `<img src="${s.logoDataUrl}" style="height:50px;object-fit:contain;margin-bottom:4px">`
+        : `<span style="font-size:24px">🏪</span>`)
+    : '';
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:8mm;margin-bottom:6mm">
     <div>
       ${logoHtml}
       <div style="font-size:18px;font-weight:800;color:#000">${s.storeName}</div>
-      <div style="font-size:11px;color:#555">${s.address}</div>
-      <div style="font-size:11px;color:#555">Tel: ${s.phone} | ${s.email}</div>
+      ${showAddress ? `<div style="font-size:11px;color:#555">${s.address}</div>
+      <div style="font-size:11px;color:#555">Tel: ${s.phone} | ${s.email}</div>` : ''}
       ${s.distributorName?`<div style="font-size:11px;color:#333;margin-top:3px;font-weight:600">Distribution: ${s.distributorName}</div>`:''}
       ${s.distributorContact?`<div style="font-size:10px;color:#555">${s.distributorContact}</div>`:''}
     </div>
@@ -4264,7 +4267,61 @@ async function renderStockReport() {
   }).join('');
 }
 
+// Stock Report print customization — a per-device print-styling preference
+// (which columns/header elements appear on the printed sheet), not core
+// business data, so it's kept in localStorage rather than round-tripping
+// through the backend.
+const _SR_PREFS_KEY = 'stockReportPrintPrefs';
+const _srPrefDefaults = {
+  logo: true, address: true, sku: true, category: true, cartons: true, loose: true, value: true, sold: true, footer: '',
+};
+
+function _getStockReportPrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_SR_PREFS_KEY) || '{}');
+    return { ..._srPrefDefaults, ...saved };
+  } catch (_) {
+    return { ..._srPrefDefaults };
+  }
+}
+
+function openStockReportSettings() {
+  const p = _getStockReportPrefs();
+  document.getElementById('sr-pref-logo').checked = p.logo;
+  document.getElementById('sr-pref-address').checked = p.address;
+  document.getElementById('sr-pref-sku').checked = p.sku;
+  document.getElementById('sr-pref-category').checked = p.category;
+  document.getElementById('sr-pref-cartons').checked = p.cartons;
+  document.getElementById('sr-pref-loose').checked = p.loose;
+  document.getElementById('sr-pref-value').checked = p.value;
+  document.getElementById('sr-pref-sold').checked = p.sold;
+  document.getElementById('sr-pref-footer').value = p.footer;
+  openModal('sr-settings-modal');
+}
+
+function saveStockReportSettings() {
+  const prefs = {
+    logo: document.getElementById('sr-pref-logo').checked,
+    address: document.getElementById('sr-pref-address').checked,
+    sku: document.getElementById('sr-pref-sku').checked,
+    category: document.getElementById('sr-pref-category').checked,
+    cartons: document.getElementById('sr-pref-cartons').checked,
+    loose: document.getElementById('sr-pref-loose').checked,
+    value: document.getElementById('sr-pref-value').checked,
+    sold: document.getElementById('sr-pref-sold').checked,
+    footer: document.getElementById('sr-pref-footer').value.trim(),
+  };
+  try {
+    localStorage.setItem(_SR_PREFS_KEY, JSON.stringify(prefs));
+    toast('Report print settings saved', 'success');
+  } catch (_) {
+    toast('Could not save settings on this device', 'warning');
+  }
+  closeModal('sr-settings-modal');
+}
+
 function printStockReportA4() {
+  const prefs = _getStockReportPrefs();
   const today = new Date().toISOString().split('T')[0];
   const reportDate = document.getElementById('sr-date')?.value || today;
 
@@ -4290,46 +4347,49 @@ function printStockReportA4() {
     return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
       <td style="padding:6px 8px">${i+1}</td>
       <td style="padding:6px 8px">📦 <strong>${p.name}</strong></td>
-      <td style="padding:6px 8px;font-family:monospace">${p.sku}</td>
-      <td style="padding:6px 8px">${p.category_name}</td>
+      ${prefs.sku ? `<td style="padding:6px 8px;font-family:monospace">${p.sku}</td>` : ''}
+      ${prefs.category ? `<td style="padding:6px 8px">${p.category_name}</td>` : ''}
       <td style="padding:6px 8px;text-align:center">${opening}</td>
-      <td style="padding:6px 8px;text-align:center;color:#dc2626;font-weight:700">${sold > 0 ? sold : '—'}</td>
+      ${prefs.sold ? `<td style="padding:6px 8px;text-align:center;color:#dc2626;font-weight:700">${sold > 0 ? sold : '—'}</td>` : ''}
       <td style="padding:6px 8px;text-align:center;font-weight:800;color:${p.stock===0?'#dc2626':p.stock<=minStock?'#b45309':'#16a34a'}">${p.stock}</td>
-      <td style="padding:6px 8px;text-align:center">—</td>
-      <td style="padding:6px 8px;text-align:center">${p.stock}</td>
-      <td style="padding:6px 8px;text-align:right">Rs. ${val.toFixed(2)}</td>
+      ${prefs.cartons ? `<td style="padding:6px 8px;text-align:center">—</td>` : ''}
+      ${prefs.loose ? `<td style="padding:6px 8px;text-align:center">${p.stock}</td>` : ''}
+      ${prefs.value ? `<td style="padding:6px 8px;text-align:right">Rs. ${val.toFixed(2)}</td>` : ''}
       <td style="padding:6px 8px;text-align:center;font-weight:700;color:${p.stock===0?'#dc2626':p.stock<=minStock?'#b45309':'#16a34a'}">${st}</td>
     </tr>`;
   }).join('');
 
+  const colCount = 5 + (prefs.sku?1:0) + (prefs.category?1:0) + (prefs.sold?1:0) + (prefs.cartons?1:0) + (prefs.loose?1:0) + (prefs.value?1:0);
+
   const html = `<div class="a4-doc">
-    ${getInvoiceHeaderHtml('STOCK REPORT', 'SR-'+reportDate, reportDate)}
+    ${getInvoiceHeaderHtml('STOCK REPORT', 'SR-'+reportDate, reportDate, { showLogo: prefs.logo, showAddress: prefs.address })}
     <div style="padding:5mm 0 3mm"><strong>Overall Stock Report — ${reportDate}</strong> &nbsp;·&nbsp; ${prods.length} products &nbsp;·&nbsp; Total Value: Rs. ${totalValue.toFixed(2)}</div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:5mm;font-size:10px">
       <thead>
         <tr>
           <th style="padding:6px 7px;background:#1a1a1a;color:#fff">#</th>
           <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:left">Product</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff">SKU</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff">Category</th>
+          ${prefs.sku ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff">SKU</th>' : ''}
+          ${prefs.category ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff">Category</th>' : ''}
           <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Opening</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Sold</th>
+          ${prefs.sold ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Sold</th>' : ''}
           <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Remaining</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Cartons</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Loose</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:right">Value</th>
+          ${prefs.cartons ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Cartons</th>' : ''}
+          ${prefs.loose ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Loose</th>' : ''}
+          ${prefs.value ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:right">Value</th>' : ''}
           <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Status</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
       <tfoot>
         <tr style="background:#1a1a1a;color:#fff;font-weight:700;font-size:11px">
-          <td colspan="9" style="padding:7px 8px">TOTALS — ${prods.length} products</td>
-          <td style="padding:7px 8px;text-align:right">Rs. ${totalValue.toFixed(2)}</td>
+          <td colspan="${colCount-2}" style="padding:7px 8px">TOTALS — ${prods.length} products</td>
+          ${prefs.value ? `<td style="padding:7px 8px;text-align:right">Rs. ${totalValue.toFixed(2)}</td>` : '<td></td>'}
           <td style="padding:7px 8px"></td>
         </tr>
       </tfoot>
     </table>
+    ${prefs.footer ? `<div style="margin-bottom:4mm;font-size:10px;color:#555;font-style:italic">${prefs.footer}</div>` : ''}
     <div style="margin-top:6mm;display:flex;justify-content:space-between;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:3mm">
       <span>SmartRetail ERP — Overall Stock Report</span>
       <span>Date: ${reportDate} | Total Value: Rs. ${totalValue.toFixed(2)}</span>
@@ -6450,7 +6510,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="form-row">
           <div class="form-group-inline"><label>Payment Date</label><input class="form-input" type="date" id="col-pay-date"></div>
           <div class="form-group-inline"><label>Method</label>
-            <select class="form-input" id="col-pay-method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Online</option></select>
+            <select class="form-input" id="col-pay-method"><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_wallet">Mobile Wallet</option><option value="other">Other</option></select>
           </div>
         </div>
         <div class="form-group-inline"><label>Notes</label><input class="form-input" id="col-pay-notes" placeholder="Optional notes..."></div>

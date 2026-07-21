@@ -2281,32 +2281,66 @@ function _dismissToast(el) {
 // ═══════════════════════════════════════════════════════
 // A4 REPORT PRINT
 // ═══════════════════════════════════════════════════════
-function printReportA4() {
-  const rows = [];
-  document.querySelectorAll('#report-table tr').forEach(tr => {
-    const cells = Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim());
-    if (cells.length) rows.push(cells);
-  });
+// Column keys that hold money/quantity values — right-aligned + tabular
+// numerals in print so figures line up under their own header instead of
+// drifting under whichever column happens to be next to them.
+const _REPORT_NUMERIC_COLS = new Set([
+  'subtotal', 'discount_amount', 'tax_amount', 'total_amount', 'paid_amount',
+  'amount', 'quantity', 'reorder_level', 'stock_value', 'total_orders',
+  'total_spent', 'outstanding_balance', 'loyalty_points', 'total_purchased',
+  'outstanding_payable',
+]);
+// Column keys that are identifiers/codes — monospace, left-aligned, so they
+// read like an invoice/PO number rather than prose.
+const _REPORT_CODE_COLS = new Set(['invoice_number', 'po_number', 'sku', 'phone']);
+
+const _REPORT_ICON = {
+  sales: '🧾', purchase: '🛒', inventory: '📦', expenses: '💸',
+  profit: '📊', customers: '👥', suppliers: '🏭', tax: '🧮',
+};
+
+function _reportCompanyHeader(reportTitle, rangeLabel) {
+  const s = _companySettingsCache || {};
+  const storeName = s.company_name || 'SmartRetail Store';
+  const storeAddress = s.address || '';
+  const storeContact = [s.phone, s.email].filter(Boolean).join(' · ');
+  const logoHtml = s.logo
+    ? `<img src="${s.logo}" style="height:40px;object-fit:contain;margin-bottom:4px">`
+    : `<div class="a4-logo-name">${_REPORT_ICON[_currentReportSlug] || '🏪'} ${storeName}</div>`;
   const today = new Date().toLocaleDateString();
-  const html = `<div class="a4-doc">
-    <div class="a4-header">
+  return `<div class="a4-header">
       <div>
-        <div class="a4-logo-name">🏪 SmartRetail Store</div>
-        <div style="font-size:11px;color:#555;margin-top:3px">123 Market Street, City</div>
+        ${logoHtml}
+        ${s.logo ? `<div class="a4-logo-name">${storeName}</div>` : ''}
+        ${storeAddress ? `<div style="font-size:11px;color:#555;margin-top:3px">${storeAddress}</div>` : ''}
+        ${storeContact ? `<div style="font-size:11px;color:#555">${storeContact}</div>` : ''}
+        ${s.tax_id ? `<div style="font-size:11px;color:#555">NTN/Tax ID: ${s.tax_id}</div>` : ''}
       </div>
       <div class="a4-store-info">
-        <strong style="font-size:14px">SALES REPORT</strong><br>
+        <strong style="font-size:14px">${reportTitle.toUpperCase()}</strong><br>
+        ${rangeLabel}<br>
         Generated: ${today}<br>
         By: ${currentUser?.full_name || 'Admin'}
       </div>
-    </div>
-    <div class="a4-doc-title">Sales Report</div>
-    <table>
-      <thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Items</th><th>Subtotal</th><th>Tax</th><th>Discount</th><th>Total</th><th>Payment</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table>
+    </div>`;
+}
+
+function _reportRangeLabel() {
+  const dateFrom = document.getElementById('rpt-from')?.value;
+  const dateTo = document.getElementById('rpt-to')?.value;
+  return (dateFrom || dateTo) ? `Range: ${dateFrom || '…'} to ${dateTo || '…'}` : 'Range: All dates';
+}
+
+function _printA4(bodyHtml, reportTitle) {
+  const today = new Date().toLocaleDateString();
+  const s = _companySettingsCache || {};
+  const storeName = s.company_name || 'SmartRetail Store';
+  const html = `<div class="a4-doc">
+    ${_reportCompanyHeader(reportTitle, _reportRangeLabel())}
+    <div class="a4-doc-title">${reportTitle}</div>
+    ${bodyHtml}
     <div class="a4-footer">
-      <span>SmartRetail ERP — Sales Report</span>
+      <span>${storeName} — ${reportTitle}</span>
       <span>Printed: ${today}</span>
     </div>
   </div>`;
@@ -2315,6 +2349,93 @@ function printReportA4() {
   printArea.style.display = 'block';
   window.print();
   setTimeout(() => { printArea.style.display = 'none'; }, 1000);
+}
+
+function _fmtColLabel(c) {
+  return c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+async function printReportA4() {
+  const titleMap = {
+    sales: 'Sales Report', inventory: 'Inventory Report', purchase: 'Purchase Report',
+    expenses: 'Expense Report', profit: 'Profit & Loss Report', customers: 'Customer Report',
+    suppliers: 'Supplier Report', tax: 'Tax Report',
+  };
+  const reportTitle = titleMap[_currentReportSlug] || 'Report';
+
+  // Profit & Loss has a fundamentally different shape (one summary, not a
+  // list of transactions) — it gets its own card layout instead of being
+  // forced into the generic row/column table used by every other report.
+  if (_currentReportSlug === 'profit') {
+    let pl;
+    try {
+      pl = await FinanceAPI.profitLoss(_reportDateParams());
+    } catch (err) {
+      toast(err.message || 'Failed to load Profit & Loss', 'error');
+      return;
+    }
+    const fmt = n => Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const netProfit = Number(pl.net_profit);
+    const body = `
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tbody>
+          <tr style="border-bottom:1px solid #e5e7eb">
+            <td style="padding:12px 10px;font-weight:700">💹 Total Income</td>
+            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#16a34a">$${fmt(pl.income)}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e5e7eb">
+            <td style="padding:12px 10px;font-weight:700">📉 Total Expenses</td>
+            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#dc2626">$${fmt(pl.expenses)}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e5e7eb">
+            <td style="padding:12px 10px;font-weight:700">📊 Cost of Goods Sold</td>
+            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#2563eb">$${fmt(pl.cost_of_goods_sold)}</td>
+          </tr>
+          <tr style="background:#f8fafc">
+            <td style="padding:16px 10px;font-weight:900;font-size:15px">🏆 Net Profit</td>
+            <td style="padding:16px 10px;text-align:right;font-weight:900;font-size:18px;color:${netProfit>=0?'#16a34a':'#dc2626'}">$${fmt(Math.abs(netProfit))}${netProfit<0?' (Loss)':''}</td>
+          </tr>
+        </tbody>
+      </table>`;
+    _printA4(body, reportTitle);
+    return;
+  }
+
+  // Every other report: same generic engine, but columns/alignment are
+  // driven entirely by whatever this report type actually returned — no
+  // more hardcoded Sales-shaped header forced onto Purchase/Tax/Inventory.
+  const columns = _reportColumnsCache && _reportColumnsCache.length
+    ? _reportColumnsCache
+    : Array.from(document.querySelectorAll('#report-table-head th')).map((th, i) => th.dataset.col || `col${i}`);
+
+  const dataRows = [];
+  document.querySelectorAll('#report-table tr').forEach(tr => {
+    const cells = Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim());
+    if (cells.length && cells.length === columns.length) dataRows.push(cells);
+  });
+
+  if (!dataRows.length) {
+    toast('No data for the selected range — nothing to print.', 'warning');
+    return;
+  }
+
+  const headHtml = columns.map(c => {
+    const align = _REPORT_NUMERIC_COLS.has(c) ? 'right' : 'left';
+    return `<th style="text-align:${align}">${_fmtColLabel(c)}</th>`;
+  }).join('');
+
+  const bodyRowsHtml = dataRows.map(cells => `<tr>${cells.map((val, i) => {
+    const col = columns[i];
+    const align = _REPORT_NUMERIC_COLS.has(col) ? 'right' : 'left';
+    const mono = _REPORT_CODE_COLS.has(col) ? 'font-family:monospace;font-size:11px' : '';
+    return `<td style="text-align:${align};${mono}">${val}</td>`;
+  }).join('')}</tr>`).join('');
+
+  const body = `<table>
+      <thead><tr>${headHtml}</tr></thead>
+      <tbody>${bodyRowsHtml}</tbody>
+    </table>`;
+  _printA4(body, reportTitle);
 }
 
 // ═══════════════════════════════════════════════════════

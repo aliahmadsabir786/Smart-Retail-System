@@ -28,6 +28,43 @@ class CreditLimitExceededException(ServiceException):
     default_code = "credit_limit_exceeded"
 
 
+def _flatten_error_detail(detail):
+    """
+    Turns whatever DRF put in exc.detail — a single ErrorDetail, a list of
+    them, or a {field: [ErrorDetail, ...]} dict (possibly nested) — into one
+    clean, human-readable sentence.
+
+    Without this, the exception handler used to do `str(exc.detail)`, which
+    for anything beyond a single flat error produced Python's raw repr
+    straight in the API response, e.g.:
+        "{'password': [ErrorDetail(string='This password is too short...',
+        code='password_too_short'), ErrorDetail(string='...', code='...')]}"
+    which every client then had to show verbatim to the user.
+    """
+    if isinstance(detail, dict):
+        parts = []
+        for field, value in detail.items():
+            text = _flatten_error_detail(value)
+            if not text:
+                continue
+            if field in ("non_field_errors", "detail"):
+                parts.append(text)
+            else:
+                label = field.replace("_", " ").capitalize()
+                parts.append(f"{label}: {text}")
+        return " · ".join(parts)
+
+    if isinstance(detail, (list, tuple)):
+        seen = []
+        for item in detail:
+            text = _flatten_error_detail(item)
+            if text and text not in seen:
+                seen.append(text)
+        return " ".join(seen)
+
+    return str(detail)
+
+
 def custom_exception_handler(exc, context):
     """
     Wraps every DRF error response in a consistent envelope:
@@ -42,11 +79,12 @@ def custom_exception_handler(exc, context):
 
     if response is not None:
         error_code = getattr(exc, "default_code", "error")
+        message = _flatten_error_detail(exc.detail) if hasattr(exc, "detail") else str(exc)
         response.data = {
             "success": False,
             "error": {
                 "code": error_code,
-                "message": str(exc.detail) if hasattr(exc, "detail") else str(exc),
+                "message": message or "An error occurred.",
                 "details": response.data,
             },
         }

@@ -14,7 +14,7 @@ class CompanySettings(models.Model):
     website = models.URLField(blank=True)
     tax_id = models.CharField(max_length=50, blank=True)
 
-    default_currency = models.CharField(max_length=3, default="USD", help_text="ISO 4217 code, e.g. USD, PKR, EUR")
+    default_currency = models.CharField(max_length=3, default="PKR", help_text="ISO 4217 code, e.g. USD, PKR, EUR")
     default_tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
     invoice_prefix = models.CharField(max_length=10, default="INV-")

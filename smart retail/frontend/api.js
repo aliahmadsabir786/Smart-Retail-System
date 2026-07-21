@@ -99,7 +99,7 @@ function _formatApiErrorMessage(data, fallback) {
   }
 
   if (typeof data === 'object') {
-    if (data.error && data.error.message) return data.error.message;
+    if (data.error && data.error.message) return _formatApiErrorMessage(data.error.message, fallback);
     if (data.detail) return _formatApiErrorMessage(data.detail, fallback);
     const parts = [];
     for (const [field, val] of Object.entries(data)) {

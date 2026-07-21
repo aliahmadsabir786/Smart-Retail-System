@@ -21,8 +21,8 @@ document.addEventListener('DOMContentLoaded', function() {
     <!-- KPI Stats -->
     <div class="stat-grid" id="col-stats-grid">
       <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-users"></i></div></div><div class="stat-value" id="col-total-customers">0</div><div class="stat-label">Total Customers</div></div>
-      <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-exclamation-circle"></i></div></div><div class="stat-value" id="col-total-pending">$0</div><div class="stat-label">Total Pending</div></div>
-      <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-check-circle"></i></div></div><div class="stat-value" id="col-total-received">$0</div><div class="stat-label">Received Today</div></div>
+      <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-exclamation-circle"></i></div></div><div class="stat-value" id="col-total-pending">Rs.0</div><div class="stat-label">Total Pending</div></div>
+      <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-check-circle"></i></div></div><div class="stat-value" id="col-total-received">Rs.0</div><div class="stat-label">Received Today</div></div>
       <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-clock"></i></div></div><div class="stat-value" id="col-overdue-count">0</div><div class="stat-label">Overdue Accounts</div></div>
     </div>
 
@@ -113,7 +113,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="form-group-inline"><label>Notes</label><input class="form-input" id="col-pay-notes" placeholder="Optional notes..."></div>
         <div style="background:var(--green-glow);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px;display:flex;justify-content:space-between;font-weight:700">
           <span>Remaining After Payment:</span>
-          <span id="col-pay-remaining" style="color:var(--green);font-size:16px">$0.00</span>
+          <span id="col-pay-remaining" style="color:var(--green);font-size:16px">Rs.0.00</span>
         </div>
       </div>
       <div class="modal-footer">
@@ -214,7 +214,7 @@ const DB = {
   stockHistory: [],
   activityLog: [
     { time: '09:15:32', user: 'admin', action: 'Login', details: 'Admin logged in', ip: '192.168.1.100' },
-    { time: '09:20:14', user: 'cashier', action: 'Sale', details: 'Invoice INV-0001 - $45.50', ip: '192.168.1.102' },
+    { time: '09:20:14', user: 'cashier', action: 'Sale', details: 'Invoice INV-0001 - Rs.45.50', ip: '192.168.1.102' },
     { time: '09:35:00', user: 'manager', action: 'Product Update', details: 'Updated Coca-Cola stock', ip: '192.168.1.101' },
   ],
   customerLedger: {
@@ -232,7 +232,7 @@ const DB = {
     phone: '+1 555-000-1234',
     email: 'store@smartretail.com',
     taxRate: 8,
-    currency: 'USD ($)',
+    currency: 'USD (Rs.)',
     distributorName: '',
     distributorContact: '',
     receiptHeader: 'Thank you for shopping at SmartRetail!',
@@ -443,7 +443,7 @@ async function renderDashboard() {
     return;
   }
 
-  document.getElementById('d-revenue').textContent = '$' + Number(summary.today_sales).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('d-revenue').textContent = 'Rs.' + Number(summary.today_sales).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   document.getElementById('d-orders').textContent = summary.today_orders_count;
   document.getElementById('d-customers').textContent = summary.total_customers;
   document.getElementById('d-lowstock').textContent = summary.low_stock_items.length;
@@ -457,7 +457,7 @@ async function renderDashboard() {
       <td class="td-mono">${o.invoice_number}</td>
       <td>${o.customer_name || 'Walk-in'}</td>
       <td>${o.items.length}</td>
-      <td class="fw-700 text-green">$${Number(o.total_amount).toFixed(2)}</td>
+      <td class="fw-700 text-green">Rs.${Number(o.total_amount).toFixed(2)}</td>
       <td><span class="badge badge-blue">${(o.payments[0]?.method||'—').toUpperCase()}</span></td>
       <td><span class="badge badge-green">${o.status}</span></td>
     </tr>`).join('');
@@ -507,7 +507,7 @@ async function renderCharts(summary) {
       data: {
         labels: series.map(s => s.day),
         datasets: [{
-          label: 'Revenue ($)',
+          label: 'Revenue (Rs.)',
           data: series.map(s => Number(s.total)),
           backgroundColor: 'rgba(59,130,246,0.5)',
           borderColor: 'rgba(59,130,246,1)',
@@ -598,7 +598,7 @@ async function renderPosProducts() {
     <div class="pos-product-card" onclick="addToCart(${p.id})" ${stock===0?'style="opacity:.4;cursor:not-allowed"':''}>
       <div class="pos-prod-icon">📦</div>
       <div class="pos-prod-name">${p.name}</div>
-      <div class="pos-prod-price">$${Number(p.final_price).toFixed(2)}</div>
+      <div class="pos-prod-price">Rs.${Number(p.final_price).toFixed(2)}</div>
       <div class="pos-prod-stock ${stock<=5?'text-red':''}">${stock>0?'In stock: '+stock:'Out of stock'}</div>
     </div>`;
   }).join('');
@@ -646,14 +646,14 @@ function updateCartUI() {
         <span style="font-size:20px">${item.icon}</span>
         <div class="cart-item-info">
           <div class="cart-item-name">${item.name}</div>
-          <div class="cart-item-price">$${item.price.toFixed(2)} each</div>
+          <div class="cart-item-price">Rs.${item.price.toFixed(2)} each</div>
         </div>
         <div class="cart-qty">
           <button class="qty-btn" onclick="changeQty(${item.id},-1)">−</button>
           <div class="qty-val">${item.qty}</div>
           <button class="qty-btn" onclick="changeQty(${item.id},1)">+</button>
         </div>
-        <div class="cart-item-total">$${(item.price*item.qty).toFixed(2)}</div>
+        <div class="cart-item-total">Rs.${(item.price*item.qty).toFixed(2)}</div>
         <div class="cart-remove" onclick="removeFromCart(${item.id})">✕</div>
       </div>`).join('');
   }
@@ -664,13 +664,13 @@ function updateCartUI() {
   const total = subtotal - discountAmt + taxAmt;
 
   document.getElementById('cart-count').textContent = cart.reduce((a,i)=>a+i.qty,0);
-  document.getElementById('cart-subtotal').textContent = '$' + subtotal.toFixed(2);
-  document.getElementById('cart-discount-val').textContent = '-$' + discountAmt.toFixed(2);
-  document.getElementById('cart-tax-val').textContent = '+$' + taxAmt.toFixed(2);
-  document.getElementById('cart-total').textContent = '$' + total.toFixed(2);
+  document.getElementById('cart-subtotal').textContent = 'Rs.' + subtotal.toFixed(2);
+  document.getElementById('cart-discount-val').textContent = '-Rs.' + discountAmt.toFixed(2);
+  document.getElementById('cart-tax-val').textContent = '+Rs.' + taxAmt.toFixed(2);
+  document.getElementById('cart-total').textContent = 'Rs.' + total.toFixed(2);
 
   const cash = parseFloat(document.getElementById('cash-received').value)||0;
-  document.getElementById('change-amt').textContent = '$' + Math.max(0, cash - total).toFixed(2);
+  document.getElementById('change-amt').textContent = 'Rs.' + Math.max(0, cash - total).toFixed(2);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -716,7 +716,7 @@ async function processPayment() {
   }
 
   if (total <= 0) {
-    toast('Total is $0.00 — check that the items in the cart have a price set before charging.', 'error');
+    toast('Total is Rs.0.00 — check that the items in the cart have a price set before charging.', 'error');
     return;
   }
 
@@ -781,15 +781,15 @@ function showReceipt(sale) {
       <div class="rcp-row"><span>Cashier:</span><span>${currentUser.full_name||currentUser.email}</span></div>
       <div class="rcp-line"></div>
       <div style="font-weight:700;margin-bottom:4px">ITEMS</div>
-      ${sale.items.map(i=>`<div class="rcp-row"><span>${i.product_name} x${i.quantity}</span><span>$${Number(i.line_total).toFixed(2)}</span></div>`).join('')}
+      ${sale.items.map(i=>`<div class="rcp-row"><span>${i.product_name} x${i.quantity}</span><span>Rs.${Number(i.line_total).toFixed(2)}</span></div>`).join('')}
       <div class="rcp-line"></div>
-      <div class="rcp-row"><span>Subtotal:</span><span>$${Number(sale.subtotal).toFixed(2)}</span></div>
-      ${Number(sale.discount_amount)>0?`<div class="rcp-row"><span>Discount:</span><span>-$${Number(sale.discount_amount).toFixed(2)}</span></div>`:''}
-      <div class="rcp-row"><span>Tax:</span><span>+$${Number(sale.tax_amount).toFixed(2)}</span></div>
+      <div class="rcp-row"><span>Subtotal:</span><span>Rs.${Number(sale.subtotal).toFixed(2)}</span></div>
+      ${Number(sale.discount_amount)>0?`<div class="rcp-row"><span>Discount:</span><span>-Rs.${Number(sale.discount_amount).toFixed(2)}</span></div>`:''}
+      <div class="rcp-row"><span>Tax:</span><span>+Rs.${Number(sale.tax_amount).toFixed(2)}</span></div>
       <div class="rcp-line"></div>
-      <div class="rcp-row" style="font-size:14px;font-weight:700"><span>TOTAL:</span><span>$${Number(sale.total_amount).toFixed(2)}</span></div>
+      <div class="rcp-row" style="font-size:14px;font-weight:700"><span>TOTAL:</span><span>Rs.${Number(sale.total_amount).toFixed(2)}</span></div>
       <div class="rcp-row"><span>Payment:</span><span>${paymentMethod.toUpperCase()}</span></div>
-      ${paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>$${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>$${change.toFixed(2)}</span></div>`:''}
+      ${paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
       <div class="rcp-line"></div>
       <div class="rcp-center" style="font-size:11px">Thank you for shopping at SmartRetail!</div>
       <div class="rcp-center" style="font-size:10px;margin-top:4px">All sales are final. Visit us again!</div>
@@ -950,8 +950,8 @@ async function renderProducts(page) {
       <td><div class="flex-gap"><span style="font-size:20px">📦</span><div><div style="font-weight:600">${p.name}</div><div style="font-size:11px;color:var(--text-muted)">${p.brand_name||''}</div></div></div></td>
       <td class="td-mono">${p.sku}</td>
       <td><span class="badge badge-blue">${p.category_name||''}</span></td>
-      <td class="fw-700">$${Number(p.cost_price ?? 0).toFixed(2)}</td>
-      <td class="fw-700 text-green">$${Number(p.selling_price).toFixed(2)}</td>
+      <td class="fw-700">Rs.${Number(p.cost_price ?? 0).toFixed(2)}</td>
+      <td class="fw-700 text-green">Rs.${Number(p.selling_price).toFixed(2)}</td>
       <td><span class="badge ${stockBadge}">${stock}</span></td>
       <td style="font-size:11px;color:var(--text-muted)">—</td>
       <td><span class="badge ${status[0]}">${status[1]}</span></td>
@@ -1401,7 +1401,7 @@ async function renderOrders() {
       <td style="font-size:12px">${(o.created_at||'').replace('T',' ').slice(0,16)}</td>
       <td>${o.customer_name||'Walk-in'}</td>
       <td>${o.items.length} item(s)</td>
-      <td class="fw-700 text-green">$${Number(o.total_amount).toFixed(2)}</td>
+      <td class="fw-700 text-green">Rs.${Number(o.total_amount).toFixed(2)}</td>
       <td><span class="badge badge-blue">${(o.payments[0]?.method||'—').toUpperCase()}</span></td>
       <td><span class="badge ${badges[o.statusLabel]||'badge-gray'}">${o.statusLabel}</span></td>
       <td>
@@ -1430,12 +1430,12 @@ async function viewOrder(inv) {
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">STATUS</div><span class="badge badge-green">${_orderStatusLabel[o.status]||o.status}</span></div>
     </div>
     <table><thead><tr><th>Product</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead>
-    <tbody>${o.items.map(i=>`<tr><td>${i.product_name}</td><td>$${Number(i.unit_price).toFixed(2)}</td><td>${i.quantity}</td><td>$${Number(i.line_total).toFixed(2)}</td></tr>`).join('')}</tbody></table>
+    <tbody>${o.items.map(i=>`<tr><td>${i.product_name}</td><td>Rs.${Number(i.unit_price).toFixed(2)}</td><td>${i.quantity}</td><td>Rs.${Number(i.line_total).toFixed(2)}</td></tr>`).join('')}</tbody></table>
     <div style="margin-top:16px;text-align:right">
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Subtotal: $${Number(o.subtotal).toFixed(2)}</div>
-      ${Number(o.discount_amount)>0?`<div style="font-size:13px;color:var(--red);margin-bottom:4px">Discount: -$${Number(o.discount_amount).toFixed(2)}</div>`:''}
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Tax: +$${Number(o.tax_amount).toFixed(2)}</div>
-      <div style="font-size:18px;font-weight:800">Total: $${Number(o.total_amount).toFixed(2)}</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Subtotal: Rs.${Number(o.subtotal).toFixed(2)}</div>
+      ${Number(o.discount_amount)>0?`<div style="font-size:13px;color:var(--red);margin-bottom:4px">Discount: -Rs.${Number(o.discount_amount).toFixed(2)}</div>`:''}
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Tax: +Rs.${Number(o.tax_amount).toFixed(2)}</div>
+      <div style="font-size:18px;font-weight:800">Total: Rs.${Number(o.total_amount).toFixed(2)}</div>
     </div>`;
   openModal('order-detail-modal');
 }
@@ -1619,7 +1619,7 @@ async function renderSuppliers() {
       <td>${s.phone||'—'}</td>
       <td>${s.email||'—'}</td>
       <td style="font-size:12px">${s.address||'—'}</td>
-      <td class="${Number(s.outstanding_payable)>0?'text-red':'text-green'} fw-700">$${Number(s.outstanding_payable).toFixed(2)} ${Number(s.outstanding_payable)>0?'(owed)':''}</td>
+      <td class="${Number(s.outstanding_payable)>0?'text-red':'text-green'} fw-700">Rs.${Number(s.outstanding_payable).toFixed(2)} ${Number(s.outstanding_payable)>0?'(owed)':''}</td>
       <td><span class="badge badge-green">${s.is_active?'Active':'Inactive'}</span></td>
       <td>
         <div class="flex-gap">
@@ -1705,7 +1705,7 @@ async function renderPurchases() {
       <td style="font-size:12px">${(p.created_at||'').split('T')[0]}</td>
       <td>${p.supplier_name||'Unknown'}</td>
       <td>${p.items.length} item(s)</td>
-      <td class="fw-700">$${Number(p.total_amount).toFixed(2)}</td>
+      <td class="fw-700">Rs.${Number(p.total_amount).toFixed(2)}</td>
       <td><span class="badge ${p.status==='received'?'badge-green':p.status==='partially_received'?'badge-yellow':'badge-blue'}">${p.status.replace(/_/g,' ')}</span></td>
       <td>
         <div class="flex-gap">
@@ -1745,13 +1745,13 @@ function renderPurItems() {
         <input class="form-input" type="number" value="${item.qty}" min="1" onchange="purItemChange(${i},'qty',this.value)" style="padding:9px 12px">
       </div>
       <div class="form-group-inline" style="margin-bottom:0;width:100px">
-        <label>Price ($)</label>
+        <label>Price (Rs.)</label>
         <input class="form-input" type="number" value="${item.price}" step="0.01" onchange="purItemChange(${i},'price',this.value)" style="padding:9px 12px">
       </div>
       <button class="btn btn-ghost btn-xs" onclick="removePurItem(${i})" style="color:var(--red);margin-bottom:2px"><i class="fa fa-times"></i></button>
     </div>`).join('');
   const total = purItems.reduce((a,i)=>a+i.qty*i.price,0);
-  document.getElementById('pur-total').textContent = '$'+total.toFixed(2);
+  document.getElementById('pur-total').textContent = 'Rs.'+total.toFixed(2);
 }
 
 function purItemChange(i,field,val) {
@@ -1775,12 +1775,12 @@ async function savePurchase() {
   const supplierId = parseInt(document.getElementById('pur-supplier').value);
   if (!supplierId) { toast('Select a supplier','error'); return; }
 
-  // A $0 line item almost always means the product's cost price was never
+  // A Rs.0 line item almost always means the product's cost price was never
   // set (or the price field wasn't edited) — block save with a clear message
-  // instead of letting the backend reject a $0 "Paid" payment cryptically.
+  // instead of letting the backend reject a Rs.0 "Paid" payment cryptically.
   const zeroPriceItems = validItems.filter(i => !i.price || i.price <= 0);
   if (zeroPriceItems.length) {
-    toast('Set a price greater than $0 for every item before saving (check: ' +
+    toast('Set a price greater than Rs.0 for every item before saving (check: ' +
       zeroPriceItems.map(i => _purProductCache.find(p=>p.id==i.productId)?.name || 'item').join(', ') + ')', 'error');
     return;
   }
@@ -1808,7 +1808,7 @@ async function savePurchase() {
     });
 
     // Pay in full if the form says "Paid" — total_amount is guaranteed > 0
-    // here since we already blocked $0-priced items above.
+    // here since we already blocked Rs.0-priced items above.
     const paymentStatus = document.getElementById('pur-payment').value;
     if (paymentStatus === 'Paid' && Number(po.total_amount) > 0) {
       await PurchaseAPI.pay(po.id, { amount: po.total_amount, method: 'bank_transfer' });
@@ -1852,7 +1852,7 @@ async function renderExpenses() {
       <td>${e.expense_date}</td>
       <td><span class="badge badge-blue">${e.category_name}</span></td>
       <td>${e.description || e.title}</td>
-      <td class="fw-700 text-red">$${Number(e.amount).toFixed(2)}</td>
+      <td class="fw-700 text-red">Rs.${Number(e.amount).toFixed(2)}</td>
       <td>
         <div class="flex-gap">
           <button class="btn btn-ghost btn-xs" onclick="editExpense(${e.id})"><i class="fa fa-edit"></i></button>
@@ -1882,7 +1882,7 @@ async function renderExpenses() {
     const labels = Object.keys(monthTotals).sort();
     charts.expMonth = new Chart(emc, {
       type: 'bar',
-      data: { labels, datasets:[{ label:'Expenses ($)', data:labels.map(l=>monthTotals[l]), backgroundColor:'rgba(239,68,68,.5)', borderColor:'rgba(239,68,68,1)', borderWidth:2, borderRadius:6 }] },
+      data: { labels, datasets:[{ label:'Expenses (Rs.)', data:labels.map(l=>monthTotals[l]), backgroundColor:'rgba(239,68,68,.5)', borderColor:'rgba(239,68,68,1)', borderWidth:2, borderRadius:6 }] },
       options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8892a4',font:{size:11}}}}, scales:{ x:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}}, y:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}} } }
     });
   }
@@ -1961,10 +1961,10 @@ function renderAccounting() {
   const totalExpenses = DB.expenses.reduce((a,e)=>a+e.amount,0);
   const profit = totalSales - totalExpenses;
   const outstanding = DB.suppliers.reduce((a,s)=>a+Math.abs(Math.min(s.balance,0)),0);
-  document.getElementById('acc-income').textContent = '$'+totalSales.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  document.getElementById('acc-expenses').textContent = '$'+totalExpenses.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  document.getElementById('acc-profit').textContent = '$'+profit.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  document.getElementById('acc-outstanding').textContent = '$'+outstanding.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('acc-income').textContent = 'Rs.'+totalSales.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('acc-expenses').textContent = 'Rs.'+totalExpenses.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('acc-profit').textContent = 'Rs.'+profit.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('acc-outstanding').textContent = 'Rs.'+outstanding.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
 
   DB.ledger = DB.ledger || [];
   const sampleLedger = [
@@ -1981,9 +1981,9 @@ function renderAccounting() {
       <td><span class="badge ${l.type==='Sale'?'badge-green':l.type==='Expense'?'badge-red':'badge-blue'}">${l.type}</span></td>
       <td class="td-mono">${l.ref}</td>
       <td>${l.desc}</td>
-      <td class="text-red">${l.debit>0?'$'+l.debit.toFixed(2):'—'}</td>
-      <td class="text-green">${l.credit>0?'$'+l.credit.toFixed(2):'—'}</td>
-      <td class="fw-700">$${l.balance.toFixed(2)}</td>
+      <td class="text-red">${l.debit>0?'Rs.'+l.debit.toFixed(2):'—'}</td>
+      <td class="text-green">${l.credit>0?'Rs.'+l.credit.toFixed(2):'—'}</td>
+      <td class="fw-700">Rs.${l.balance.toFixed(2)}</td>
     </tr>`).join('');
 }
 
@@ -2023,7 +2023,7 @@ async function renderReports() {
       data: {
         labels,
         datasets: [{
-          label: 'Revenue ($)', data: labels.map(l => monthlyTotals[l]),
+          label: 'Revenue (Rs.)', data: labels.map(l => monthlyTotals[l]),
           borderColor: 'rgba(59,130,246,1)', backgroundColor: 'rgba(59,130,246,0.1)',
           borderWidth: 2.5, tension: 0.4, fill: true, pointBackgroundColor: '#3b82f6', pointRadius: 4,
         }]
@@ -2040,20 +2040,20 @@ async function renderReports() {
       <div style="display:flex;flex-direction:column;gap:12px">
         <div class="flex-between" style="padding:12px;background:var(--green-glow);border-radius:8px;border:1px solid rgba(16,185,129,.2)">
           <span style="font-size:13px;font-weight:600">💹 Total Income</span>
-          <span style="font-size:16px;font-weight:800;color:var(--green)">$${Number(pl.income).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+          <span style="font-size:16px;font-weight:800;color:var(--green)">Rs.${Number(pl.income).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
         <div class="flex-between" style="padding:12px;background:var(--red-glow);border-radius:8px;border:1px solid rgba(239,68,68,.2)">
           <span style="font-size:13px;font-weight:600">📉 Total Expenses</span>
-          <span style="font-size:16px;font-weight:800;color:var(--red)">$${Number(pl.expenses).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+          <span style="font-size:16px;font-weight:800;color:var(--red)">Rs.${Number(pl.expenses).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
         <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
           <span style="font-size:13px;font-weight:600">📊 Cost of Goods Sold</span>
-          <span style="font-size:16px;font-weight:800;color:var(--accent)">$${Number(pl.cost_of_goods_sold).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+          <span style="font-size:16px;font-weight:800;color:var(--accent)">Rs.${Number(pl.cost_of_goods_sold).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
         <div class="divider"></div>
         <div class="flex-between" style="padding:14px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-light)">
           <span style="font-size:15px;font-weight:700">🏆 Net Profit</span>
-          <span style="font-size:20px;font-weight:800;color:${netProfit>=0?'var(--green)':'var(--red)'}">$${Math.abs(netProfit).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
+          <span style="font-size:20px;font-weight:800;color:${netProfit>=0?'var(--green)':'var(--red)'}">Rs.${Math.abs(netProfit).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
       </div>`;
   } catch (_) {
@@ -2381,19 +2381,19 @@ async function printReportA4() {
         <tbody>
           <tr style="border-bottom:1px solid #e5e7eb">
             <td style="padding:12px 10px;font-weight:700">💹 Total Income</td>
-            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#16a34a">$${fmt(pl.income)}</td>
+            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#16a34a">Rs.${fmt(pl.income)}</td>
           </tr>
           <tr style="border-bottom:1px solid #e5e7eb">
             <td style="padding:12px 10px;font-weight:700">📉 Total Expenses</td>
-            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#dc2626">$${fmt(pl.expenses)}</td>
+            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#dc2626">Rs.${fmt(pl.expenses)}</td>
           </tr>
           <tr style="border-bottom:1px solid #e5e7eb">
             <td style="padding:12px 10px;font-weight:700">📊 Cost of Goods Sold</td>
-            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#2563eb">$${fmt(pl.cost_of_goods_sold)}</td>
+            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#2563eb">Rs.${fmt(pl.cost_of_goods_sold)}</td>
           </tr>
           <tr style="background:#f8fafc">
             <td style="padding:16px 10px;font-weight:900;font-size:15px">🏆 Net Profit</td>
-            <td style="padding:16px 10px;text-align:right;font-weight:900;font-size:18px;color:${netProfit>=0?'#16a34a':'#dc2626'}">$${fmt(Math.abs(netProfit))}${netProfit<0?' (Loss)':''}</td>
+            <td style="padding:16px 10px;text-align:right;font-weight:900;font-size:18px;color:${netProfit>=0?'#16a34a':'#dc2626'}">Rs.${fmt(Math.abs(netProfit))}${netProfit<0?' (Loss)':''}</td>
           </tr>
         </tbody>
       </table>`;
@@ -2571,8 +2571,8 @@ function onBookingCustomerChange() {
   document.getElementById('bk-acc-search').value = acc;
   if (searchEl) searchEl.value = `${cust.name} (${acc})`;
   document.getElementById('bk-customer-info').style.display='';
-  document.getElementById('bk-prev-balance').textContent = '$'+Number(cust.outstanding_balance).toFixed(2);
-  document.getElementById('bk-total-purchases').textContent = '$'+Number(cust.credit_limit).toFixed(2);
+  document.getElementById('bk-prev-balance').textContent = 'Rs.'+Number(cust.outstanding_balance).toFixed(2);
+  document.getElementById('bk-total-purchases').textContent = 'Rs.'+Number(cust.credit_limit).toFixed(2);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
   calcBookingTotals();
 }
@@ -2592,7 +2592,7 @@ function _bkCustDropRows(list) {
         <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${acc}${c.phone ? ' · '+c.phone : ''}</div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:12px;font-weight:800;color:${balColor}">$${bal.toFixed(2)}</div>
+        <div style="font-size:12px;font-weight:800;color:${balColor}">Rs.${bal.toFixed(2)}</div>
         <div style="font-size:9px;color:var(--text-muted)">balance</div>
       </div>
     </div>`;
@@ -3125,9 +3125,9 @@ async function renderBookingList() {
           <td class="fw-700">${b.customer_name||'Walk-in'}</td>
           <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
           <td>${b.items.length} item(s)</td>
-          <td class="fw-700 text-green">$${Number(b.total_amount).toFixed(2)}</td>
-          <td class="text-red">$${Number(b.due_amount).toFixed(2)}</td>
-          <td class="fw-700 text-yellow">$${Number(b.total_amount).toFixed(2)}</td>
+          <td class="fw-700 text-green">Rs.${Number(b.total_amount).toFixed(2)}</td>
+          <td class="text-red">Rs.${Number(b.due_amount).toFixed(2)}</td>
+          <td class="fw-700 text-yellow">Rs.${Number(b.total_amount).toFixed(2)}</td>
           <td><span class="badge badge-blue">${b.payment_status}</span></td>
           <td><span class="badge ${badgeClass}">${label}</span></td>
           <td>
@@ -3196,8 +3196,8 @@ async function renderSaleSlips() {
           <td class="fw-700">${b.customer_name||'Walk-in'}</td>
           <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
           <td>${b.items.length} item(s)</td>
-          <td class="fw-700 text-green">$${Number(b.total_amount).toFixed(2)}</td>
-          <td class="fw-700 text-yellow">$${Number(b.total_amount).toFixed(2)}</td>
+          <td class="fw-700 text-green">Rs.${Number(b.total_amount).toFixed(2)}</td>
+          <td class="fw-700 text-yellow">Rs.${Number(b.total_amount).toFixed(2)}</td>
           <td><span class="badge ${badges[b.status]||'badge-gray'}">${labels[b.status]||b.status}</span></td>
           <td>
             <div class="flex-gap">
@@ -3228,17 +3228,17 @@ function viewSlipDetail(id) {
       <thead><tr><th>Product</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead>
       <tbody>${b.items.map(it=>`<tr>
           <td>📦 ${it.product_name||'—'}</td>
-          <td>$${Number(it.unit_price).toFixed(2)}</td>
+          <td>Rs.${Number(it.unit_price).toFixed(2)}</td>
           <td class="fw-700">${it.quantity}</td>
-          <td class="fw-700 text-green">$${Number(it.line_total).toFixed(2)}</td>
+          <td class="fw-700 text-green">Rs.${Number(it.line_total).toFixed(2)}</td>
         </tr>`).join('')}</tbody>
     </table>
     <div style="margin-top:16px;text-align:right">
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Subtotal: $${Number(b.subtotal).toFixed(2)}</div>
-      ${Number(b.discount_amount)>0?`<div style="font-size:12px;color:var(--red);margin-bottom:4px">Discount: -$${Number(b.discount_amount).toFixed(2)}</div>`:''}
-      ${Number(b.tax_amount)>0?`<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Tax: +$${Number(b.tax_amount).toFixed(2)}</div>`:''}
-      <div style="font-size:16px;font-weight:800;margin-bottom:6px">Bill Total: $${Number(b.total_amount).toFixed(2)}</div>
-      <div style="font-size:18px;font-weight:800;color:var(--yellow)">Due: $${Number(b.due_amount).toFixed(2)}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Subtotal: Rs.${Number(b.subtotal).toFixed(2)}</div>
+      ${Number(b.discount_amount)>0?`<div style="font-size:12px;color:var(--red);margin-bottom:4px">Discount: -Rs.${Number(b.discount_amount).toFixed(2)}</div>`:''}
+      ${Number(b.tax_amount)>0?`<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Tax: +Rs.${Number(b.tax_amount).toFixed(2)}</div>`:''}
+      <div style="font-size:16px;font-weight:800;margin-bottom:6px">Bill Total: Rs.${Number(b.total_amount).toFixed(2)}</div>
+      <div style="font-size:18px;font-weight:800;color:var(--yellow)">Due: Rs.${Number(b.due_amount).toFixed(2)}</div>
     </div>
     ${b.notes?`<div style="margin-top:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;font-size:12px"><strong>Notes:</strong> ${b.notes}</div>`:''}
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
@@ -3493,18 +3493,18 @@ function printAllSlipsA4(mode) {
             <td style="padding:6px 9px;font-weight:700">${b.customer_name||'Walk-in'}</td>
             <td style="padding:6px 9px;font-family:monospace;color:#5b21b6">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>
             <td style="padding:6px 9px;text-align:center">${b.items.length}</td>
-            <td style="padding:6px 9px;text-align:right">$${Number(b.total_amount).toFixed(2)}</td>
-            <td style="padding:6px 9px;text-align:right;color:#dc2626">$${Number(b.due_amount).toFixed(2)}</td>
-            <td style="padding:6px 9px;text-align:right;font-weight:700;color:#b45309">$${Number(b.total_amount).toFixed(2)}</td>
+            <td style="padding:6px 9px;text-align:right">Rs.${Number(b.total_amount).toFixed(2)}</td>
+            <td style="padding:6px 9px;text-align:right;color:#dc2626">Rs.${Number(b.due_amount).toFixed(2)}</td>
+            <td style="padding:6px 9px;text-align:right;font-weight:700;color:#b45309">Rs.${Number(b.total_amount).toFixed(2)}</td>
             <td style="padding:6px 9px">${(b.payments[0]?.method)||'—'}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot>
           <tr style="background:#1a1a1a;color:#fff;font-weight:700;font-size:12px">
             <td colspan="5" style="padding:8px 9px">TOTALS — ${slips.length} order${slips.length!==1?'s':''}</td>
-            <td style="padding:8px 9px;text-align:right">$${totalBill.toFixed(2)}</td>
+            <td style="padding:8px 9px;text-align:right">Rs.${totalBill.toFixed(2)}</td>
             <td style="padding:8px 9px;text-align:right">—</td>
-            <td style="padding:8px 9px;text-align:right">$${totalNet.toFixed(2)}</td>
+            <td style="padding:8px 9px;text-align:right">Rs.${totalNet.toFixed(2)}</td>
             <td style="padding:8px 9px"></td>
           </tr>
         </tfoot>
@@ -3731,10 +3731,10 @@ async function loadLedgerAccount() {
   document.getElementById('ldg-all-accounts').style.display='none';
   document.getElementById('ldg-acc-name').textContent = entity.name;
   document.getElementById('ldg-acc-no').textContent = type==='customer'?'Customer':'Supplier';
-  document.getElementById('ldg-total-debit').textContent  = '$'+totalDebit.toFixed(2);
-  document.getElementById('ldg-total-credit').textContent = '$'+totalCredit.toFixed(2);
+  document.getElementById('ldg-total-debit').textContent  = 'Rs.'+totalDebit.toFixed(2);
+  document.getElementById('ldg-total-credit').textContent = 'Rs.'+totalCredit.toFixed(2);
   const net = totalDebit - totalCredit;
-  document.getElementById('ldg-net-balance').textContent = '$'+Math.abs(net).toFixed(2);
+  document.getElementById('ldg-net-balance').textContent = 'Rs.'+Math.abs(net).toFixed(2);
   document.getElementById('ldg-net-balance').className = 'stat-value '+(net>0?'text-red':'text-green');
   document.getElementById('ldg-table-title').textContent = `Ledger: ${entity.name}`;
 
@@ -3744,9 +3744,9 @@ async function loadLedgerAccount() {
           <td style="font-size:12px">${r.date.slice(0,10)}</td>
           <td>${r.description}</td>
           <td class="td-mono" style="font-size:11px">${r.reference||'—'}</td>
-          <td class="text-red fw-700">${Number(r.debit)>0?'$'+Number(r.debit).toFixed(2):'—'}</td>
-          <td class="text-green fw-700">${Number(r.credit)>0?'$'+Number(r.credit).toFixed(2):'—'}</td>
-          <td class="fw-700 ${Number(r.balance)>0?'text-red':'text-green'}">$${Math.abs(Number(r.balance)).toFixed(2)} ${Number(r.balance)>0?'Dr':'Cr'}</td>
+          <td class="text-red fw-700">${Number(r.debit)>0?'Rs.'+Number(r.debit).toFixed(2):'—'}</td>
+          <td class="text-green fw-700">${Number(r.credit)>0?'Rs.'+Number(r.credit).toFixed(2):'—'}</td>
+          <td class="fw-700 ${Number(r.balance)>0?'text-red':'text-green'}">Rs.${Math.abs(Number(r.balance)).toFixed(2)} ${Number(r.balance)>0?'Dr':'Cr'}</td>
         </tr>`).join('')
     : `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">No transactions found</td></tr>`;
 }
@@ -3762,9 +3762,9 @@ async function renderAllAccountsSummary() {
       <td><span class="badge badge-purple" style="font-family:var(--mono)">ACC-${String(x.id).padStart(4,'0')}</span></td>
       <td class="fw-700">${x.name}</td>
       <td>${x.phone||'—'}</td>
-      <td class="text-red fw-700">$${balance>0?balance.toFixed(2):'0.00'}</td>
+      <td class="text-red fw-700">Rs.${balance>0?balance.toFixed(2):'0.00'}</td>
       <td class="text-green fw-700">—</td>
-      <td class="fw-700 ${balance>0?'text-red':'text-green'}">$${Math.abs(balance).toFixed(2)} ${balance>0?'Dr':'Cr'}</td>
+      <td class="fw-700 ${balance>0?'text-red':'text-green'}">Rs.${Math.abs(balance).toFixed(2)} ${balance>0?'Dr':'Cr'}</td>
       <td>
         <button class="btn btn-ghost btn-xs" onclick="document.getElementById('ldg-account-select').value=${x.id};loadLedgerAccount()"><i class="fa fa-eye"></i></button>
       </td>
@@ -3794,9 +3794,9 @@ async function printLedgerA4() {
     const bal = Number(e.balance);
     return `<tr>
       <td>${e.date.slice(0,10)}</td><td>${e.description}</td><td style="font-family:monospace">${e.reference||'—'}</td>
-      <td style="text-align:right;color:#dc2626">${Number(e.debit)>0?'$'+Number(e.debit).toFixed(2):'—'}</td>
-      <td style="text-align:right;color:#16a34a">${Number(e.credit)>0?'$'+Number(e.credit).toFixed(2):'—'}</td>
-      <td style="text-align:right;font-weight:700;color:${bal>0?'#dc2626':'#16a34a'}">$${Math.abs(bal).toFixed(2)} ${bal>0?'Dr':'Cr'}</td>
+      <td style="text-align:right;color:#dc2626">${Number(e.debit)>0?'Rs.'+Number(e.debit).toFixed(2):'—'}</td>
+      <td style="text-align:right;color:#16a34a">${Number(e.credit)>0?'Rs.'+Number(e.credit).toFixed(2):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${bal>0?'#dc2626':'#16a34a'}">Rs.${Math.abs(bal).toFixed(2)} ${bal>0?'Dr':'Cr'}</td>
     </tr>`;
   }).join('');
   const html = `<div class="a4-doc">
@@ -3819,9 +3819,9 @@ async function printLedgerA4() {
       <tfoot>
         <tr style="background:#f3f4f6;font-weight:700;font-size:12px">
           <td colspan="3" style="padding:7px 8px">TOTALS</td>
-          <td style="padding:7px 8px;text-align:right;color:#dc2626">$${totalD.toFixed(2)}</td>
-          <td style="padding:7px 8px;text-align:right;color:#16a34a">$${totalC.toFixed(2)}</td>
-          <td style="padding:7px 8px;text-align:right;color:${(totalD-totalC)>0?'#dc2626':'#16a34a'}">$${Math.abs(totalD-totalC).toFixed(2)} ${(totalD-totalC)>0?'Dr':'Cr'}</td>
+          <td style="padding:7px 8px;text-align:right;color:#dc2626">Rs.${totalD.toFixed(2)}</td>
+          <td style="padding:7px 8px;text-align:right;color:#16a34a">Rs.${totalC.toFixed(2)}</td>
+          <td style="padding:7px 8px;text-align:right;color:${(totalD-totalC)>0?'#dc2626':'#16a34a'}">Rs.${Math.abs(totalD-totalC).toFixed(2)} ${(totalD-totalC)>0?'Dr':'Cr'}</td>
         </tr>
       </tfoot>
     </table>
@@ -3864,7 +3864,7 @@ async function renderBalanceSheet() {
     .map(s=>({ name:s.name, bal:Number(s.outstanding_payable) }));
   const totalPayable = supPayables.reduce((s,x)=>s+x.bal,0);
 
-  const fmt = v=>'$'+v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const fmt = v=>'Rs.'+v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   document.getElementById('bs-kpi-grid').innerHTML = [
     { label:'Total Revenue', val:fmt(salesIncome), color:'green', icon:'fa-arrow-up' },
     { label:'Total Expenses', val:fmt(totalExpenses+purchaseCost), color:'red', icon:'fa-arrow-down' },
@@ -3881,11 +3881,11 @@ async function renderBalanceSheet() {
     <div style="display:flex;flex-direction:column;gap:10px">
       <div class="flex-between" style="padding:10px;background:var(--bg-secondary);border-radius:8px">
         <span style="font-size:13px">Sales Revenue</span>
-        <span class="fw-700 text-green">$${salesIncome.toFixed(2)}</span>
+        <span class="fw-700 text-green">Rs.${salesIncome.toFixed(2)}</span>
       </div>
       <div class="flex-between" style="padding:10px;background:var(--green-glow);border:1px solid rgba(16,185,129,.2);border-radius:8px">
         <span style="font-size:14px;font-weight:700">Total Revenue</span>
-        <span style="font-size:16px;font-weight:800;color:var(--green)">$${salesIncome.toFixed(2)}</span>
+        <span style="font-size:16px;font-weight:800;color:var(--green)">Rs.${salesIncome.toFixed(2)}</span>
       </div>
     </div>`;
 
@@ -3893,30 +3893,30 @@ async function renderBalanceSheet() {
     <div style="display:flex;flex-direction:column;gap:8px">
       <div class="flex-between" style="padding:9px 12px;background:var(--bg-secondary);border-radius:8px">
         <span style="font-size:13px">Operating Expenses</span>
-        <span class="fw-700 text-red">$${totalExpenses.toFixed(2)}</span>
+        <span class="fw-700 text-red">Rs.${totalExpenses.toFixed(2)}</span>
       </div>
       <div class="flex-between" style="padding:9px 12px;background:var(--bg-secondary);border-radius:8px">
         <span style="font-size:13px">Cost of Goods Sold</span>
-        <span class="fw-700 text-red">$${purchaseCost.toFixed(2)}</span>
+        <span class="fw-700 text-red">Rs.${purchaseCost.toFixed(2)}</span>
       </div>
       <div class="flex-between" style="padding:10px;background:var(--red-glow);border:1px solid rgba(239,68,68,.2);border-radius:8px">
         <span style="font-size:14px;font-weight:700">Total Expenses</span>
-        <span style="font-size:16px;font-weight:800;color:var(--red)">$${(totalExpenses+purchaseCost).toFixed(2)}</span>
+        <span style="font-size:16px;font-weight:800;color:var(--red)">Rs.${(totalExpenses+purchaseCost).toFixed(2)}</span>
       </div>
     </div>`;
 
   document.getElementById('bs-receivables').innerHTML = `<table>
     <thead><tr><th>Customer</th><th>Account</th><th>Balance Due</th></tr></thead>
     <tbody>
-      ${custReceivables.map(x=>`<tr><td class="fw-700">${x.name}</td><td class="td-mono">${x.acc}</td><td class="fw-700 text-red">$${x.bal.toFixed(2)}</td></tr>`).join('')}
-      <tr style="background:var(--bg-secondary)"><td colspan="2" class="fw-700">Total Receivable</td><td class="fw-700 text-red" style="font-size:14px">$${totalReceivable.toFixed(2)}</td></tr>
+      ${custReceivables.map(x=>`<tr><td class="fw-700">${x.name}</td><td class="td-mono">${x.acc}</td><td class="fw-700 text-red">Rs.${x.bal.toFixed(2)}</td></tr>`).join('')}
+      <tr style="background:var(--bg-secondary)"><td colspan="2" class="fw-700">Total Receivable</td><td class="fw-700 text-red" style="font-size:14px">Rs.${totalReceivable.toFixed(2)}</td></tr>
     </tbody></table>`;
 
   document.getElementById('bs-payables').innerHTML = `<table>
     <thead><tr><th>Supplier</th><th>Balance Owed</th></tr></thead>
     <tbody>
-      ${supPayables.map(x=>`<tr><td class="fw-700">${x.name}</td><td class="fw-700 text-yellow">$${x.bal.toFixed(2)}</td></tr>`).join('')}
-      <tr style="background:var(--bg-secondary)"><td class="fw-700">Total Payable</td><td class="fw-700 text-yellow" style="font-size:14px">$${totalPayable.toFixed(2)}</td></tr>
+      ${supPayables.map(x=>`<tr><td class="fw-700">${x.name}</td><td class="fw-700 text-yellow">Rs.${x.bal.toFixed(2)}</td></tr>`).join('')}
+      <tr style="background:var(--bg-secondary)"><td class="fw-700">Total Payable</td><td class="fw-700 text-yellow" style="font-size:14px">Rs.${totalPayable.toFixed(2)}</td></tr>
     </tbody></table>`;
 
   const cashBalance = Number(cf.net_cash_flow);
@@ -3933,7 +3933,7 @@ async function renderBalanceSheet() {
         ].map(([l,v,c])=>`
           <div class="flex-between" style="padding:10px 14px;background:var(--bg-secondary);border-radius:8px;margin-bottom:6px">
             <span style="font-size:13px">${l}</span>
-            <span class="fw-700 ${c}" style="font-size:14px">$${Math.abs(v).toFixed(2)}</span>
+            <span class="fw-700 ${c}" style="font-size:14px">Rs.${Math.abs(v).toFixed(2)}</span>
           </div>`).join('')}
       </div>
       <div>
@@ -3947,7 +3947,7 @@ async function renderBalanceSheet() {
         ].map(([l,v,c])=>`
           <div class="flex-between" style="padding:10px 14px;background:var(--bg-secondary);border-radius:8px;margin-bottom:6px">
             <span style="font-size:13px">${l}</span>
-            <span class="fw-700 ${c}" style="font-size:14px">$${Math.abs(v).toFixed(2)}</span>
+            <span class="fw-700 ${c}" style="font-size:14px">Rs.${Math.abs(v).toFixed(2)}</span>
           </div>`).join('')}
       </div>
     </div>`;
@@ -3981,31 +3981,31 @@ async function printBalanceSheetA4() {
       <div>
         <div style="font-weight:700;font-size:12px;color:#777;text-transform:uppercase;margin-bottom:3mm;border-bottom:1px solid #ddd;padding-bottom:2mm">INCOME</div>
         <table style="width:100%;border-collapse:collapse;font-size:11px">
-          <tr><td style="padding:4px 0">Total Sales Revenue</td><td style="text-align:right;font-weight:700;color:#16a34a">$${salesIncome.toFixed(2)}</td></tr>
+          <tr><td style="padding:4px 0">Total Sales Revenue</td><td style="text-align:right;font-weight:700;color:#16a34a">Rs.${salesIncome.toFixed(2)}</td></tr>
         </table>
         <div style="font-weight:700;font-size:12px;color:#777;text-transform:uppercase;margin:4mm 0 3mm;border-bottom:1px solid #ddd;padding-bottom:2mm">EXPENSES</div>
         <table style="width:100%;border-collapse:collapse;font-size:11px">
-          ${Object.entries(expByCategory).map(([k,v])=>`<tr><td style="padding:3px 0">${k}</td><td style="text-align:right;color:#dc2626">$${v.toFixed(2)}</td></tr>`).join('')}
-          <tr><td style="padding:3px 0">Purchase/COGS</td><td style="text-align:right;color:#dc2626">$${purchaseCost.toFixed(2)}</td></tr>
-          <tr style="font-weight:700;border-top:1px solid #000"><td style="padding:5px 0">Total Expenses</td><td style="text-align:right;color:#dc2626">$${(totalExpenses+purchaseCost).toFixed(2)}</td></tr>
+          ${Object.entries(expByCategory).map(([k,v])=>`<tr><td style="padding:3px 0">${k}</td><td style="text-align:right;color:#dc2626">Rs.${v.toFixed(2)}</td></tr>`).join('')}
+          <tr><td style="padding:3px 0">Purchase/COGS</td><td style="text-align:right;color:#dc2626">Rs.${purchaseCost.toFixed(2)}</td></tr>
+          <tr style="font-weight:700;border-top:1px solid #000"><td style="padding:5px 0">Total Expenses</td><td style="text-align:right;color:#dc2626">Rs.${(totalExpenses+purchaseCost).toFixed(2)}</td></tr>
         </table>
         <div style="margin-top:4mm;padding:6px 10px;background:${netProfit>=0?'#f0fdf4':'#fef2f2'};border-radius:5px;display:flex;justify-content:space-between;font-weight:800;font-size:13px">
           <span>Net ${netProfit>=0?'Profit':'Loss'}</span>
-          <span style="color:${netProfit>=0?'#16a34a':'#dc2626'}">$${Math.abs(netProfit).toFixed(2)}</span>
+          <span style="color:${netProfit>=0?'#16a34a':'#dc2626'}">Rs.${Math.abs(netProfit).toFixed(2)}</span>
         </div>
       </div>
       <div>
         <div style="font-weight:700;font-size:12px;color:#777;text-transform:uppercase;margin-bottom:3mm;border-bottom:1px solid #ddd;padding-bottom:2mm">CUSTOMER RECEIVABLES</div>
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead><tr><th style="text-align:left;padding:3px 0;color:#555">Customer</th><th style="text-align:right;padding:3px 0;color:#555">Balance</th></tr></thead>
-          <tbody>${custReceivables.map(x=>`<tr><td style="padding:3px 0">${x.name}</td><td style="text-align:right;color:#dc2626">$${x.bal.toFixed(2)}</td></tr>`).join('')}</tbody>
-          <tr style="font-weight:700;border-top:1px solid #000"><td>Total</td><td style="text-align:right;color:#dc2626">$${custReceivables.reduce((s,x)=>s+x.bal,0).toFixed(2)}</td></tr>
+          <tbody>${custReceivables.map(x=>`<tr><td style="padding:3px 0">${x.name}</td><td style="text-align:right;color:#dc2626">Rs.${x.bal.toFixed(2)}</td></tr>`).join('')}</tbody>
+          <tr style="font-weight:700;border-top:1px solid #000"><td>Total</td><td style="text-align:right;color:#dc2626">Rs.${custReceivables.reduce((s,x)=>s+x.bal,0).toFixed(2)}</td></tr>
         </table>
         <div style="font-weight:700;font-size:12px;color:#777;text-transform:uppercase;margin:4mm 0 3mm;border-bottom:1px solid #ddd;padding-bottom:2mm">SUPPLIER PAYABLES</div>
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead><tr><th style="text-align:left;padding:3px 0;color:#555">Supplier</th><th style="text-align:right;padding:3px 0;color:#555">Owed</th></tr></thead>
-          <tbody>${supPayables.map(x=>`<tr><td style="padding:3px 0">${x.name}</td><td style="text-align:right;color:#b45309">$${x.bal.toFixed(2)}</td></tr>`).join('')}</tbody>
-          <tr style="font-weight:700;border-top:1px solid #000"><td>Total</td><td style="text-align:right;color:#b45309">$${supPayables.reduce((s,x)=>s+x.bal,0).toFixed(2)}</td></tr>
+          <tbody>${supPayables.map(x=>`<tr><td style="padding:3px 0">${x.name}</td><td style="text-align:right;color:#b45309">Rs.${x.bal.toFixed(2)}</td></tr>`).join('')}</tbody>
+          <tr style="font-weight:700;border-top:1px solid #000"><td>Total</td><td style="text-align:right;color:#b45309">Rs.${supPayables.reduce((s,x)=>s+x.bal,0).toFixed(2)}</td></tr>
         </table>
       </div>
     </div>
@@ -4618,16 +4618,16 @@ function printA4Invoice(order) {
     <table>
       <thead><tr><th>#</th><th>Item</th><th>Unit Price</th><th>Qty</th><th>Amount</th></tr></thead>
       <tbody>
-        ${order.items.map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>$${it.price.toFixed(2)}</td><td>${it.qty}</td><td><strong>$${(it.price*it.qty).toFixed(2)}</strong></td></tr>`).join('')}
+        ${order.items.map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>Rs.${it.price.toFixed(2)}</td><td>${it.qty}</td><td><strong>Rs.${(it.price*it.qty).toFixed(2)}</strong></td></tr>`).join('')}
       </tbody>
     </table>
     <div style="display:flex;justify-content:flex-end">
       <div class="a4-totals">
-        <div class="a4-total-row"><span>Subtotal</span><span>$${(order.subtotal||order.total).toFixed(2)}</span></div>
-        ${(order.discountAmt||0)>0?`<div class="a4-total-row" style="color:#dc2626"><span>Discount</span><span>-$${order.discountAmt.toFixed(2)}</span></div>`:''}
-        <div class="a4-total-row" style="color:#b45309"><span>Tax</span><span>+$${(order.taxAmt||0).toFixed(2)}</span></div>
-        <div class="a4-grand-row"><span>TOTAL</span><span>$${order.total.toFixed(2)}</span></div>
-        ${order.paymentMethod==='cash'?`<div class="a4-total-row" style="color:#555"><span>Cash Received</span><span>$${cashReceived.toFixed(2)}</span></div><div class="a4-total-row" style="color:#16a34a"><span>Change</span><span>$${change.toFixed(2)}</span></div>`:''}
+        <div class="a4-total-row"><span>Subtotal</span><span>Rs.${(order.subtotal||order.total).toFixed(2)}</span></div>
+        ${(order.discountAmt||0)>0?`<div class="a4-total-row" style="color:#dc2626"><span>Discount</span><span>-Rs.${order.discountAmt.toFixed(2)}</span></div>`:''}
+        <div class="a4-total-row" style="color:#b45309"><span>Tax</span><span>+Rs.${(order.taxAmt||0).toFixed(2)}</span></div>
+        <div class="a4-grand-row"><span>TOTAL</span><span>Rs.${order.total.toFixed(2)}</span></div>
+        ${order.paymentMethod==='cash'?`<div class="a4-total-row" style="color:#555"><span>Cash Received</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="a4-total-row" style="color:#16a34a"><span>Change</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
       </div>
     </div>
     <div class="a4-footer">
@@ -5501,8 +5501,8 @@ function handleProductImport(input) {
           <td>${r.icon} ${r.name}</td>
           <td class="td-mono">${r.sku}</td>
           <td>${r.category}</td>
-          <td>$${r.buyPrice.toFixed(2)}</td>
-          <td>$${r.sellPrice.toFixed(2)}</td>
+          <td>Rs.${r.buyPrice.toFixed(2)}</td>
+          <td>Rs.${r.sellPrice.toFixed(2)}</td>
           <td>${r.stock}</td>
           <td>${r.piecesPerCarton > 1 ? r.piecesPerCarton : '—'}</td>
           <td><span class="badge ${existing?'badge-yellow':'badge-green'}">${existing?'Update':'New'}</span></td>

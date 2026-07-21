@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="form-group-inline"><label>Payment Date</label><input class="form-input" type="date" id="col-pay-date"></div>
           <div class="form-group-inline"><label>Payment Method</label>
             <select class="form-input" id="col-pay-method">
-              <option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Online</option>
+              <option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_wallet">Mobile Wallet</option><option value="other">Other</option>
             </select>
           </div>
         </div>
@@ -444,7 +444,7 @@ async function renderDashboard() {
   }
 
   document.getElementById('d-revenue').textContent = '$' + Number(summary.today_sales).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  document.getElementById('d-orders').textContent = summary.sales_orders_count;
+  document.getElementById('d-orders').textContent = summary.today_orders_count;
   document.getElementById('d-customers').textContent = summary.total_customers;
   document.getElementById('d-lowstock').textContent = summary.low_stock_items.length;
 
@@ -6510,7 +6510,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="form-row">
           <div class="form-group-inline"><label>Payment Date</label><input class="form-input" type="date" id="col-pay-date"></div>
           <div class="form-group-inline"><label>Method</label>
-            <select class="form-input" id="col-pay-method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Online</option></select>
+            <select class="form-input" id="col-pay-method"><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_wallet">Mobile Wallet</option><option value="other">Other</option></select>
           </div>
         </div>
         <div class="form-group-inline"><label>Notes</label><input class="form-input" id="col-pay-notes" placeholder="Optional notes..."></div>

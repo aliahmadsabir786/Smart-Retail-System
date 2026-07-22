@@ -353,7 +353,10 @@ async function loginAs(user) {
   initApp(landingPage);
 }
 async function doLogout() {
-  if (confirm('Sign out of SmartRetail ERP?')) {
+  const ok = await confirmModal('You will be signed out of SmartRetail ERP.', {
+    danger: false, icon: 'fa-sign-out-alt', title: 'Sign Out?', confirmText: 'Sign Out',
+  });
+  if (ok) {
     await AuthAPI.logout();
     document.getElementById('app').classList.remove('visible');
     document.getElementById('login-screen').style.display = 'flex';
@@ -719,9 +722,9 @@ function selectPayment(el, method) {
   selectedPayment = method;
 }
 
-function clearCart() {
+async function clearCart() {
   if (cart.length === 0) return;
-  if (confirm('Clear cart?')) { cart = []; updateCartUI(); }
+  if (await confirmModal('All items in the current cart will be removed.', { title: 'Clear Cart?', confirmText: 'Clear Cart', icon: 'fa-broom' })) { cart = []; updateCartUI(); }
 }
 
 async function updatePosCustomers() {
@@ -1105,7 +1108,7 @@ async function saveProduct() {
 }
 
 async function deleteProduct(id) {
-  if (!confirm('Delete this product?')) return;
+  if (!(await confirmModal('This product will be permanently removed from your catalog.', { title: 'Delete Product?', confirmText: 'Delete Product' }))) return;
   try {
     await ProductsAPI.remove(id);
     renderProducts();
@@ -1140,7 +1143,7 @@ async function renderCatList() {
     </div>`).join('');
 }
 async function deleteCategory(id) {
-  if (!confirm('Delete this category?')) return;
+  if (!(await confirmModal('This category will be permanently removed.', { title: 'Delete Category?', confirmText: 'Delete Category' }))) return;
   try {
     await CategoriesAPI.remove(id);
     await renderCatList();
@@ -1625,7 +1628,7 @@ async function saveCustomer() {
 }
 
 async function deleteCustomer(id) {
-  if (!confirm('Delete customer?')) return;
+  if (!(await confirmModal('This customer record will be permanently removed.', { title: 'Delete Customer?', confirmText: 'Delete Customer' }))) return;
   try {
     await CustomersAPI.remove(id);
     renderCustomers();
@@ -1712,7 +1715,7 @@ async function saveSupplier() {
 }
 
 async function deleteSupplier(id) {
-  if (!confirm('Delete supplier?')) return;
+  if (!(await confirmModal('This supplier record will be permanently removed.', { title: 'Delete Supplier?', confirmText: 'Delete Supplier' }))) return;
   try {
     await SuppliersAPI.remove(id);
     renderSuppliers();
@@ -1976,7 +1979,7 @@ async function saveExpense() {
 }
 
 async function deleteExpense(id) {
-  if(!confirm('Delete expense?')) return;
+  if (!(await confirmModal('This expense record will be permanently removed.', { title: 'Delete Expense?', confirmText: 'Delete Expense' }))) return;
   try {
     await ExpensesAPI.remove(id);
     renderExpenses();
@@ -2237,7 +2240,7 @@ async function saveUser() {
 }
 
 async function deleteUser(id) {
-  if(!confirm('Deactivate this user?')) return;
+  if (!(await confirmModal("This user will lose access to SmartRetail ERP immediately.", { title: 'Deactivate User?', confirmText: 'Deactivate', icon: 'fa-user-slash' }))) return;
   try {
     await UsersAPI.remove(id);
     renderUsers();
@@ -2253,8 +2256,55 @@ async function deleteUser(id) {
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 document.querySelectorAll('.modal-overlay').forEach(el => {
-  el.addEventListener('click', e => { if(e.target===el) closeModal(el.id); });
+  el.addEventListener('click', e => {
+    if (e.target !== el) return;
+    if (el.id === 'confirm-modal') _resolveConfirm(false);
+    else closeModal(el.id);
+  });
 });
+
+// ═══════════════════════════════════════════════════════
+// CONFIRM DIALOG — modern replacement for native confirm()
+// ═══════════════════════════════════════════════════════
+// Usage: if (await confirmModal('Delete this product?')) { ... }
+// Pass { danger: false, icon: 'fa-sign-out-alt', title: 'Sign out?',
+//        confirmText: 'Sign Out' } for non-destructive confirmations.
+let _confirmResolve = null;
+
+function confirmModal(message, opts = {}) {
+  const {
+    title = opts.danger === false ? 'Please confirm' : 'Are you sure?',
+    confirmText = opts.danger === false ? 'Confirm' : 'Delete',
+    cancelText = 'Cancel',
+    danger = true,
+    icon = danger ? 'fa-trash' : 'fa-sign-out-alt',
+  } = opts;
+
+  return new Promise((resolve) => {
+    // If a confirm is already pending (shouldn't normally happen), cancel it
+    // rather than leaving that earlier caller's await hanging forever.
+    if (_confirmResolve) _confirmResolve(false);
+    _confirmResolve = resolve;
+
+    const overlay = document.getElementById('confirm-modal');
+    overlay.querySelector('.confirm-icon').className = 'confirm-icon ' + (danger ? 'danger' : 'neutral');
+    overlay.querySelector('.confirm-icon i').className = 'fa ' + icon;
+    overlay.querySelector('.confirm-title').textContent = title;
+    overlay.querySelector('.confirm-message').textContent = message;
+    overlay.querySelector('.confirm-btn-cancel').textContent = cancelText;
+    const confirmBtn = overlay.querySelector('.confirm-btn-confirm');
+    confirmBtn.textContent = confirmText;
+    confirmBtn.className = 'btn confirm-btn-confirm ' + (danger ? 'btn-red' : 'btn-accent');
+
+    openModal('confirm-modal');
+    setTimeout(() => confirmBtn.focus(), 60);
+  });
+}
+
+function _resolveConfirm(result) {
+  closeModal('confirm-modal');
+  if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+}
 
 // ═══════════════════════════════════════════════════════
 // TOAST
@@ -3107,7 +3157,7 @@ async function editBooking(id) {
 }
 
 async function deleteHeldBooking(id, invoiceNumber) {
-  if (!confirm(`Delete held invoice ${invoiceNumber||''}? This can't be undone.`)) return;
+  if (!(await confirmModal(`Held invoice ${invoiceNumber||''} will be permanently deleted.`, { title: 'Delete Held Invoice?', confirmText: 'Delete Invoice' }))) return;
   try {
     await SalesAPI.remove(id);
     toast('Held invoice deleted','warning');
@@ -3118,7 +3168,7 @@ async function deleteHeldBooking(id, invoiceNumber) {
 }
 
 async function cancelBooking(id) {
-  if (!confirm('Cancel this booking? Stock and customer balance will be restored via a full return.')) return;
+  if (!(await confirmModal('Stock and customer balance will be restored via a full return.', { title: 'Cancel Booking?', confirmText: 'Cancel Booking', icon: 'fa-undo' }))) return;
   try {
     const sale = await SalesAPI.get(id);
     const items = sale.items
@@ -3299,7 +3349,7 @@ function editSlipFromModal(id) {
 }
 
 async function deleteSlipFromModal(id, invoiceNumber) {
-  if (!confirm(`Delete held invoice ${invoiceNumber||''}? This can't be undone.`)) return;
+  if (!(await confirmModal(`Held invoice ${invoiceNumber||''} will be permanently deleted.`, { title: 'Delete Held Invoice?', confirmText: 'Delete Invoice' }))) return;
   try {
     await SalesAPI.remove(id);
     toast('Held invoice deleted', 'warning');
@@ -3311,7 +3361,7 @@ async function deleteSlipFromModal(id, invoiceNumber) {
 }
 
 async function cancelSlipFromModal(id) {
-  if (!confirm('Cancel this invoice? Stock and customer balance will be restored via a full return.')) return;
+  if (!(await confirmModal('Stock and customer balance will be restored via a full return.', { title: 'Cancel Invoice?', confirmText: 'Cancel Invoice', icon: 'fa-undo' }))) return;
   try {
     const sale = await SalesAPI.get(id);
     const items = sale.items
@@ -3336,7 +3386,7 @@ async function cancelSlipFromModal(id) {
 // go out as a fresh, correct invoice instead of silently mutating a
 // finalized financial record.
 async function editCompletedSlipFromModal(id) {
-  if (!confirm('Editing a completed invoice will first return all its items (restoring stock and customer balance), then let you re-book it with your changes as a NEW invoice. Continue?')) return;
+  if (!(await confirmModal('This will first return all items on the invoice (restoring stock and customer balance), then let you re-book it with your changes as a brand-new invoice.', { title: 'Edit Completed Invoice?', confirmText: 'Continue', icon: 'fa-pen' }))) return;
 
   let sale;
   try {
@@ -4682,7 +4732,11 @@ document.addEventListener('keydown', e => {
   if (!currentUser) return;
   if (e.ctrlKey && e.key === 'p') { e.preventDefault(); navigate('pos'); }
   if (e.ctrlKey && e.key === 'd') { e.preventDefault(); navigate('dashboard'); }
-  if (e.key === 'Escape') { document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open')); document.getElementById('notif-panel').classList.add('hidden'); }
+  if (e.key === 'Escape') {
+    if (document.getElementById('confirm-modal').classList.contains('open')) { _resolveConfirm(false); }
+    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    document.getElementById('notif-panel').classList.add('hidden');
+  }
 });
 
 // Set default dates for forms
@@ -5231,7 +5285,7 @@ async function saveRoute() {
 }
 
 async function deleteRoute(id) {
-  if (!confirm('Delete this route?')) return;
+  if (!(await confirmModal('This supply route will be permanently removed.', { title: 'Delete Route?', confirmText: 'Delete Route' }))) return;
   try {
     await RoutesAPI.remove(id);
     renderSupplyRoutes();

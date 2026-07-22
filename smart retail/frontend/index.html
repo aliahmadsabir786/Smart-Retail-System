@@ -1914,6 +1914,19 @@
 <!-- TOAST -->
 <div id="toast-container"></div>
 
+<!-- Reusable confirm dialog — replaces native browser confirm() popups -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="confirm-card">
+    <div class="confirm-icon danger"><i class="fa fa-trash"></i></div>
+    <div class="confirm-title">Are you sure?</div>
+    <div class="confirm-message">This action cannot be undone.</div>
+    <div class="confirm-actions">
+      <button class="btn btn-ghost confirm-btn-cancel" onclick="_resolveConfirm(false)">Cancel</button>
+      <button class="btn btn-red confirm-btn-confirm" onclick="_resolveConfirm(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MODALS ═══ -->
 
 <!-- Product Modal -->

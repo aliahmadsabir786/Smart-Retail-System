@@ -998,6 +998,35 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   overflow-y: auto; box-shadow: var(--shadow-lg);
 }
 .modal-lg { width: 780px; }
+
+/* ── CONFIRM DIALOG (replaces native browser confirm()) ───────── */
+/* Always render above any other open modal — a confirm dialog opened from
+   inside another modal (e.g. cancelling from the Sale Slip detail view)
+   must never end up visually behind it. */
+#confirm-modal { z-index: 10001; }
+
+.confirm-card {
+  background: var(--bg-card); border: 1px solid var(--border-light);
+  border-radius: 18px; width: 400px; max-width: 90vw;
+  box-shadow: 0 24px 60px rgba(0,0,0,.35), 0 4px 16px rgba(0,0,0,.15);
+  padding: 30px 26px 24px; text-align: center;
+  animation: confirmPop .25s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes confirmPop {
+  from { transform: scale(.92); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.confirm-icon {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; margin: 0 auto 18px;
+}
+.confirm-icon.danger  { background: rgba(239,68,68,.12); color: var(--red); }
+.confirm-icon.neutral { background: var(--accent-glow); color: var(--accent); }
+.confirm-title { font-size: 17px; font-weight: 800; margin-bottom: 9px; letter-spacing: -.01em; }
+.confirm-message { font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px; }
+.confirm-actions { display: flex; gap: 10px; }
+.confirm-actions .btn { flex: 1; justify-content: center; padding: 11px 16px; font-size: 13.5px; }
 .modal-header {
   padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;

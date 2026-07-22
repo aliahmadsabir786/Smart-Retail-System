@@ -1279,9 +1279,10 @@
               <div class="form-group-inline"><label>Address</label><input class="form-input" id="set-address" value="123 Market Street, City"></div>
               <div class="form-group-inline"><label>Phone</label><input class="form-input" id="set-phone" value="+1 555-000-1234"></div>
               <div class="form-group-inline"><label>Email</label><input class="form-input" id="set-email" value="store@smartretail.com"></div>
+              <div class="form-group-inline"><label>Website</label><input class="form-input" id="set-website" placeholder="https://www.yourstore.com"></div>
               <div class="form-group-inline"><label>Currency</label>
                 <select class="form-input" id="set-currency">
-                  <option>USD ($)</option><option>PKR (₨)</option><option>EUR (€)</option><option>GBP (£)</option>
+                  <option value="PKR" selected>PKR (Rs.)</option>
                 </select>
               </div>
               <div class="form-group-inline"><label>Default Tax Rate (%)</label>
@@ -1304,6 +1305,7 @@
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Logo appears on all A4 invoices & slips. Recommended: 200×60px PNG</div>
               </div>
+              <div class="form-group-inline"><label>Invoice Number Prefix</label><input class="form-input" id="set-invoice-prefix" value="INV-" placeholder="e.g. INV-"></div>
               <div class="form-group-inline"><label>Receipt Header Text</label><textarea class="form-input" id="set-receipt-header" style="min-height:60px">Thank you for shopping at SmartRetail!</textarea></div>
               <div class="form-group-inline"><label>Receipt Footer Text</label><textarea class="form-input" id="set-receipt-footer" style="min-height:60px">All sales are final. Visit us again!</textarea></div>
               <div class="form-group-inline"><label>Show Tax on Invoice</label>

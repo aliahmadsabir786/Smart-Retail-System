@@ -3746,16 +3746,25 @@ async function renderSettings() {
   const s = await SettingsAPI.getCompany();
   _companySettingsCache = s;
   const setVal = (id, val) => { const el=document.getElementById(id); if(el) el.value = val||''; };
+  const setChecked = (id, val) => { const el=document.getElementById(id); if(el) el.value = val ? 'yes' : 'no'; };
+
   setVal('set-storename', s.company_name);
   setVal('set-address', s.address);
   setVal('set-phone', s.phone);
   setVal('set-email', s.email);
+  setVal('set-website', s.website);
   setVal('set-taxrate', s.default_tax_percent);
+  setVal('set-lowstock', s.low_stock_threshold);
+  setVal('set-invoice-prefix', s.invoice_prefix);
+  setVal('set-receipt-header', s.invoice_header_note);
   setVal('set-receipt-footer', s.invoice_footer_note);
+  setChecked('set-show-tax', s.show_tax_on_receipt);
   setVal('set-ntn', s.tax_id||'');
-  // Note: low-stock threshold, receipt header text, and distributor info are
-  // frontend-only display fields — the backend's CompanySettings model has
-  // no equivalent columns for these yet, so they aren't persisted.
+  setVal('set-dist-name', s.distributor_name);
+  setVal('set-dist-phone', s.distributor_phone);
+  setVal('set-dist-address', s.distributor_address);
+  setVal('set-dist-email', s.distributor_email);
+
   const cur = document.getElementById('set-currency');
   if (cur) { Array.from(cur.options).forEach(o=>{ o.selected = o.value===s.default_currency||o.text===s.default_currency; }); }
   // Logo preview
@@ -3773,10 +3782,19 @@ async function saveSettings() {
     address: g('set-address'),
     phone: g('set-phone'),
     email: g('set-email'),
+    website: g('set-website'),
     default_tax_percent: parseFloat(g('set-taxrate'))||0,
     default_currency: g('set-currency'),
+    low_stock_threshold: parseInt(g('set-lowstock'))||10,
+    invoice_prefix: g('set-invoice-prefix') || 'INV-',
+    invoice_header_note: g('set-receipt-header'),
     invoice_footer_note: g('set-receipt-footer'),
+    show_tax_on_receipt: g('set-show-tax') === 'yes',
     tax_id: g('set-ntn'),
+    distributor_name: g('set-dist-name'),
+    distributor_phone: g('set-dist-phone'),
+    distributor_address: g('set-dist-address'),
+    distributor_email: g('set-dist-email'),
   };
   try {
     _companySettingsCache = await SettingsAPI.updateCompany(payload);
@@ -3832,7 +3850,10 @@ function getInvoiceHeaderHtml(docTitle, refNo, refDate, opts = {}) {
   const real = _companySettingsCache;
   const s = real ? {
     storeName: real.company_name, address: real.address, phone: real.phone, email: real.email,
-    logoDataUrl: real.logo, distributorName: '', distributorContact: '',
+    logoDataUrl: real.logo,
+    distributorName: real.distributor_name || '',
+    distributorContact: [real.distributor_phone, real.distributor_email].filter(Boolean).join(' · '),
+    ntn: real.tax_id || '',
   } : DB.sysSettings;
   const logoHtml = showLogo
     ? (s.logoDataUrl

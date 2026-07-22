@@ -804,11 +804,19 @@ function showReceipt(sale) {
   const cashReceived = parseFloat(document.getElementById('cash-received').value)||Number(sale.total_amount);
   const change = Math.max(0, cashReceived - Number(sale.total_amount));
   const paymentMethod = (sale.payments && sale.payments[0]) ? sale.payments[0].method : selectedPayment;
+  const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
+  const storeName = s.company_name || 'SmartRetail Store';
+  const storeAddress = s.address || '';
+  const storePhone = s.phone || '';
+  const storeEmail = s.email || '';
+  const headerNote = s.invoice_header_note || 'Thank you for shopping with us!';
+  const footerNote = s.invoice_footer_note || 'All sales are final. Visit us again!';
   document.getElementById('receipt-body').innerHTML = `
     <div class="receipt-preview">
-      <div class="rcp-center" style="font-size:16px;font-weight:700">🏪 SmartRetail Store</div>
-      <div class="rcp-center" style="font-size:11px">123 Market Street, City</div>
-      <div class="rcp-center" style="font-size:11px">Tel: +1 555-000-1234</div>
+      <div class="rcp-center" style="font-size:16px;font-weight:700">🏪 ${storeName}</div>
+      ${storeAddress ? `<div class="rcp-center" style="font-size:11px">${storeAddress}</div>` : ''}
+      ${storePhone   ? `<div class="rcp-center" style="font-size:11px">Tel: ${storePhone}</div>` : ''}
+      ${storeEmail   ? `<div class="rcp-center" style="font-size:11px">${storeEmail}</div>` : ''}
       <div class="rcp-line"></div>
       <div class="rcp-row"><span>Invoice:</span><span>${sale.invoice_number}</span></div>
       <div class="rcp-row"><span>Date:</span><span>${(sale.created_at||'').replace('T',' ').slice(0,19)}</span></div>
@@ -827,8 +835,8 @@ function showReceipt(sale) {
       <div class="rcp-row"><span>Payment:</span><span>${paymentMethod.toUpperCase()}</span></div>
       ${paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
       <div class="rcp-line"></div>
-      <div class="rcp-center" style="font-size:11px">Thank you for shopping at SmartRetail!</div>
-      <div class="rcp-center" style="font-size:10px;margin-top:4px">All sales are final. Visit us again!</div>
+      <div class="rcp-center" style="font-size:11px">${headerNote}</div>
+      <div class="rcp-center" style="font-size:10px;margin-top:4px">${footerNote}</div>
       <div class="rcp-center" style="font-size:10px;margin-top:4px">|||||||||||||||||||||||||||</div>
       <div class="rcp-center" style="font-family:var(--mono);font-size:10px">${sale.invoice_number}</div>
     </div>`;
@@ -3454,11 +3462,13 @@ function buildSlipA4Html(rawSale) {
   const storeName = s.company_name || 'SmartRetail Store';
   const storeAddress = s.address || '123 Market Street, City';
   const storePhone = s.phone || '';
-  const distName = '';
-  const distAddress = '';
-  const distPhone = '';
+  const storeEmail = s.email || '';
+  const distName = s.distributor_name || '';
+  const distAddress = s.distributor_address || '';
+  const distPhone = [s.distributor_phone, s.distributor_email].filter(Boolean).join(' · ');
   const ntn = s.tax_id || '';
   const logoDataUrl = s.logo || '';
+  const footerNote = s.invoice_footer_note || '';
 
   const logoBlock = logoDataUrl
     ? `<img src="${logoDataUrl}" style="max-width:85px;max-height:70px;object-fit:contain">`
@@ -3487,6 +3497,7 @@ function buildSlipA4Html(rawSale) {
         <div style="font-size:20px;font-weight:900;color:#000;letter-spacing:0.5px;text-transform:uppercase;line-height:1;margin-bottom:5px">ORDER BOOKING</div>
         <div style="font-size:10px;color:#000;line-height:1.9">
           ${storePhone  ? `<div><strong>${storePhone}</strong></div>`  : ''}
+          ${storeEmail  ? `<div>${storeEmail}</div>`  : ''}
           ${distPhone   ? `<div><strong>${distPhone}</strong></div>`   : ''}
         </div>
         ${ntn ? `<div style="display:inline-block;background:#000;color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:3px;margin-top:4px;letter-spacing:0.08em">NTN: ${ntn}</div>` : ''}
@@ -3587,14 +3598,9 @@ function buildSlipA4Html(rawSale) {
 
     ${b.notes?`<div style="margin-bottom:5mm;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:11px;color:#000"><strong>Notes:</strong> ${b.notes}</div>`:''}
 
-    <!-- ═══ SIGNATURE LINES ═══ -->
-    <div style="margin-top:10mm;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;font-size:11px">
-      <div style="border-top:1.5px solid #000;padding-top:5px;text-align:center;color:#000">Prepared By</div>
-      <div style="border-top:1.5px solid #000;padding-top:5px;text-align:center;color:#000">Checked By</div>
-      <div style="border-top:1.5px solid #000;padding-top:5px;text-align:center;color:#000">Customer Signature</div>
-    </div>
-
+    
     <!-- ═══ FOOTER ═══ -->
+    ${footerNote ? `<div style="margin-top:8mm;text-align:center;font-size:11px;color:#333;font-style:italic">${footerNote}</div>` : ''}
     <div class="slip-footer" style="margin-top:6mm;display:flex;justify-content:space-between;font-size:10px;color:#555;border-top:1px solid #ccc;padding-top:4mm">
       <span>SmartRetail ERP — Order Booking System</span>
       <span>${b.invoice} · Printed: ${new Date().toLocaleString()}</span>

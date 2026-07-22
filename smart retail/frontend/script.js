@@ -304,6 +304,42 @@ function quickLogin(email, password) {
   document.getElementById('l-pass').value = password;
   doLogin();
 }
+// Mirrors the backend's real permission classes (apps/core/permissions.py) —
+// a role only appears in a page's list here if the API it needs would
+// actually accept it. This is what keeps "the tab is visible" and "the
+// button under it actually works" in sync; a role that isn't listed for a
+// page would hit a 403 from the backend anyway if we let it in.
+const ROLE_PAGES = {
+  manager: ['dashboard','pos','booking','saleslips','salereturn','orders','ordersummary',
+            'products','inventory','stockreport','purchases','purchasereturn','suppliers',
+            'customers','collection','expenses','ledger','balancesheet','accounting',
+            'reports','supplyroutes'],
+  inventory_manager: ['products','inventory','stockreport','purchases','purchasereturn','suppliers'],
+  cashier: ['pos','booking','saleslips','salereturn','orders','customers','collection'],
+  salesperson: ['booking','saleslips'],
+};
+
+function _applyRoleNav(role) {
+  const fullAccess = role === 'super_admin' || role === 'admin';
+  const allowed = fullAccess ? null : (ROLE_PAGES[role] || []);
+
+  document.querySelectorAll('.nav-item').forEach(el => {
+    const page = el.dataset.page;
+    el.style.display = (fullAccess || allowed.includes(page)) ? '' : 'none';
+  });
+  document.getElementById('admin-nav').style.display = fullAccess ? '' : 'none';
+
+  // Hide a whole section header (e.g. "Administration") when every item
+  // under it is hidden, instead of leaving a floating label over nothing.
+  document.querySelectorAll('.nav-section').forEach(section => {
+    const items = section.querySelectorAll('.nav-item');
+    const anyVisible = Array.from(items).some(el => el.style.display !== 'none');
+    section.style.display = (items.length === 0 || anyVisible) ? '' : 'none';
+  });
+
+  return fullAccess ? 'dashboard' : (allowed[0] || 'dashboard');
+}
+
 async function loginAs(user) {
   currentUser = user;
   document.getElementById('login-screen').style.display = 'none';
@@ -313,12 +349,8 @@ async function loginAs(user) {
   document.getElementById('u-avatar').textContent = (user.full_name || user.email)[0].toUpperCase();
   document.getElementById('dash-user').textContent = (user.full_name || user.email).split(' ')[0];
 
-  // Full nav for everyone for now — granular per-role page restriction can be
-  // re-introduced once every page below is wired to the real backend.
-  document.querySelectorAll('.nav-item').forEach(e => e.style.display = '');
-  document.getElementById('admin-nav').style.display = '';
-
-  initApp();
+  const landingPage = _applyRoleNav(user.role);
+  initApp(landingPage);
 }
 async function doLogout() {
   if (confirm('Sign out of SmartRetail ERP?')) {
@@ -328,14 +360,15 @@ async function doLogout() {
     currentUser = null;
     document.getElementById('admin-nav').style.display = '';
     document.querySelectorAll('.nav-item').forEach(e => e.style.display = '');
+    document.querySelectorAll('.nav-section').forEach(e => e.style.display = '');
   }
 }
 
 // ── PERMISSION CHECK ─────────────────────────────────────
 function hasPermission(page) {
   if (!currentUser) return false;
-  if (currentUser.role === 'Admin') return true;
-  return (currentUser.permissions || []).includes(page);
+  if (currentUser.role === 'super_admin' || currentUser.role === 'admin') return true;
+  return (ROLE_PAGES[currentUser.role] || []).includes(page);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -410,9 +443,9 @@ function navigate(page) {
 // ═══════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════
-function initApp() {
+function initApp(landingPage) {
   initTheme();
-  navigate('dashboard');
+  navigate(landingPage || 'dashboard');
   setInterval(updateClock, 1000);
   updateClock();
   updatePosCustomers();

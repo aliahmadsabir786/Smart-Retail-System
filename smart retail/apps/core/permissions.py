@@ -43,7 +43,10 @@ class IsInventoryManagerOrAbove(HasRole):
 
 
 class IsCashierOrAbove(HasRole):
-    allowed_roles = ("super_admin", "admin", "manager", "cashier")
+    # Salesperson needs the same create/hold/finalize/pay access as a
+    # cashier — Order Booking and Sale Slips are built entirely on
+    # SaleViewSet, which is gated by this permission class.
+    allowed_roles = ("super_admin", "admin", "manager", "cashier", "salesperson")
 
 
 class IsOwnerOrReadOnly(BasePermission):

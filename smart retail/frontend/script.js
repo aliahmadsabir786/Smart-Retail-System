@@ -3242,9 +3242,102 @@ function viewSlipDetail(id) {
     </div>
     ${b.notes?`<div style="margin-top:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;font-size:12px"><strong>Notes:</strong> ${b.notes}</div>`:''}
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      ${b.status === 'draft' ? `
+        <button class="btn btn-red btn-sm" onclick="deleteSlipFromModal(${b.id}, '${b.invoice_number}')"><i class="fa fa-trash"></i> Delete</button>
+        <button class="btn btn-ghost btn-sm" onclick="editSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit</button>
+      ` : (b.status === 'completed' || b.status === 'partially_returned') ? `
+        <button class="btn btn-red btn-sm" onclick="cancelSlipFromModal(${b.id})"><i class="fa fa-undo"></i> Cancel / Return</button>
+        <button class="btn btn-ghost btn-sm" onclick="editCompletedSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit Invoice</button>
+      ` : ''}
       <button class="btn btn-accent btn-sm" onclick="printSingleSlipA4(${b.id})"><i class="fa fa-print"></i> Print A4</button>
     </div>`;
   openModal('order-detail-modal');
+}
+
+// Held (DRAFT) invoices haven't touched stock or a customer's balance yet,
+// so they can be edited or fully deleted from here. Once finalized, the
+// backend refuses both — a completed/partially-returned sale instead gets
+// "Cancel / Return", which reuses the same full-return path as the Order
+// Booking list so stock and balance are restored correctly.
+function editSlipFromModal(id) {
+  closeModal('order-detail-modal');
+  navigate('booking');
+  editBooking(id);
+}
+
+async function deleteSlipFromModal(id, invoiceNumber) {
+  if (!confirm(`Delete held invoice ${invoiceNumber||''}? This can't be undone.`)) return;
+  try {
+    await SalesAPI.remove(id);
+    toast('Held invoice deleted', 'warning');
+    closeModal('order-detail-modal');
+    renderSaleSlips();
+  } catch (err) {
+    toast(err.message || 'Failed to delete invoice', 'error');
+  }
+}
+
+async function cancelSlipFromModal(id) {
+  if (!confirm('Cancel this invoice? Stock and customer balance will be restored via a full return.')) return;
+  try {
+    const sale = await SalesAPI.get(id);
+    const items = sale.items
+      .filter(i => (i.quantity - i.quantity_returned) > 0)
+      .map(i => ({ sale_item: i.id, quantity: i.quantity - i.quantity_returned }));
+    if (!items.length) { toast('Nothing left to cancel — already fully returned.', 'warning'); return; }
+    await SalesAPI.processReturn(id, { items, reason: 'Cancelled from Sale Slips' });
+    closeModal('order-detail-modal');
+    renderSaleSlips();
+    toast('Invoice cancelled — stock and balance restored', 'warning');
+  } catch (err) {
+    toast(err.message || 'Failed to cancel invoice', 'error');
+  }
+}
+
+// A COMPLETED (or partially-returned) invoice has already moved stock and
+// touched the customer's balance/loyalty points — the backend won't let it
+// be edited in place (only a still-held DRAFT can be). The safe, correct
+// way to "edit" one is the same thing an accountant would do on paper:
+// return it in full first (so stock/balance go back to where they were),
+// then re-book the same items in an editable form so the user's changes
+// go out as a fresh, correct invoice instead of silently mutating a
+// finalized financial record.
+async function editCompletedSlipFromModal(id) {
+  if (!confirm('Editing a completed invoice will first return all its items (restoring stock and customer balance), then let you re-book it with your changes as a NEW invoice. Continue?')) return;
+
+  let sale;
+  try {
+    sale = await SalesAPI.get(id);
+    const items = sale.items
+      .filter(i => (i.quantity - i.quantity_returned) > 0)
+      .map(i => ({ sale_item: i.id, quantity: i.quantity - i.quantity_returned }));
+    if (items.length) {
+      await SalesAPI.processReturn(id, { items, reason: 'Returned for edit' });
+    }
+  } catch (err) {
+    toast(err.message || 'Failed to prepare invoice for editing', 'error');
+    return;
+  }
+
+  closeModal('order-detail-modal');
+  navigate('booking');
+  await newBookingForm(); // fresh booking — the old invoice is now closed/returned, not edited in place
+
+  if (sale.customer) {
+    document.getElementById('bk-customer').value = sale.customer;
+    onBookingCustomerChange();
+  }
+  document.getElementById('bk-notes').value =
+    (sale.notes || '').replace(/^Order Booking\s*(—\s*)?/, '').replace(/\s*\(date:[^)]*\)\s*$/, '');
+  _bookingItems = sale.items.map(it => ({
+    productId: it.product, name: it.product_name, rate: Number(it.unit_price),
+    qty: it.quantity, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent) || 0,
+  }));
+  _bookingItems.push({ productId: '', name: '', rate: 0, qty: 0, cartons: 0, ppc: 1 });
+  document.getElementById('booking-form-title').textContent = `✏️ Re-booking (was ${sale.invoice_number})`;
+  renderBookingItemRows();
+  calcBookingTotals();
+  toast(`${sale.invoice_number} returned — adjust the items below and save to issue the corrected invoice.`, 'warning');
 }
 
 // Adapts a real Sale object (from the backend) into the field shape this

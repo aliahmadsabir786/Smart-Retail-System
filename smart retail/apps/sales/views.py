@@ -85,6 +85,12 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             raise InvalidTransitionException("Only a held invoice can be deleted — this one is already finalized.")
         return super().destroy(request, *args, **kwargs)
 
+    def perform_destroy(self, instance):
+        # A held invoice never touched stock or a customer's balance, so
+        # there's nothing to reverse — delete it completely rather than the
+        # default soft-delete, so it's actually gone, not just hidden.
+        instance.delete(hard=True)
+
     @action(detail=False, methods=["post"], url_path="hold")
     def hold(self, request):
         """POST /sales/hold/ — "Hold Invoice": parks the current booking as a

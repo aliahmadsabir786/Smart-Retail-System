@@ -4973,13 +4973,21 @@ function renderCalendarGrid() {
         </div>`;
       DAYS_OF_WEEK.forEach((day, di) => {
         const active = r.days.includes(day);
-        const isToday = dates[di].toDateString() === new Date().toDateString();
+        const cellDate = new Date(dates[di]); cellDate.setHours(0,0,0,0);
+        const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+        const isToday = cellDate.getTime() === todayDate.getTime();
+        const isFuture = cellDate.getTime() > todayDate.getTime();
         html += `<div style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);background:${isToday&&active?'rgba(59,130,246,.06)':''}">
           ${active
-            ? `<div style="background:${color}22;border:1px solid ${color}55;border-radius:6px;padding:4px 8px;text-align:center;width:90%">
-                <i class="fa fa-check" style="color:${color};font-size:10px;display:block;margin-bottom:1px"></i>
-                <span style="font-size:9px;font-weight:700;color:${color}">Visit</span>
-               </div>`
+            ? (isFuture
+                ? `<div style="background:var(--yellow-glow);border:1px solid rgba(245,158,11,.4);border-radius:6px;padding:4px 8px;text-align:center;width:90%">
+                     <i class="fa fa-clock" style="color:var(--yellow);font-size:10px;display:block;margin-bottom:1px"></i>
+                     <span style="font-size:9px;font-weight:700;color:var(--yellow)">Pending</span>
+                   </div>`
+                : `<div style="background:${color}22;border:1px solid ${color}55;border-radius:6px;padding:4px 8px;text-align:center;width:90%">
+                     <i class="fa fa-check" style="color:${color};font-size:10px;display:block;margin-bottom:1px"></i>
+                     <span style="font-size:9px;font-weight:700;color:${color}">Visit</span>
+                   </div>`)
             : `<div style="width:20px;height:2px;background:var(--border);border-radius:2px;margin:0 auto"></div>`
           }
         </div>`;

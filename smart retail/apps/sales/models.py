@@ -1,4 +1,3 @@
-import uuid
 from decimal import Decimal
 from django.conf import settings
 from django.db import models
@@ -89,7 +88,37 @@ class Sale(BaseModel):
 
     @staticmethod
     def generate_invoice_number():
-        return f"INV-{uuid.uuid4().hex[:10].upper()}"
+        """
+        Builds the next invoice number as {company's configured prefix}{sequential number}.
+
+        Uses a sequential counter rather than a random one: with only 3 digits
+        (000-999) a random number would start colliding with existing invoice
+        numbers fairly quickly (invoice_number is unique=True), causing an
+        IntegrityError on save. A sequential counter can never collide, and
+        it's also the more standard, auditable pattern for invoice numbering.
+        Rolls naturally past 999 to 4+ digits instead of erroring out.
+        """
+        from apps.settings.models import CompanySettings
+
+        settings_row = CompanySettings.objects.first()
+        prefix = (settings_row.invoice_prefix if settings_row else "INV-") or "INV-"
+
+        # all_objects (not the soft-delete-filtered default manager) so a
+        # deleted invoice's number still counts — its row still occupies
+        # that unique invoice_number in the database.
+        last_number = (
+            Sale.all_objects.filter(invoice_number__startswith=prefix)
+            .order_by("-id")
+            .values_list("invoice_number", flat=True)
+            .first()
+        )
+        next_seq = 1
+        if last_number:
+            suffix = last_number[len(prefix):]
+            if suffix.isdigit():
+                next_seq = int(suffix) + 1
+
+        return f"{prefix}{next_seq:03d}"
 
 
 class SaleItem(BaseModel):

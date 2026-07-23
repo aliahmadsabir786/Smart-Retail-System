@@ -3449,6 +3449,7 @@ function _adaptSaleForSlipPrint(sale) {
     invoice: sale.invoice_number,
     date: (sale.created_at||'').slice(0,10),
     customerName: sale.customer_name || 'Walk-in',
+    customerCnic: sale.customer_cnic || '',
     accountNo: sale.customer ? ('ACC-'+String(sale.customer).padStart(4,'0')) : '—',
     paymentMethod: (sale.payments[0]?.method) || '—',
     createdBy: '',
@@ -3519,6 +3520,10 @@ function buildSlipA4Html(rawSale) {
       <div style="flex:1.3;padding:4mm 5mm;border-right:1.5px solid #000">
         <div style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:3px 6px;margin:-4mm -5mm 3mm;display:block">BILL TO</div>
         <div style="font-size:14px;font-weight:900;color:#000;margin-bottom:3px">${b.customerName}</div>
+        ${b.customerCnic ? `<div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
+          <span style="min-width:82px;font-size:10px;color:#444">CNIC:</span>
+          <strong style="color:#000;font-family:monospace">${b.customerCnic}</strong>
+        </div>` : ''}
         <div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
           <span style="min-width:82px;font-size:10px;color:#444">Account No:</span>
           <strong style="color:#000;font-family:monospace">${b.accountNo||'—'}</strong>

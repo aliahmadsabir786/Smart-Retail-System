@@ -32,7 +32,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = ["id", "sku", "barcode", "name", "category_name", "brand_name",
-                  "unit", "cost_price", "selling_price", "final_price", "status", "primary_image",
+                  "unit", "cost_price", "selling_price", "tax_rate", "final_price", "status", "primary_image",
                   "current_stock", "reorder_level"]
 
     @extend_schema_field(serializers.CharField(allow_null=True))

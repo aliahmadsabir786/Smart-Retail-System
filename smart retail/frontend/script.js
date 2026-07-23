@@ -649,7 +649,7 @@ function addToCart(pid) {
     if (existing.qty >= stock) { toast('Insufficient stock!', 'warning'); return; }
     existing.qty++;
   } else {
-    cart.push({ id: pid, name: prod.name, price: Number(prod.final_price), qty: 1, icon: '📦' });
+    cart.push({ id: pid, name: prod.name, price: Number(prod.final_price), qty: 1, icon: '📦', taxRate: Number(prod.tax_rate)||0 });
   }
   updateCartUI();
 }
@@ -672,7 +672,6 @@ function changeQty(pid, delta) {
 function updateCartUI() {
   const container = document.getElementById('cart-items');
   const discount = parseFloat(document.getElementById('cart-discount').value)||0;
-  const taxRate = parseFloat(document.getElementById('cart-tax').value)||0;
 
   if (cart.length === 0) {
     container.innerHTML = `<div class="cart-empty"><i class="fa fa-shopping-cart"></i><div style="font-size:13px;font-weight:600">Cart is empty</div><div style="font-size:12px">Click products to add</div></div>`;
@@ -682,7 +681,7 @@ function updateCartUI() {
         <span style="font-size:20px">${item.icon}</span>
         <div class="cart-item-info">
           <div class="cart-item-name">${item.name}</div>
-          <div class="cart-item-price">Rs.${item.price.toFixed(2)} each</div>
+          <div class="cart-item-price">Rs.${item.price.toFixed(2)} each${item.taxRate>0?` · ${item.taxRate}% tax`:''}</div>
         </div>
         <div class="cart-qty">
           <button class="qty-btn" onclick="changeQty(${item.id},-1)">−</button>
@@ -696,7 +695,13 @@ function updateCartUI() {
 
   const subtotal = cart.reduce((a,i) => a + i.price*i.qty, 0);
   const discountAmt = subtotal * discount / 100;
-  const taxAmt = (subtotal - discountAmt) * taxRate / 100;
+  // Tax is computed per line item from each product's own configured tax
+  // rate — NOT a single flat percentage applied to the whole cart, so a
+  // product set to 18% is actually charged at 18%, regardless of what any
+  // other product in the same cart is taxed at. This mirrors exactly how
+  // the backend computes it: tax on each line's full amount, with the
+  // manual cart-level discount subtracted separately afterward.
+  const taxAmt = cart.reduce((a,i) => a + (i.price*i.qty) * (i.taxRate||0)/100, 0);
   const total = subtotal - discountAmt + taxAmt;
 
   document.getElementById('cart-count').textContent = cart.reduce((a,i)=>a+i.qty,0);
@@ -710,7 +715,7 @@ function updateCartUI() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  ['cart-discount','cart-tax','cash-received'].forEach(id => {
+  ['cart-discount','cash-received'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', updateCartUI);
   });
@@ -740,10 +745,9 @@ const _posPaymentMethodMap = { cash: 'cash', card: 'card', digital: 'mobile_wall
 async function processPayment() {
   if (cart.length === 0) { toast('Cart is empty!', 'error'); return; }
   const discount = parseFloat(document.getElementById('cart-discount').value)||0;
-  const taxRate = parseFloat(document.getElementById('cart-tax').value)||0;
   const subtotal = cart.reduce((a,i) => a+i.price*i.qty, 0);
   const discountAmt = subtotal * discount / 100;
-  const taxAmt = (subtotal-discountAmt)*taxRate/100;
+  const taxAmt = cart.reduce((a,i) => a + (i.price*i.qty) * (i.taxRate||0)/100, 0);
   const total = subtotal - discountAmt + taxAmt;
 
   if (selectedPayment === 'cash') {
@@ -766,7 +770,7 @@ async function processPayment() {
       product: i.id,
       quantity: i.qty,
       unit_price: i.price,
-      tax_percent: taxRate,
+      tax_percent: i.taxRate||0,
     }));
 
     const sale = await SalesAPI.create({
@@ -788,7 +792,6 @@ async function processPayment() {
     showReceipt(sale);
     cart = [];
     document.getElementById('cart-discount').value = 0;
-    document.getElementById('cart-tax').value = 8;
     document.getElementById('cash-received').value = '';
     updateCartUI();
     renderPosProducts();      // refresh stock levels shown in the grid

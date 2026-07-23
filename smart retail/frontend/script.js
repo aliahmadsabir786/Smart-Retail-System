@@ -1517,7 +1517,7 @@ function validateCnic(val) {
 
 function isCnicDuplicate(cnic, excludeId) {
   if (!cnic) return false;
-  return DB.customers.some(c => c.cnic === cnic && c.id !== excludeId);
+  return _customerCache.some(c => c.cnic === cnic && c.id !== excludeId);
 }
 
 let _customerCache = [];
@@ -1547,7 +1547,7 @@ async function renderCustomers(page) {
       <td class="td-mono">CUST-${String(c.id).padStart(3,'0')}</td>
       <td class="fw-700">${c.name}</td>
       <td>${c.phone||'—'}</td>
-      <td style="font-family:var(--mono);font-size:12px"><span style="color:var(--text-muted)">—</span></td>
+      <td style="font-family:var(--mono);font-size:12px">${c.cnic || '<span style="color:var(--text-muted)">—</span>'}</td>
       <td>${c.email||'—'}</td>
       <td class="fw-700 text-green">Rs.${Number(c.credit_limit).toFixed(2)}</td>
       <td class="${Number(c.outstanding_balance)>0?'text-red':'text-green'} fw-700">Rs.${Number(c.outstanding_balance).toFixed(2)}</td>
@@ -1593,7 +1593,7 @@ function editCustomer(id) {
   document.getElementById('cust-prev-balance').value = c.outstanding_balance || 0;
   document.getElementById('cust-credit-limit').value = c.credit_limit || 0;
   const cnicEl = document.getElementById('cust-cnic');
-  if (cnicEl) { cnicEl.value = ''; }
+  if (cnicEl) { cnicEl.value = c.cnic || ''; }
   openModal('customer-modal');
 }
 
@@ -1604,16 +1604,22 @@ async function saveCustomer() {
   const cnic    = (document.getElementById('cust-cnic')?.value || '').trim();
   const editId  = parseInt(document.getElementById('cust-edit-id').value);
 
-  // CNIC validation kept as a client-side format check only — the backend
-  // Customer model has no CNIC field yet, so it is not persisted.
+  // CNIC format is still validated client-side; the backend now has a real
+  // column for it (see Customer.cnic), so it's included in the save payload.
   if (cnic && !/^\d{5}-\d{7}-\d{1}$/.test(cnic)) {
     toast('Invalid CNIC format. Use: 35202-1234567-1', 'error');
+    document.getElementById('cust-cnic')?.focus();
+    return;
+  }
+  if (cnic && isCnicDuplicate(cnic, editId)) {
+    toast('This CNIC is already registered to another customer.', 'error');
     document.getElementById('cust-cnic')?.focus();
     return;
   }
 
   const payload = {
     name,
+    cnic,
     phone: document.getElementById('cust-phone').value,
     email: document.getElementById('cust-email').value,
     address: document.getElementById('cust-address').value,

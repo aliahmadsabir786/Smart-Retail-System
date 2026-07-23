@@ -28,6 +28,8 @@ class Customer(BaseModel):
                                related_name="customers")
 
     name = models.CharField(max_length=150)
+    cnic = models.CharField(max_length=15, blank=True, default="",
+                             help_text="Pakistani CNIC, format 35202-1234567-1")
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
     address = models.TextField(blank=True)

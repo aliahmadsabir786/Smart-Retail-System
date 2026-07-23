@@ -3450,6 +3450,7 @@ function _adaptSaleForSlipPrint(sale) {
     date: (sale.created_at||'').slice(0,10),
     customerName: sale.customer_name || 'Walk-in',
     customerCnic: sale.customer_cnic || '',
+    customerAddress: sale.customer_address || '',
     accountNo: sale.customer ? ('ACC-'+String(sale.customer).padStart(4,'0')) : '—',
     paymentMethod: (sale.payments[0]?.method) || '—',
     createdBy: '',
@@ -3470,7 +3471,7 @@ function buildSlipA4Html(rawSale) {
 
   const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
   const storeName = s.company_name || 'SmartRetail Store';
-  const storeAddress = s.address || '123 Market Street, City';
+  const storeAddress = s.address || '';
   const storePhone = s.phone || '';
   const storeEmail = s.email || '';
   const distName = s.distributor_name || '';
@@ -3487,30 +3488,18 @@ function buildSlipA4Html(rawSale) {
   return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:14mm 15mm;box-sizing:border-box">
 
     <!-- ═══ MAIN HEADER ═══ -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #000;padding-bottom:6mm;margin-bottom:5mm">
-      <!-- LEFT: Logo + Store Name + Dist Name + Address -->
-      <div style="display:flex;align-items:flex-start;gap:12px;flex:1">
-        <div style="width:88px;height:72px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid #ddd;border-radius:6px;overflow:hidden;background:#f9f9f9;padding:4px">
-          ${logoBlock}
+    <div style="display:flex;align-items:flex-start;gap:14px;border-bottom:2.5px solid #000;padding-bottom:6mm;margin-bottom:5mm">
+      ${ssSettings.showCompanyLogo ? `<div style="width:88px;height:72px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid #ddd;border-radius:6px;overflow:hidden;background:#f9f9f9;padding:4px">
+        ${logoBlock}
+      </div>` : ''}
+      <div>
+        <div style="font-size:19px;font-weight:900;color:#000;letter-spacing:-0.3px;line-height:1.1;margin-bottom:6px">${storeName}</div>
+        <div style="font-size:10.5px;color:#000;line-height:2">
+          ${distName    ? `<div><span style="color:#555">Distributor Name:</span> <strong>${distName}</strong></div>` : ''}
+          ${(storePhone||distPhone) ? `<div><span style="color:#555">Phone No:</span> <strong>${storePhone||distPhone}</strong></div>` : ''}
+          ${(storeAddress||distAddress) ? `<div><span style="color:#555">Address:</span> <strong>${storeAddress||distAddress}</strong></div>` : ''}
+          ${ntn ? `<div><span style="color:#555">NTN No:</span> <strong>${ntn}</strong></div>` : ''}
         </div>
-        <div style="flex:1">
-          <div style="font-size:19px;font-weight:900;color:#000;letter-spacing:-0.3px;line-height:1.1;margin-bottom:2px">${storeName}</div>
-          ${distName ? `<div style="font-size:12px;font-weight:700;color:#000;margin-bottom:3px">${distName}</div>` : ''}
-          <div style="font-size:10px;color:#333;line-height:1.7">
-            ${storeAddress ? `<div>${storeAddress}</div>` : ''}
-            ${distAddress  ? `<div>${distAddress}</div>`  : ''}
-          </div>
-        </div>
-      </div>
-      <!-- RIGHT: Contact + NTN -->
-      <div style="text-align:right;min-width:52mm">
-        <div style="font-size:20px;font-weight:900;color:#000;letter-spacing:0.5px;text-transform:uppercase;line-height:1;margin-bottom:5px">ORDER BOOKING</div>
-        <div style="font-size:10px;color:#000;line-height:1.9">
-          ${storePhone  ? `<div><strong>${storePhone}</strong></div>`  : ''}
-          ${storeEmail  ? `<div>${storeEmail}</div>`  : ''}
-          ${distPhone   ? `<div><strong>${distPhone}</strong></div>`   : ''}
-        </div>
-        ${ntn ? `<div style="display:inline-block;background:#000;color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:3px;margin-top:4px;letter-spacing:0.08em">NTN: ${ntn}</div>` : ''}
       </div>
     </div>
 
@@ -3520,9 +3509,13 @@ function buildSlipA4Html(rawSale) {
       <div style="flex:1.3;padding:4mm 5mm;border-right:1.5px solid #000">
         <div style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:3px 6px;margin:-4mm -5mm 3mm;display:block">BILL TO</div>
         <div style="font-size:14px;font-weight:900;color:#000;margin-bottom:3px">${b.customerName}</div>
-        ${b.customerCnic ? `<div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
+        ${(ssSettings.showCustomerDetails && b.customerCnic) ? `<div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
           <span style="min-width:82px;font-size:10px;color:#444">CNIC:</span>
           <strong style="color:#000;font-family:monospace">${b.customerCnic}</strong>
+        </div>` : ''}
+        ${(ssSettings.showCustomerDetails && b.customerAddress) ? `<div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
+          <span style="min-width:82px;font-size:10px;color:#444">Address:</span>
+          <strong style="color:#000;font-weight:600">${b.customerAddress}</strong>
         </div>` : ''}
         <div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
           <span style="min-width:82px;font-size:10px;color:#444">Account No:</span>
@@ -3532,23 +3525,15 @@ function buildSlipA4Html(rawSale) {
           <span style="min-width:82px;font-size:10px;color:#444">Date:</span>
           <strong style="color:#000">${b.date}</strong>
         </div>
-        <div style="display:flex;gap:6px;font-size:11px;color:#000">
+        ${ssSettings.showPaymentMethod ? `<div style="display:flex;gap:6px;font-size:11px;color:#000">
           <span style="min-width:82px;font-size:10px;color:#444">Payment:</span>
           <strong style="color:#000">${b.paymentMethod||'—'}</strong>
-        </div>
+        </div>` : ''}
       </div>
       <!-- INVOICE INFO -->
       <div style="min-width:52mm;padding:4mm 5mm">
         <div style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:3px 6px;margin:-4mm -5mm 3mm;display:block;text-align:right">INVOICE DETAILS</div>
-        <div style="font-size:17px;font-weight:900;color:#000;letter-spacing:0.5px;margin-bottom:4px;text-align:right">${b.invoice}</div>
-        <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
-          <span style="font-size:10px;color:#444">Cashier:</span>
-          <strong style="color:#000">${b.createdBy||currentUser?.full_name||'Admin'}</strong>
-        </div>
-        <div style="display:flex;justify-content:space-between;gap:6px;font-size:11px;color:#000">
-          <span style="font-size:10px;color:#444">Items:</span>
-          <strong style="color:#000">${b.items.length} line(s)</strong>
-        </div>
+        <div style="font-size:17px;font-weight:900;color:#000;letter-spacing:0.5px;text-align:right">${b.invoice}</div>
       </div>
     </div>
 
@@ -3562,8 +3547,8 @@ function buildSlipA4Html(rawSale) {
           <th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">PIECES</th>
           <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">UNIT PRICE</th>
           <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">BASE AMOUNT</th>
-          <th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">TAX%</th>
-          <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TAX AMT</th>
+          ${ssSettings.showTax ? `<th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">TAX%</th>
+          <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TAX AMT</th>` : ''}
           <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TOTAL</th>
         </tr>
       </thead>
@@ -3581,8 +3566,8 @@ function buildSlipA4Html(rawSale) {
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:center;background:${bg}">${tp}</td>
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;font-weight:600;color:#000;text-align:right;background:${bg}">Rs. ${(it.rate||0).toFixed(2)}</td>
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:right;background:${bg}">Rs. ${baseAmt.toFixed(2)}</td>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemTaxPct>0?'#8b0000':'#999'}">${itemTaxPct>0?itemTaxPct+'%':'—'}</td>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:${taxAmt>0?'#8b0000':'#999'};text-align:right;background:${bg}">${taxAmt>0?'Rs. '+taxAmt.toFixed(2):'—'}</td>
+            ${ssSettings.showTax ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemTaxPct>0?'#8b0000':'#999'}">${itemTaxPct>0?itemTaxPct+'%':'—'}</td>
+            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:${taxAmt>0?'#8b0000':'#999'};text-align:right;background:${bg}">${taxAmt>0?'Rs. '+taxAmt.toFixed(2):'—'}</td>` : ''}
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:800;color:#000;text-align:right;background:${bg}">Rs. ${totalAmt.toFixed(2)}</td>
           </tr>`;
         }).join('')}
@@ -3600,9 +3585,9 @@ function buildSlipA4Html(rawSale) {
           const discAmt      = b.discAmt||0;
           const grandTotal   = subtotalBase + totalTaxAmt - discAmt;
           return `
-        <div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>
-        ${hasTax?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>`:''}
-        ${discAmt>0?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${b.discountPct||0}%)</span><span style="font-weight:600">- Rs. ${discAmt.toFixed(2)}</span></div>`:''}
+        ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
+        ${(ssSettings.showTax && hasTax)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>`:''}
+        ${(ssSettings.showDiscount && discAmt>0)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${b.discountPct||0}%)</span><span style="font-weight:600">- Rs. ${discAmt.toFixed(2)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;padding:8px 10px;background:#1a1a1a;color:#fff;font-size:14px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>Previous Balance</span><span>Rs. ${(b.prevBal||0).toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:9px 10px;background:#f59e0b;color:#000;font-size:16px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
@@ -3614,7 +3599,7 @@ function buildSlipA4Html(rawSale) {
 
     
     <!-- ═══ FOOTER ═══ -->
-    ${footerNote ? `<div style="margin-top:8mm;text-align:center;font-size:11px;color:#333;font-style:italic">${footerNote}</div>` : ''}
+    ${(ssSettings.showFooterNotes && footerNote) ? `<div style="margin-top:8mm;text-align:center;font-size:11px;color:#333;font-style:italic">${footerNote}</div>` : ''}
     <div class="slip-footer" style="margin-top:6mm;display:flex;justify-content:space-between;font-size:10px;color:#555;border-top:1px solid #ccc;padding-top:4mm">
       <span>SmartRetail ERP — Order Booking System</span>
       <span>${b.invoice} · Printed: ${new Date().toLocaleString()}</span>
@@ -6070,21 +6055,33 @@ if (!DB.purchaseReturns)  DB.purchaseReturns = [];
 
 let _colCustomerCache = [];
 let _colSalesCache = [];
+let _colReturnsCache = [];
 
 function _custBookings(custId) {
   return _colSalesCache.filter(b => b.customer === custId);
+}
+
+// Total refunded against a specific sale — a fully-returned sale nets to
+// ~0 owed, a partially-returned one only has the refunded portion removed.
+function _refundedForSale(saleId) {
+  return _colReturnsCache
+    .filter(r => r.sale === saleId)
+    .reduce((s, r) => s + Number(r.refund_amount || 0), 0);
 }
 
 function getCustomerBalance(custId) {
   const bookings = _custBookings(custId);
   const totalOrders = bookings.reduce((s, b) => s + Number(b.total_amount), 0);
   const payments    = bookings.reduce((s, b) => s + Number(b.paid_amount), 0);
-  return { totalOrders, payments, balance: totalOrders - payments };
+  const refunds     = bookings.reduce((s, b) => s + _refundedForSale(b.id), 0);
+  return { totalOrders: totalOrders - refunds, payments, balance: (totalOrders - refunds) - payments };
 }
 
 function getTodayOrders(custId) {
   const today = new Date().toISOString().split('T')[0];
-  return _custBookings(custId).filter(b => (b.created_at||'').slice(0,10) === today).reduce((s, b) => s + Number(b.total_amount), 0);
+  return _custBookings(custId)
+    .filter(b => (b.created_at||'').slice(0,10) === today)
+    .reduce((s, b) => s + Number(b.total_amount) - _refundedForSale(b.id), 0);
 }
 
 function getLastPaymentDate(custId) {
@@ -6117,11 +6114,13 @@ function getUsernameCollectionRows(username) {
 }
 
 async function renderCollection() {
-  const [custData, salesData] = await Promise.all([
+  const [custData, salesData, returnsData] = await Promise.all([
     CustomersAPI.list({ page_size: 500 }), SalesAPI.list({ page_size: 500 }),
+    SalesAPI.returnHistory({ page_size: 1000 }),
   ]);
   _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: 'ACC-'+String(c.id).padStart(4,'0') }));
   _colSalesCache = (salesData.results || salesData).filter(b => b.status !== 'cancelled');
+  _colReturnsCache = returnsData.results || returnsData;
 
   const q           = (document.getElementById('col-search')?.value||'').toLowerCase();
   const dateFrom    = document.getElementById('col-date-from')?.value||'';

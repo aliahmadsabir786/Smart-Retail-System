@@ -40,6 +40,7 @@ class SaleSerializer(serializers.ModelSerializer):
     payments = PaymentSerializer(many=True, read_only=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True, default=None)
     customer_cnic = serializers.CharField(source="customer.cnic", read_only=True, default=None)
+    customer_address = serializers.CharField(source="customer.address", read_only=True, default=None)
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
     served_by_name = serializers.CharField(source="served_by.get_full_name", read_only=True, default=None)
     due_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
@@ -47,7 +48,8 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            "id", "invoice_number", "customer", "customer_name", "customer_cnic", "warehouse", "warehouse_name",
+            "id", "invoice_number", "customer", "customer_name", "customer_cnic", "customer_address",
+            "warehouse", "warehouse_name",
             "served_by", "served_by_name", "coupon", "subtotal", "discount_amount", "tax_amount",
             "total_amount", "paid_amount", "due_amount", "status", "payment_status", "notes",
             "items", "payments", "created_at",

@@ -3810,6 +3810,74 @@ async function saveSettings() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// SETTINGS — DANGER ZONE: START NEW BUSINESS
+// Three independent, single-purpose actions — each clears only its own
+// section (Products / Sale Slips / Customers) and leaves the rest alone.
+// ═══════════════════════════════════════════════════════
+const _clearDataConfig = {
+  'products': {
+    title: 'Clear Products',
+    message: 'This will permanently delete <strong>every product</strong> in the catalog, along with its stock/inventory data.',
+    apiCall: () => SettingsAPI.clearProducts(),
+    successMsg: 'All products have been cleared.',
+    refresh: () => { if (typeof renderProducts === 'function') renderProducts(); if (typeof renderDashboard === 'function') renderDashboard(); },
+  },
+  'sale-slips': {
+    title: 'Clear Sale Slips',
+    message: 'This will permanently delete <strong>every sale slip</strong> — invoices, payments &amp; returns.',
+    apiCall: () => SettingsAPI.clearSaleSlips(),
+    successMsg: 'All sale slips have been cleared.',
+    refresh: () => { if (typeof renderSaleSlips === 'function') renderSaleSlips(); if (typeof renderDashboard === 'function') renderDashboard(); },
+  },
+  'customers': {
+    title: 'Clear Customers',
+    message: 'This will permanently delete <strong>every customer</strong> record. Past sale slips are kept and simply become walk-in sales.',
+    apiCall: () => SettingsAPI.clearCustomers(),
+    successMsg: 'All customers have been cleared.',
+    refresh: () => { if (typeof renderCustomers === 'function') renderCustomers(); },
+  },
+};
+
+let _clearDataType = null;
+
+function openClearDataModal(type) {
+  _clearDataType = type;
+  const cfg = _clearDataConfig[type];
+  if (!cfg) return;
+  document.getElementById('clear-data-title').textContent = cfg.title;
+  document.getElementById('clear-data-message').innerHTML = cfg.message;
+  const input = document.getElementById('clear-data-confirm-input');
+  if (input) input.value = '';
+  openModal('clear-data-modal');
+  setTimeout(() => input?.focus(), 60);
+}
+
+async function submitClearData() {
+  const cfg = _clearDataConfig[_clearDataType];
+  if (!cfg) return;
+  const input = document.getElementById('clear-data-confirm-input');
+  if ((input?.value || '').trim().toUpperCase() !== 'DELETE') {
+    toast('Type DELETE exactly to confirm.', 'error');
+    return;
+  }
+  const btn = document.getElementById('clear-data-confirm-btn');
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Deleting...';
+  try {
+    await cfg.apiCall();
+    closeModal('clear-data-modal');
+    toast(cfg.successMsg, 'success');
+    cfg.refresh();
+  } catch (err) {
+    toast(err.message || 'Failed to clear data', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalLabel;
+  }
+}
+
 async function handleLogoUpload(input) {
   const file = input.files[0];
   if (!file) return;

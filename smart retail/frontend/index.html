@@ -1352,6 +1352,39 @@
             </div>
           </div>
         </div>
+
+        <!-- Danger Zone: Start New Business (independent, single-purpose actions) -->
+        <div class="card" style="margin-top:20px;border:1px solid rgba(239,68,68,.35)">
+          <div class="card-header"><div class="card-title" style="color:var(--red)"><i class="fa fa-exclamation-triangle"></i> Danger Zone — Start New Business</div></div>
+          <div class="card-body">
+            <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+              <i class="fa fa-info-circle" style="color:var(--red)"></i> Use these only when switching this system to a new business. Each button below permanently clears <strong>only</strong> that one section — the others are left untouched. <strong>None of these can be undone.</strong>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:12px;border:1px solid var(--border);border-radius:8px">
+                <div>
+                  <div style="font-weight:700;font-size:13px">📦 Clear Products</div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Deletes every product in the catalog and its stock/inventory data.</div>
+                </div>
+                <button class="btn btn-red btn-sm" onclick="openClearDataModal('products')"><i class="fa fa-eraser"></i> Clear Products</button>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:12px;border:1px solid var(--border);border-radius:8px">
+                <div>
+                  <div style="font-weight:700;font-size:13px">🧾 Clear Sale Slips</div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Deletes every sale slip — invoices, payments &amp; returns.</div>
+                </div>
+                <button class="btn btn-red btn-sm" onclick="openClearDataModal('sale-slips')"><i class="fa fa-eraser"></i> Clear Sale Slips</button>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:12px;border:1px solid var(--border);border-radius:8px">
+                <div>
+                  <div style="font-weight:700;font-size:13px">👤 Clear Customers</div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Deletes every customer record. Past sale slips are kept and just become walk-in sales.</div>
+                </div>
+                <button class="btn btn-red btn-sm" onclick="openClearDataModal('customers')"><i class="fa fa-eraser"></i> Clear Customers</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ═══ LEDGER ACCOUNTS ═══ -->
@@ -1930,6 +1963,29 @@
 </div>
 
 <!-- ═══ MODALS ═══ -->
+
+<!-- Start New Business — Clear Data Modal (reused for Products / Sale Slips / Customers) -->
+<div class="modal-overlay" id="clear-data-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--red)"><i class="fa fa-exclamation-triangle"></i> <span id="clear-data-title">Clear Data</span></div>
+      <button class="modal-close" onclick="closeModal('clear-data-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+        <span id="clear-data-message"></span> This action <strong>cannot be undone</strong>.
+      </div>
+      <div class="form-group-inline">
+        <label>Type <strong>DELETE</strong> to confirm</label>
+        <input class="form-input" id="clear-data-confirm-input" placeholder="Type DELETE" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('clear-data-modal')">Cancel</button>
+      <button class="btn btn-red" id="clear-data-confirm-btn" onclick="submitClearData()"><i class="fa fa-eraser"></i> Permanently Delete</button>
+    </div>
+  </div>
+</div>
 
 <!-- Product Modal -->
 <div class="modal-overlay" id="product-modal">

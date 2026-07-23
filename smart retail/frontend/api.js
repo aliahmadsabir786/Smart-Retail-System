@@ -333,4 +333,8 @@ const SettingsAPI = {
     form.append('logo', file);
     return apiRequest('/settings/company/', { method: 'PATCH', body: form, isForm: true });
   },
+  // "New Business" danger-zone actions — each clears exactly one section, independently.
+  clearProducts() { return apiRequest('/settings/clear-products/', { method: 'POST', body: { confirm: 'DELETE' } }); },
+  clearSaleSlips() { return apiRequest('/settings/clear-sale-slips/', { method: 'POST', body: { confirm: 'DELETE' } }); },
+  clearCustomers() { return apiRequest('/settings/clear-customers/', { method: 'POST', body: { confirm: 'DELETE' } }); },
 };

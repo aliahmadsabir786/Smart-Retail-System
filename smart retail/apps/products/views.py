@@ -1,3 +1,4 @@
+from django.db import transaction as db_transaction
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
@@ -36,9 +37,64 @@ class ProductViewSet(viewsets.ModelViewSet):
         return ProductListSerializer if self.action == "list" else ProductDetailSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "update", "partial_update", "destroy"):
+        if self.action in ("create", "update", "partial_update", "destroy", "bulk_create"):
             return [IsInventoryManagerOrAbove()]
         return super().get_permissions()
+
+    @action(detail=False, methods=["post"], url_path="bulk-create")
+    def bulk_create(self, request):
+        """
+        POST /products/bulk-create/ — create many products in ONE request.
+
+        Body: {"items": [{name, sku, category, brand, cost_price, selling_price,
+                           reorder_level, barcode?, initial_stock?, warehouse?}, ...]}
+
+        Built for bulk import from CSV/Excel: sending one HTTP request per row
+        (the old approach) meant 100 products = 100 separate round-trips, was
+        slow, and made partial failures easy to miss. Here every row is still
+        validated and saved independently (its own savepoint via atomic()),
+        so one bad row is reported back in "errors" without blocking or
+        rolling back the rest of the batch — but it all happens in a single
+        request.
+        """
+        items = request.data.get("items")
+        if not isinstance(items, list) or not items:
+            return Response({"detail": "Expected a non-empty 'items' list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.inventory import services as inventory_services
+        from apps.warehouse.models import Warehouse
+
+        created, updated, errors = [], [], []
+        for idx, raw_row in enumerate(items):
+            row = dict(raw_row)
+            initial_stock = row.pop("initial_stock", 0) or 0
+            warehouse_id = row.pop("warehouse", None)
+            sku = (row.get("sku") or "").strip()
+            try:
+                with db_transaction.atomic():
+                    existing = Product.objects.filter(sku=sku).first() if sku else None
+                    serializer = ProductDetailSerializer(
+                        instance=existing, data=row, partial=bool(existing), context={"request": request}
+                    )
+                    serializer.is_valid(raise_exception=True)
+                    product = serializer.save()
+                    if initial_stock and warehouse_id:
+                        warehouse = Warehouse.objects.get(pk=warehouse_id)
+                        inventory_services.stock_in(
+                            product=product, warehouse=warehouse, quantity=initial_stock,
+                            reference="Bulk import",
+                        )
+                    result_data = ProductDetailSerializer(product, context={"request": request}).data
+                    (updated if existing else created).append(result_data)
+            except Exception as exc:
+                detail = exc.detail if hasattr(exc, "detail") else str(exc)
+                errors.append({"index": idx, "row": raw_row, "error": detail})
+
+        return Response(
+            {"success": True, "created_count": len(created), "updated_count": len(updated),
+             "error_count": len(errors), "created": created, "updated": updated, "errors": errors},
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=False, methods=["get"])
     def low_stock(self, request):

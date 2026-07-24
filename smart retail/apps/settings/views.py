@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models.deletion import ProtectedError
 from rest_framework import generics, status
 from rest_framework.response import Response
@@ -29,6 +29,29 @@ def _require_confirmation(request):
     return None
 
 
+def _reset_auto_increment(*models):
+    """
+    Reset each table's auto-increment counter (MySQL) / sequence (PostgreSQL)
+    / sqlite_sequence row (SQLite) back to 1.
+
+    Without this, deleting every row still leaves the counter at its old
+    high-water mark (e.g. deleted products 1-100 → next insert is still 101,
+    not 1), because AUTO_INCREMENT / SERIAL never rewinds on DELETE, only on
+    TRUNCATE. Call this ONLY right after the table(s) have been fully
+    emptied — it does not check row count itself.
+    """
+    vendor = connection.vendor
+    with connection.cursor() as cursor:
+        for model in models:
+            table = model._meta.db_table
+            if vendor == "mysql":
+                cursor.execute(f"ALTER TABLE `{table}` AUTO_INCREMENT = 1")
+            elif vendor == "postgresql":
+                cursor.execute("SELECT setval(pg_get_serial_sequence(%s, 'id'), 1, false)", [table])
+            elif vendor == "sqlite":
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name = %s", [table])
+
+
 class ClearProductsView(APIView):
     """
     POST /settings/clear-products/ — "New Business" reset, Products only.
@@ -49,7 +72,7 @@ class ClearProductsView(APIView):
             return confirm_error
 
         from apps.inventory.models import StockItem, StockTransaction, StockTransfer
-        from apps.products.models import Product
+        from apps.products.models import Product, ProductImage, ProductVariant
 
         counts = {}
         try:
@@ -70,8 +93,15 @@ class ClearProductsView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        # Everything is gone now — rewind the ID counters so the next
+        # product you add (or import) starts back at 1, not wherever the
+        # old catalog left off.
+        _reset_auto_increment(StockTransfer, StockTransaction, StockItem,
+                               ProductImage, ProductVariant, Product)
+
         return Response(
-            {"detail": "All products have been permanently removed.", "deleted": counts},
+            {"detail": "All products have been permanently removed. New products will start from ID 1 again.",
+             "deleted": counts},
             status=status.HTTP_200_OK,
         )
 
@@ -91,7 +121,7 @@ class ClearSaleSlipsView(APIView):
         if confirm_error:
             return confirm_error
 
-        from apps.sales.models import Sale, SaleReturn
+        from apps.sales.models import Sale, SaleReturn, SaleItem, SaleReturnItem, Payment
 
         counts = {}
         with transaction.atomic():
@@ -100,8 +130,12 @@ class ClearSaleSlipsView(APIView):
             # Cascades SaleItem, Payment automatically.
             counts["sales"] = Sale.all_objects.all().delete()[0]
 
+        # Rewind ID counters so the next sale slip starts back at 1.
+        _reset_auto_increment(SaleReturnItem, SaleReturn, SaleItem, Payment, Sale)
+
         return Response(
-            {"detail": "All sale slips have been permanently removed.", "deleted": counts},
+            {"detail": "All sale slips have been permanently removed. New sale slips will start from ID 1 again.",
+             "deleted": counts},
             status=status.HTTP_200_OK,
         )
 
@@ -127,7 +161,11 @@ class ClearCustomersView(APIView):
         with transaction.atomic():
             counts["customers"] = Customer.all_objects.all().delete()[0]
 
+        # Rewind the ID counter so the next customer starts back at 1.
+        _reset_auto_increment(Customer)
+
         return Response(
-            {"detail": "All customers have been permanently removed.", "deleted": counts},
+            {"detail": "All customers have been permanently removed. New customers will start from ID 1 again.",
+             "deleted": counts},
             status=status.HTTP_200_OK,
         )

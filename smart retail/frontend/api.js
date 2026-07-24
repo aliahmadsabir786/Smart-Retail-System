@@ -174,6 +174,7 @@ const ProductsAPI = {
   update(id, data) { return apiRequest(`/products/${id}/`, { method: 'PATCH', body: data }); },
   remove(id) { return apiRequest(`/products/${id}/`, { method: 'DELETE' }); },
   lowStock() { return apiRequest('/products/low_stock/'); },
+  bulkCreate(items) { return apiRequest('/products/bulk-create/', { method: 'POST', body: { items } }); },
   barcodeImageUrl(id) { return `${API_BASE_URL}/products/${id}/barcode-image/`; },
   qrImageUrl(id) { return `${API_BASE_URL}/products/${id}/qr-image/`; },
 };
@@ -231,6 +232,7 @@ const CustomersAPI = {
   remove(id) { return apiRequest(`/customers/${id}/`, { method: 'DELETE' }); },
   groups() { return apiRequest('/customers/groups/'); },
   ledger(id) { return apiRequest(`/customers/${id}/ledger/`); },
+  bulkCreate(items) { return apiRequest('/customers/bulk-create/', { method: 'POST', body: { items } }); },
 };
 
 const SuppliersAPI = {

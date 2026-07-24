@@ -953,6 +953,30 @@ async function _findOrCreateBrand(name) {
   }
 }
 
+async function _findOrCreateCategory(name) {
+  // Category is REQUIRED on the backend (products can't be saved without
+  // one). If the sheet has no category column, or it's blank for this row,
+  // fall back to "Uncategorized" instead of sending null — sending null
+  // was causing the backend to reject every single product in the import.
+  name = (name||'').trim() || 'Uncategorized';
+  const existing = _catCache.find(c => c.name.trim().toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  try {
+    const created = await CategoriesAPI.create({ name });
+    _catCache.push(created);
+    return created.id;
+  } catch (err) {
+    // Same stale-cache situation as _findOrCreateBrand above.
+    const isDuplicate = err.status === 400 &&
+      JSON.stringify(err.data||{}).toLowerCase().includes('already exists');
+    if (!isDuplicate) throw err;
+    const found = await CategoriesAPI.list({ search: name, page_size: 500 });
+    const match = (found.results||found).find(c => c.name.trim().toLowerCase() === name.toLowerCase());
+    if (match) { _catCache.push(match); return match.id; }
+    throw err;
+  }
+}
+
 async function renderProducts(page) {
   try {
     await populateCategorySelects();
@@ -5706,9 +5730,77 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let _pendingProductImport = [];
 let _pendingCustomerImport = [];
+let _productImportExistingMap = {}; // sku(lowercased) -> existing product record from backend
+let _customerImportExistingMap = {}; // phone -> existing customer record from backend
 
 function triggerProductImport() { document.getElementById('product-import-file').click(); }
 function triggerCustomerImport() { document.getElementById('customer-import-file').click(); }
+
+// Normalizes a parsed row's keys to bare-alphanumeric-lowercase (so "Buy Price",
+// "buy_price", "BuyPrice" all become "buyprice") so column matching doesn't
+// depend on the exact header wording/spacing the user's sheet happens to use.
+// Uses the exact same column headers the importer already recognizes
+// (Product Name, SKU Code, etc.) so exporting your current catalog, editing
+// it in Excel, and re-importing it always round-trips correctly. With no
+// products yet, this still downloads a header-only file — the blank
+// template format the import expects.
+async function exportProducts() {
+  let products = [];
+  try {
+    const data = await ProductsAPI.list({ page_size: 5000 });
+    products = data.results || data;
+  } catch (err) {
+    toast('Failed to load products for export: ' + (err.message || 'server error'), 'error');
+    return;
+  }
+
+  const rows = products.map(p => ({
+    'Product Name': p.name,
+    'SKU Code': p.sku,
+    'Category': p.category_name || '',
+    'Brand': p.brand_name || '',
+    'Purchase Price ($)': Number(p.cost_price ?? 0),
+    'Base Selling Price ($)': Number(p.selling_price ?? 0),
+    'Discount (%)': Number(p.discount_percent ?? 0),
+    'Tax / GST (%)': Number(p.tax_rate ?? 0),
+    'Stock Quantity': Number(p.current_stock ?? 0),
+    'Min Stock Level': Number(p.reorder_level ?? 10),
+    'Barcode': p.barcode || '',
+    'Product Emoji Icon': '',
+  }));
+
+  const headerOrder = ['Product Name','SKU Code','Category','Brand','Purchase Price ($)',
+    'Base Selling Price ($)','Discount (%)','Tax / GST (%)','Stock Quantity','Min Stock Level',
+    'Barcode','Product Emoji Icon'];
+
+  const ws = XLSX.utils.json_to_sheet(rows, { header: headerOrder });
+  ws['!cols'] = headerOrder.map(h => ({ wch: Math.max(14, h.length + 2) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Products');
+
+  const filename = products.length ? `products_export_${new Date().toISOString().split('T')[0]}.xlsx` : 'products_import_template.xlsx';
+  XLSX.writeFile(wb, filename);
+  toast(products.length ? `Exported ${products.length} product(s)` : 'Downloaded blank import template', 'success');
+}
+
+function _normalizeImportRow(row) {
+  const out = {};
+  Object.keys(row).forEach(k => {
+    const nk = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+    out[nk] = row[k];
+  });
+  return out;
+}
+
+// Returns the value of the first alias key actually present in the
+// normalized row (checked with hasOwnProperty so a legitimate "0" isn't
+// treated as missing), or '' if none of the aliases were found.
+function _pick(nrow, aliases) {
+  for (const a of aliases) {
+    if (Object.prototype.hasOwnProperty.call(nrow, a)) return nrow[a];
+  }
+  return '';
+}
 
 function parseCSV(text) {
   const lines = text.trim().split('\n');
@@ -5734,7 +5826,7 @@ function handleProductImport(input) {
   if (!file) return;
   const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     let rows = [];
     if (file.name.endsWith('.csv')) {
       rows = parseCSV(e.target.result);
@@ -5757,28 +5849,45 @@ function handleProductImport(input) {
       toast('Unsupported file type. Please upload .csv, .xlsx or .xls', 'warning');
       input.value=''; return;
     }
-    _pendingProductImport = rows.map(r => ({
-      name: r.name || r['product name'] || r['productname'] || '',
-      sku: r.sku || r['sku code'] || '',
-      category: r.category || '',
-      brand: r.brand || '',
-      buyPrice: parseFloat(r.buyprice || r['buy price'] || r.cost || 0),
-      sellPrice: parseFloat(r.sellprice || r['sell price'] || r.price || 0),
-      stock: parseInt(r.stock || r.quantity || r.qty || 0),
-      minStock: parseInt(r.minstock || r['min stock'] || 10),
-      barcode: r.barcode || '',
-      piecesPerCarton: parseInt(r.piecespercarton || r['pieces per carton'] || r.ppc || 1),
-      cartonQty: parseInt(r.cartonqty || r['carton qty'] || 0),
-      icon: r.icon || '📦',
-      expiry: r.expiry || r['expiry date'] || '',
-    })).filter(r => r.name && r.sku);
+    _pendingProductImport = rows.map(r => {
+      const n = _normalizeImportRow(r);
+      return {
+        name: _pick(n, ['name','productname','itemname','title']),
+        sku: _pick(n, ['sku','skucode','productcode','itemcode']),
+        category: _pick(n, ['category','categoryname','cat']),
+        brand: _pick(n, ['brand','brandname','manufacturer']),
+        buyPrice: parseFloat(_pick(n, ['buyprice','cost','costprice','purchaseprice']) || 0),
+        sellPrice: parseFloat(_pick(n, ['sellprice','price','sellingprice','saleprice','basesellingprice']) || 0),
+        stock: parseInt(_pick(n, ['stock','quantity','qty','stockquantity']) || 0),
+        minStock: parseInt(_pick(n, ['minstock','reorderlevel','minimumstock','minstocklevel']) || 10),
+        barcode: _pick(n, ['barcode']),
+        piecesPerCarton: parseInt(_pick(n, ['piecespercarton','ppc','unitspercarton']) || 1),
+        cartonQty: parseInt(_pick(n, ['cartonqty','cartons']) || 0),
+        icon: _pick(n, ['icon']) || '📦',
+        expiry: _pick(n, ['expiry','expirydate','expdate']),
+      };
+    }).filter(r => r.name && r.sku);
+
+    // Pull the REAL product list from the backend so we know which SKUs
+    // already exist (previously this checked a hardcoded demo array that
+    // was never connected to the database, so "Update" vs "New" was wrong
+    // and confirming the import didn't save anything at all).
+    _productImportExistingMap = {};
+    try {
+      const existingData = await ProductsAPI.list({ page_size: 2000 });
+      (existingData.results || existingData).forEach(p => {
+        if (p.sku) _productImportExistingMap[p.sku.trim().toLowerCase()] = p;
+      });
+    } catch (err) {
+      toast('Could not check existing products: ' + (err.message || 'server error'), 'error');
+    }
 
     // Build preview table
     const valid = _pendingProductImport;
     const previewHTML = `<table>
       <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th>Buy</th><th>Sell</th><th>Stock</th><th>Pcs/Ctn</th><th>Status</th></tr></thead>
       <tbody>${valid.map(r => {
-        const existing = DB.products.find(p => p.sku === r.sku);
+        const existing = _productImportExistingMap[r.sku.trim().toLowerCase()];
         return `<tr>
           <td>${r.icon} ${r.name}</td>
           <td class="td-mono">${r.sku}</td>
@@ -5792,7 +5901,7 @@ function handleProductImport(input) {
       }).join('')}</tbody>
     </table>`;
     document.getElementById('product-import-preview').innerHTML = previewHTML;
-    const newCount = valid.filter(r => !DB.products.find(p => p.sku === r.sku)).length;
+    const newCount = valid.filter(r => !_productImportExistingMap[r.sku.trim().toLowerCase()]).length;
     const updateCount = valid.length - newCount;
     document.getElementById('product-import-stats').innerHTML =
       `<span class="badge badge-green" style="margin-right:6px">✅ ${newCount} New</span><span class="badge badge-yellow">${updateCount} Updates</span><span style="font-size:11px;color:var(--text-muted);margin-left:8px">${rows.length - valid.length} rows skipped (missing name/sku)</span>`;
@@ -5802,17 +5911,86 @@ function handleProductImport(input) {
   if (isExcel) { reader.readAsArrayBuffer(file); } else { reader.readAsText(file); }
 }
 
-function confirmProductImport() {
-  let added = 0, updated = 0;
-  _pendingProductImport.forEach(r => {
-    const existing = DB.products.find(p => p.sku === r.sku);
-    if (existing) { Object.assign(existing, r); updated++; }
-    else { r.id = Math.max(...DB.products.map(p=>p.id),0)+1; DB.products.push(r); added++; }
-  });
+async function confirmProductImport() {
+  const rows = _pendingProductImport;
   closeModal('product-import-modal');
-  renderProducts();
-  toast(`Import done: ${added} added, ${updated} updated`, 'success');
+  if (!rows.length) return;
+  toast(`Importing ${rows.length} product(s)…`, 'success');
+
+  // Category/brand names still need resolving to IDs first (fast — usually
+  // only a handful of distinct categories/brands, and results are cached),
+  // but the actual product rows are now sent to the backend in ONE request
+  // instead of one HTTP call per row. That used to mean 100 products = 100
+  // separate round-trips (slow, and any single one failing was easy to miss
+  // in the noise) — now it's a single request the backend saves in bulk.
+  let warehouseId = null;
+  if (rows.some(r => r.stock > 0)) {
+    try { warehouseId = await _ensureDefaultWarehouse(); } catch (err) { /* handled per-row below */ }
+  }
+
+  const items = [];
+  const prepFailReasons = [];
+  for (const r of rows) {
+    try {
+      const categoryId = await _findOrCreateCategory(r.category);
+      const brandId = await _findOrCreateBrand(r.brand);
+      const payload = {
+        name: r.name,
+        sku: r.sku,
+        category: categoryId,
+        brand: brandId,
+        cost_price: r.buyPrice || 0,
+        selling_price: r.sellPrice || 0,
+        reorder_level: r.minStock || 10,
+      };
+      if (r.barcode) payload.barcode = r.barcode;
+      if (r.stock > 0 && warehouseId) {
+        payload.initial_stock = r.stock;
+        payload.warehouse = warehouseId;
+      }
+      items.push(payload);
+    } catch (err) {
+      prepFailReasons.push(`${r.sku || '(no sku)'} — ${err.message || 'could not resolve category/brand'}`);
+    }
+  }
+
+  let added = 0, updated = 0, failed = prepFailReasons.length;
+  const failReasons = [...prepFailReasons];
+  if (items.length) {
+    try {
+      const result = await ProductsAPI.bulkCreate(items);
+      added = result.created_count || 0;
+      updated = result.updated_count || 0;
+      failed += result.error_count || 0;
+      (result.errors || []).forEach(e => {
+        const reason = (e.error && JSON.stringify(e.error)) || 'unknown error';
+        failReasons.push(`${e.row?.sku || '(no sku)'} — ${reason}`);
+      });
+    } catch (err) {
+      failed += items.length;
+      failReasons.push(`Bulk import request failed — ${err.message || 'server error'}`);
+    }
+  }
+
+  // Clear any leftover search text or category filter before refreshing —
+  // otherwise a filter left over from browsing (e.g. a category selected,
+  // or a search term typed) can hide every newly-imported product even
+  // though they were saved successfully, making it look like the import
+  // "didn't work" when it actually did.
+  const searchBox = document.getElementById('prod-search');
+  const catFilter = document.getElementById('prod-cat-filter');
+  if (searchBox) searchBox.value = '';
+  if (catFilter) catFilter.value = '';
+
+  await renderProducts();
+  toast(`Import done: ${added} added, ${updated} updated${failed ? `, ${failed} failed` : ''}`, failed ? 'warning' : 'success');
+  if (failReasons.length) {
+    console.warn('Product import — rows that failed:\n' + failReasons.join('\n'));
+    const shown = failReasons.slice(0, 8).join('\n');
+    alert(`${failed} row(s) failed to import:\n\n${shown}${failReasons.length > 8 ? `\n…and ${failReasons.length - 8} more (see browser console for the full list)` : ''}`);
+  }
   _pendingProductImport = [];
+  _productImportExistingMap = {};
 }
 
 function handleCustomerImport(input) {
@@ -5820,7 +5998,7 @@ function handleCustomerImport(input) {
   if (!file) return;
   const isExcelC = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     let rows = [];
     if (file.name.endsWith('.csv')) {
       rows = parseCSV(e.target.result);
@@ -5843,51 +6021,116 @@ function handleCustomerImport(input) {
       toast('Unsupported file type. Please upload .csv, .xlsx or .xls', 'warning');
       input.value=''; return;
     }
-    _pendingCustomerImport = rows.map(r => ({
-      name: r.name || r['full name'] || r['customer name'] || r['shopkeeper name'] || '',
-      phone: r.phone || r['mobile'] || r['contact'] || '',
-      email: r.email || '',
-      address: r.address || '',
-      loyaltyPoints: parseInt(r.loyaltypoints || r['loyalty points'] || r.points || 0),
-    })).filter(r => r.name);
+    _pendingCustomerImport = rows.map(r => {
+      const n = _normalizeImportRow(r);
+      return {
+        name: _pick(n, ['name','fullname','customername','shopkeepername']),
+        phone: _pick(n, ['phone','mobile','contact','phonenumber','mobilenumber']),
+        email: _pick(n, ['email','emailaddress']),
+        address: _pick(n, ['address','fulladdress','homeaddress','location']),
+        cnic: _pick(n, ['cnic','nic','nationalid','idcard','cnicnumber','cnicno']),
+        loyaltyPoints: parseInt(_pick(n, ['loyaltypoints','points']) || 0),
+      };
+    }).filter(r => r.name);
+
+    // Every row becomes a NEW customer — shop/customer names repeating is
+    // fine and expected. Phone and CNIC are the only two fields that could
+    // clash with an existing record or another row in the same sheet, so if
+    // either value is already taken, we clear just that one field for this
+    // row and still import everything else (name, address, email, points).
+    // Nothing gets skipped or silently merged into another customer.
+    const existingPhones = new Set();
+    const existingCnics = new Set();
+    try {
+      const existingData = await CustomersAPI.list({ page_size: 2000 });
+      (existingData.results || existingData).forEach(c => {
+        if (c.phone) existingPhones.add(c.phone.trim());
+        if (c.cnic) existingCnics.add(c.cnic.trim());
+      });
+    } catch (err) {
+      toast('Could not check existing customers: ' + (err.message || 'server error'), 'error');
+    }
+    const seenPhones = new Set(existingPhones);
+    const seenCnics = new Set(existingCnics);
+    _pendingCustomerImport.forEach(r => {
+      if (r.phone) {
+        const p = r.phone.trim();
+        if (seenPhones.has(p)) { r.phone = ''; r._dupPhone = true; } else seenPhones.add(p);
+      }
+      if (r.cnic) {
+        const c = r.cnic.trim();
+        if (seenCnics.has(c)) { r.cnic = ''; r._dupCnic = true; } else seenCnics.add(c);
+      }
+    });
 
     const valid = _pendingCustomerImport;
     const previewHTML = `<table>
-      <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>Points</th><th>Status</th></tr></thead>
+      <thead><tr><th>Name</th><th>Phone</th><th>CNIC</th><th>Email</th><th>Address</th><th>Points</th><th>Note</th></tr></thead>
       <tbody>${valid.map(r => {
-        const existing = DB.customers.find(c => c.phone && c.phone === r.phone);
+        const note = (r._dupPhone || r._dupCnic)
+          ? `<span class="badge badge-yellow">duplicate ${[r._dupPhone&&'phone',r._dupCnic&&'CNIC'].filter(Boolean).join('/')} cleared</span>`
+          : `<span class="badge badge-green">New</span>`;
         return `<tr>
           <td class="fw-700">${r.name}</td>
-          <td>${r.phone}</td>
+          <td>${r.phone||'—'}</td>
+          <td class="td-mono">${r.cnic||'—'}</td>
           <td>${r.email||'—'}</td>
           <td style="font-size:11px">${r.address||'—'}</td>
           <td>${r.loyaltyPoints}</td>
-          <td><span class="badge ${existing?'badge-yellow':'badge-green'}">${existing?'Update':'New'}</span></td>
+          <td>${note}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>`;
     document.getElementById('customer-import-preview').innerHTML = previewHTML;
-    const newCount = valid.filter(r => !DB.customers.find(c => c.phone && c.phone === r.phone)).length;
-    const updateCount = valid.length - newCount;
+    const dupCount = valid.filter(r => r._dupPhone || r._dupCnic).length;
     document.getElementById('customer-import-stats').innerHTML =
-      `<span class="badge badge-green" style="margin-right:6px">✅ ${newCount} New</span><span class="badge badge-yellow">${updateCount} Updates</span>`;
+      `<span class="badge badge-green" style="margin-right:6px">✅ ${valid.length} will be added</span>${dupCount ? `<span class="badge badge-yellow">${dupCount} with duplicate phone/CNIC cleared</span>` : ''}<span style="font-size:11px;color:var(--text-muted);margin-left:8px">${rows.length - valid.length} rows skipped (missing name)</span>`;
     openModal('customer-import-modal');
     input.value = '';
   };
   if (isExcelC) { reader.readAsArrayBuffer(file); } else { reader.readAsText(file); }
 }
 
-function confirmCustomerImport() {
-  let added = 0, updated = 0;
-  _pendingCustomerImport.forEach(r => {
-    const existing = DB.customers.find(c => c.phone && c.phone === r.phone);
-    if (existing) { Object.assign(existing, r); updated++; }
-    else { DB.customers.push({ id: Math.max(...DB.customers.map(c=>c.id),0)+1, totalPurchases:0, lastVisit: new Date().toISOString().split('T')[0], ...r }); added++; }
-  });
+async function confirmCustomerImport() {
+  const rows = _pendingCustomerImport;
   closeModal('customer-import-modal');
-  renderCustomers();
-  updatePosCustomers();
-  toast(`Import done: ${added} added, ${updated} updated`, 'success');
+  if (!rows.length) return;
+  toast(`Importing ${rows.length} customer(s)…`, 'success');
+
+  // All rows go to the backend in ONE request now instead of one HTTP call
+  // per customer — 100 customers used to mean 100 separate round-trips.
+  const items = rows.map(r => ({
+    name: r.name,
+    phone: r.phone || '',
+    email: r.email || '',
+    address: r.address || '',
+    cnic: r.cnic || '',
+    loyalty_points: r.loyaltyPoints || 0,
+  }));
+
+  let added = 0, failed = 0;
+  const failReasons = [];
+  try {
+    const result = await CustomersAPI.bulkCreate(items);
+    added = result.created_count || 0;
+    failed = result.error_count || 0;
+    (result.errors || []).forEach(e => {
+      const reason = (e.error && JSON.stringify(e.error)) || 'unknown error';
+      failReasons.push(`${e.row?.name || '(no name)'} — ${reason}`);
+    });
+  } catch (err) {
+    failed = items.length;
+    failReasons.push(`Bulk import request failed — ${err.message || 'server error'}`);
+  }
+
+  await renderCustomers();
+  if (typeof updatePosCustomers === 'function') await updatePosCustomers();
+  toast(`Import done: ${added} added${failed ? `, ${failed} failed` : ''}`, failed ? 'warning' : 'success');
+  if (failReasons.length) {
+    console.warn('Customer import — rows that failed:\n' + failReasons.join('\n'));
+    const shown = failReasons.slice(0, 8).join('\n');
+    alert(`${failed} row(s) failed to import:\n\n${shown}${failReasons.length > 8 ? `\n…and ${failReasons.length - 8} more (see browser console for the full list)` : ''}`);
+  }
   _pendingCustomerImport = [];
 }
 

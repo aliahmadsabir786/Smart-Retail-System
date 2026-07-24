@@ -36,7 +36,7 @@ class Product(BaseModel):
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
 
-    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, null=True, blank=True, related_name="products")
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
 
     unit = models.CharField(max_length=10, choices=Unit.choices, default=Unit.PIECE)

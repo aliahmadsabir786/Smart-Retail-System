@@ -23,7 +23,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
 class ProductListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for list views (POS product search, catalog grid)."""
-    category_name = serializers.CharField(source="category.name", read_only=True)
+    category_name = serializers.CharField(source="category.name", read_only=True, default=None)
     brand_name = serializers.CharField(source="brand.name", read_only=True, default=None)
     primary_image = serializers.SerializerMethodField()
     final_price = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
@@ -50,7 +50,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     final_price = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     price_with_tax = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     profit_margin = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
-    category_name = serializers.CharField(source="category.name", read_only=True)
+    category_name = serializers.CharField(source="category.name", read_only=True, default=None)
     brand_name = serializers.CharField(source="brand.name", read_only=True, default=None)
     current_stock = serializers.IntegerField(read_only=True, default=0)
 
@@ -64,7 +64,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             "weight", "reorder_level", "status", "current_stock",
             "images", "variants", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "barcode", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate(self, attrs):
         cost = attrs.get("cost_price", getattr(self.instance, "cost_price", None))

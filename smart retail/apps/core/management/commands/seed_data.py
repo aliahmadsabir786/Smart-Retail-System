@@ -9,7 +9,7 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **options):
         demo_users = [
-            ("admin@smartretail.com", "Admin123!", Role.SUPER_ADMIN, "Super", "Admin", True),
+            ("zubairtrader", "Admin123", Role.SUPER_ADMIN, "Super", "Admin", True),
             ("manager@smartretail.com", "Manager123!", Role.MANAGER, "Store", "Manager", False),
             ("cashier@smartretail.com", "Cashier123!", Role.CASHIER, "Front", "Cashier", False),
             ("sales@smartretail.com", "Sales123!", Role.SALESPERSON, "Sam", "Sales", False),
@@ -24,7 +24,7 @@ class Command(BaseCommand):
 
             if is_super:
                 user = User.objects.create_superuser(email=email, password=password,
-                                                       first_name=first, last_name=last)
+                                                       first_name=first, last_name=last, role=role)
             else:
                 user = User.objects.create_user(email=email, password=password,
                                                   first_name=first, last_name=last, role=role)

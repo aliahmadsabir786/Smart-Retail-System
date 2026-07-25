@@ -1,10 +1,13 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from .models import User, UserActivityLog
+from .forms import UserCreationForm, UserChangeForm
 
 
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
+    add_form = UserCreationForm
+    form = UserChangeForm
     ordering = ["-date_joined"]
     list_display = ["email", "get_full_name", "role", "is_verified", "is_active", "is_staff", "date_joined"]
     list_filter = ["role", "is_active", "is_verified", "is_staff"]

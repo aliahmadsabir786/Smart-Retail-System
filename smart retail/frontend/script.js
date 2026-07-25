@@ -3633,11 +3633,48 @@ function printAllSlipsA4(mode) {
     const adapted = slips.map(_adaptSaleForSlipPrint);
     const totalBill = adapted.reduce((s,b)=>s+b.items.reduce((a,it)=>a+it.qty*it.rate,0),0);
     const totalNet  = slips.reduce((s,b)=>s+Number(b.total_amount),0);
+    const s = _companySettingsCache || {};
+    const storeName = s.company_name || 'SmartRetail Store';
+    const storeAddress = s.address || '';
+
+    const cols = [
+      { key: 'showAccountNo',    label: 'Account',      align: 'left'  },
+      { key: 'showItems',        label: 'Items',        align: 'center' },
+      { key: 'showBillAmt',      label: 'Bill Amt',     align: 'right' },
+      { key: 'showPrevBalance',  label: 'Prev Bal',     align: 'right' },
+      { key: 'showNetPayable',   label: 'Net Payable',  align: 'right' },
+      { key: 'showPaymentMethod',label: 'Payment',      align: 'left'  },
+    ].filter(c => sssSettings[c.key] !== false);
+
+    const cellHtml = (b) => {
+      const map = {
+        showAccountNo:     `<td style="padding:6px 9px;font-family:monospace;color:#5b21b6">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>`,
+        showItems:         `<td style="padding:6px 9px;text-align:center">${b.items.length}</td>`,
+        showBillAmt:       `<td style="padding:6px 9px;text-align:right">Rs.${Number(b.total_amount).toFixed(2)}</td>`,
+        showPrevBalance:   `<td style="padding:6px 9px;text-align:right;color:#dc2626">Rs.${Number(b.due_amount).toFixed(2)}</td>`,
+        showNetPayable:    `<td style="padding:6px 9px;text-align:right;font-weight:700;color:#b45309">Rs.${Number(b.total_amount).toFixed(2)}</td>`,
+        showPaymentMethod: `<td style="padding:6px 9px">${(b.payments[0]?.method)||'—'}</td>`,
+      };
+      return cols.map(c => map[c.key]).join('');
+    };
+
+    const totalsRow = () => {
+      const map = {
+        showAccountNo:    `<td style="padding:8px 9px"></td>`,
+        showItems:        `<td style="padding:8px 9px"></td>`,
+        showBillAmt:      `<td style="padding:8px 9px;text-align:right">Rs.${totalBill.toFixed(2)}</td>`,
+        showPrevBalance:  `<td style="padding:8px 9px;text-align:right">—</td>`,
+        showNetPayable:   `<td style="padding:8px 9px;text-align:right">Rs.${totalNet.toFixed(2)}</td>`,
+        showPaymentMethod:`<td style="padding:8px 9px"></td>`,
+      };
+      return cols.map(c => map[c.key]).join('');
+    };
+
     html = `<div class="a4-doc">
       <div class="a4-header">
         <div>
-          <div class="a4-logo-name">🏪 SmartRetail Store</div>
-          <div style="font-size:11px;color:#555;margin-top:3px">123 Market Street, City</div>
+          <div class="a4-logo-name">🏪 ${storeName}</div>
+          ${storeAddress ? `<div style="font-size:11px;color:#555;margin-top:3px">${storeAddress}</div>` : ''}
         </div>
         <div class="a4-store-info">
           <strong style="font-size:15px">DAILY ORDER SUMMARY</strong><br>
@@ -3654,12 +3691,7 @@ function printAllSlipsA4(mode) {
             <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">#</th>
             <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">Invoice</th>
             <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">Customer</th>
-            <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">Account</th>
-            <th style="padding:7px 9px;text-align:center;background:#1a1a1a;color:#fff;font-size:11px">Items</th>
-            <th style="padding:7px 9px;text-align:right;background:#1a1a1a;color:#fff;font-size:11px">Bill Amt</th>
-            <th style="padding:7px 9px;text-align:right;background:#1a1a1a;color:#fff;font-size:11px">Prev Bal</th>
-            <th style="padding:7px 9px;text-align:right;background:#1a1a1a;color:#fff;font-size:11px">Net Payable</th>
-            <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">Payment</th>
+            ${cols.map(c=>`<th style="padding:7px 9px;text-align:${c.align};background:#1a1a1a;color:#fff;font-size:11px">${c.label}</th>`).join('')}
           </tr>
         </thead>
         <tbody style="font-size:11px">
@@ -3667,24 +3699,22 @@ function printAllSlipsA4(mode) {
             <td style="padding:6px 9px">${i+1}</td>
             <td style="padding:6px 9px;font-family:monospace">${b.invoice_number}</td>
             <td style="padding:6px 9px;font-weight:700">${b.customer_name||'Walk-in'}</td>
-            <td style="padding:6px 9px;font-family:monospace;color:#5b21b6">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>
-            <td style="padding:6px 9px;text-align:center">${b.items.length}</td>
-            <td style="padding:6px 9px;text-align:right">Rs.${Number(b.total_amount).toFixed(2)}</td>
-            <td style="padding:6px 9px;text-align:right;color:#dc2626">Rs.${Number(b.due_amount).toFixed(2)}</td>
-            <td style="padding:6px 9px;text-align:right;font-weight:700;color:#b45309">Rs.${Number(b.total_amount).toFixed(2)}</td>
-            <td style="padding:6px 9px">${(b.payments[0]?.method)||'—'}</td>
+            ${cellHtml(b)}
           </tr>`).join('')}
         </tbody>
         <tfoot>
           <tr style="background:#1a1a1a;color:#fff;font-weight:700;font-size:12px">
-            <td colspan="5" style="padding:8px 9px">TOTALS — ${slips.length} order${slips.length!==1?'s':''}</td>
-            <td style="padding:8px 9px;text-align:right">Rs.${totalBill.toFixed(2)}</td>
-            <td style="padding:8px 9px;text-align:right">—</td>
-            <td style="padding:8px 9px;text-align:right">Rs.${totalNet.toFixed(2)}</td>
-            <td style="padding:8px 9px"></td>
+            <td colspan="3" style="padding:8px 9px">TOTALS — ${slips.length} order${slips.length!==1?'s':''}</td>
+            ${totalsRow()}
           </tr>
         </tfoot>
       </table>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:5mm">
+        <div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;padding:10px 20px;text-align:right;min-width:260px">
+          <div style="font-size:11px;color:#92400e;font-weight:600;letter-spacing:.03em;text-transform:uppercase">Total Net Payable</div>
+          <div style="font-size:22px;font-weight:900;color:#000">Rs. ${totalNet.toFixed(2)}</div>
+        </div>
+      </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:4mm;margin-top:4mm">
         <span>SmartRetail ERP — Daily Order Summary</span>
         <span>Date: ${dateFilter||'All'} | Printed: ${new Date().toLocaleDateString()}</span>
@@ -4654,6 +4684,12 @@ function printStockReportA4() {
         </tr>
       </tfoot>
     </table>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:5mm">
+      <div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;padding:10px 20px;text-align:right;min-width:260px">
+        <div style="font-size:11px;color:#92400e;font-weight:600;letter-spacing:.03em;text-transform:uppercase">Total Stock Value</div>
+        <div style="font-size:22px;font-weight:900;color:#000">Rs. ${totalValue.toFixed(2)}</div>
+      </div>
+    </div>
     ${prefs.footer ? `<div style="margin-bottom:4mm;font-size:10px;color:#555;font-style:italic">${prefs.footer}</div>` : ''}
     <div style="margin-top:6mm;display:flex;justify-content:space-between;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:3mm">
       <span>SmartRetail ERP — Overall Stock Report</span>
@@ -6177,6 +6213,52 @@ function ssToggle(key, container) {
   if (dot) dot.style.left      = cb.checked ? '20px' : '2px';
 }
 
+// ── Sale Slips "Print Summary Sheet" Settings ─────────
+// A separate settings set from Order Summary — that one's a per-PRODUCT
+// dispatch table (SKU/Cartons/etc.), this is a per-INVOICE listing
+// (Customer/Account/Bill Amt/Payment/etc.), so it needs its own column set.
+const SSS_SETTINGS_KEY = 'smartretail_sss_settings';
+let sssSettings = (() => {
+  try { return JSON.parse(localStorage.getItem(SSS_SETTINGS_KEY)); } catch(e) { return null; }
+})() || {
+  showAccountNo: true, showItems: true, showBillAmt: true,
+  showPrevBalance: true, showNetPayable: true, showPaymentMethod: true,
+};
+
+function makeSssSettingToggle(key, label, icon, val) {
+  return `<label style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--bg-secondary);border-radius:8px;cursor:pointer;border:1px solid var(--border);transition:border-color .15s;gap:8px"
+    onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+      <div style="width:30px;height:30px;flex-shrink:0;border-radius:6px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:12px"><i class="fa ${icon}"></i></div>
+      <span style="font-size:13px;font-weight:600">${label}</span>
+    </div>
+    <div style="position:relative;width:42px;height:24px;flex-shrink:0" onclick="event.preventDefault();sssToggle('${key}',this)">
+      <div class="sss-toggle-bg" style="position:absolute;inset:0;border-radius:12px;background:${val?'var(--accent)':'var(--border)'};transition:background .2s;cursor:pointer"></div>
+      <div class="sss-toggle-dot" style="position:absolute;top:2px;left:${val?'20px':'2px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none"></div>
+      <input type="checkbox" class="sss-setting-check" data-key="${key}" ${val?'checked':''} style="opacity:0;width:0;height:0;position:absolute;pointer-events:none">
+    </div>
+  </label>`;
+}
+
+function sssToggle(key, container) {
+  const cb  = container.querySelector('.sss-setting-check');
+  const bg  = container.querySelector('.sss-toggle-bg');
+  const dot = container.querySelector('.sss-toggle-dot');
+  if (!cb) return;
+  cb.checked = !cb.checked;
+  if (bg)  bg.style.background = cb.checked ? 'var(--accent)' : 'var(--border)';
+  if (dot) dot.style.left      = cb.checked ? '20px' : '2px';
+}
+
+function saveSssSettings() {
+  document.querySelectorAll('.sss-setting-check').forEach(cb => {
+    sssSettings[cb.dataset.key] = cb.checked;
+  });
+  localStorage.setItem(SSS_SETTINGS_KEY, JSON.stringify(sssSettings));
+  closeModal('sss-settings-modal');
+  toast('Summary Sheet settings saved!', 'success');
+}
+
 // ── SALES SLIP SEARCH with username/invoice/area filter ──
 window.renderSaleSlips = async function(forceRefresh) {
   const dateFilter     = document.getElementById('ss-date')?.value||'';
@@ -6978,6 +7060,41 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
   </div>`;
   document.body.appendChild(ssModal.firstElementChild);
+
+  // 1b. Summary Sheet Settings Modal (for Sale Slips → Print Summary Sheet)
+  const sssModal = document.createElement('div');
+  sssModal.innerHTML = `
+  <div class="modal-overlay" id="sss-settings-modal">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:var(--purple-glow);display:flex;align-items:center;justify-content:center;color:var(--purple)"><i class="fa fa-file-alt"></i></div>
+          <div>
+            <div class="modal-title">Summary Sheet Settings</div>
+            <div style="font-size:11px;color:var(--text-muted)">Customize columns on the printed daily order summary</div>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('sss-settings-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          ${[
+            ['showAccountNo','Account No','fa-hashtag'],
+            ['showItems','Items Count','fa-boxes'],
+            ['showBillAmt','Bill Amount','fa-money-bill-wave'],
+            ['showPrevBalance','Previous Balance','fa-history'],
+            ['showNetPayable','Net Payable','fa-calculator'],
+            ['showPaymentMethod','Payment Method','fa-credit-card'],
+          ].map(([key, label, icon]) => makeSssSettingToggle(key, label, icon, sssSettings[key])).join('')}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('sss-settings-modal')">Cancel</button>
+        <button class="btn btn-accent" onclick="saveSssSettings()"><i class="fa fa-save"></i> Save Settings</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(sssModal.firstElementChild);
 
   // 2. Order Summary Settings Modal — fully rebuilt with working toggles
   const osModal = document.createElement('div');

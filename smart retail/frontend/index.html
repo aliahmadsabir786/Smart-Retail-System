@@ -780,7 +780,7 @@
             <div class="filter-bar" style="margin-bottom:0;flex:1">
               <div class="search-bar">
                 <i class="fa fa-search"></i>
-                <input type="text" id="prod-search" placeholder="Search products..." oninput="renderProducts()">
+                <input type="text" id="prod-search" placeholder="Search products..." oninput="debounced('prod-search', renderProducts)">
               </div>
               <select class="form-input" id="prod-cat-filter" onchange="renderProducts()" style="padding:9px 12px;width:160px">
                 <option value="">All Categories</option>
@@ -831,7 +831,7 @@
             <div class="filter-bar" style="margin-bottom:0">
               <div class="search-bar">
                 <i class="fa fa-search"></i>
-                <input type="text" id="inv-search" placeholder="Search inventory..." oninput="renderInventory()">
+                <input type="text" id="inv-search" placeholder="Search inventory..." oninput="debounced('inv-search', renderInventory)">
               </div>
             </div>
           </div>
@@ -876,7 +876,7 @@
             <div class="filter-bar" style="margin-bottom:0;flex:1">
               <div class="search-bar">
                 <i class="fa fa-search"></i>
-                <input type="text" id="ord-search" placeholder="Search orders..." oninput="renderOrders()">
+                <input type="text" id="ord-search" placeholder="Search orders..." oninput="debounced('ord-search', renderOrders)">
               </div>
               <select class="form-input" id="ord-status-filter" onchange="renderOrders()" style="padding:9px 12px;width:160px">
                 <option value="">All Status</option>
@@ -913,7 +913,7 @@
           <div class="card-header">
             <div class="search-bar">
               <i class="fa fa-search"></i>
-              <input type="text" id="cust-search" placeholder="Search customers..." oninput="renderCustomers()">
+              <input type="text" id="cust-search" placeholder="Search customers..." oninput="debounced('cust-search', renderCustomers)">
             </div>
           </div>
           <div class="table-wrap">
@@ -941,7 +941,7 @@
           <div class="card-header">
             <div class="search-bar">
               <i class="fa fa-search"></i>
-              <input type="text" id="sup-search" placeholder="Search suppliers..." oninput="renderSuppliers()">
+              <input type="text" id="sup-search" placeholder="Search suppliers..." oninput="debounced('sup-search', renderSuppliers)">
             </div>
           </div>
           <div class="table-wrap">
@@ -998,14 +998,14 @@
                 <label>Invoice Number</label>
                 <div class="search-bar">
                   <i class="fa fa-file-invoice"></i>
-                  <input type="text" id="sr-invoice-search" placeholder="e.g. INV-0001 or account no..." oninput="searchSaleReturnInvoice()">
+                  <input type="text" id="sr-invoice-search" placeholder="e.g. INV-0001 or account no..." oninput="debounced('sr-invoice-search', searchSaleReturnInvoice)">
                 </div>
               </div>
               <div class="form-group-inline" style="margin-bottom:0;min-width:160px">
                 <label>Customer Name</label>
                 <div class="search-bar">
                   <i class="fa fa-user"></i>
-                  <input type="text" id="sr-cust-search" placeholder="Filter by customer..." oninput="searchSaleReturnInvoice()">
+                  <input type="text" id="sr-cust-search" placeholder="Filter by customer..." oninput="debounced('sr-cust-search', searchSaleReturnInvoice)">
                 </div>
               </div>
               <div class="form-group-inline" style="margin-bottom:0">
@@ -1088,7 +1088,7 @@
               <div class="form-group-inline" style="margin-bottom:0;flex:1;min-width:180px">
                 <label>Search Purchase / Supplier</label>
                 <div class="search-bar"><i class="fa fa-search"></i>
-                  <input type="text" id="pr-search" placeholder="PO no, supplier, product..." oninput="renderPurchaseReturns()">
+                  <input type="text" id="pr-search" placeholder="PO no, supplier, product..." oninput="debounced('pr-search', renderPurchaseReturns)">
                 </div>
               </div>
               <div class="form-group-inline" style="margin-bottom:0">
@@ -1902,7 +1902,7 @@
               <div id="os-username-badge" style="display:none;background:var(--accent-glow);border:1px solid rgba(59,130,246,.25);color:var(--accent);font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px;white-space:nowrap"></div>
               <div class="search-bar" style="width:220px">
                 <i class="fa fa-search"></i>
-                <input type="text" id="os-search" placeholder="Filter by product or SKU..." oninput="renderOrderSummary()">
+                <input type="text" id="os-search" placeholder="Filter by product or SKU..." oninput="debounced('os-search', renderOrderSummary)">
               </div>
             </div>
           </div>

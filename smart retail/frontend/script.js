@@ -161,6 +161,15 @@ document.addEventListener('DOMContentLoaded', function() {
 // ═══════════════════════════════════════════════════════
 // DATA STORE
 // ═══════════════════════════════════════════════════════
+// Generic debounce: delays running fn until `delay`ms after the last call
+// with the same key. Used on search inputs so typing doesn't fire a fresh
+// network request on every keystroke (which is what made filters feel slow).
+const _debounceTimers = {};
+function debounced(key, fn, delay = 280) {
+  clearTimeout(_debounceTimers[key]);
+  _debounceTimers[key] = setTimeout(fn, delay);
+}
+
 const DB = {
   users: [
     { id: 1, name: 'Admin User', username: 'admin', password: 'admin123', role: 'Admin', email: 'admin@smartretail.com', lastLogin: '2025-01-17 09:00', status: 'Active', permissions: ['dashboard','pos','booking','saleslips','orders','products','inventory','purchases','customers','suppliers','expenses','accounting','reports','users','settings'] },
@@ -780,6 +789,7 @@ async function processPayment() {
       discount_amount: discountAmt,
       notes: '',
     });
+    _slipsLoaded = false; // new sale — Sale Slips list must refetch next time it's opened
 
     // Record the payment immediately (this UI is a cash-register checkout,
     // not a credit-sale flow) so the invoice shows as PAID.
@@ -3186,6 +3196,7 @@ async function saveBooking(status) {
     if (payMethod !== 'credit') {
       await SalesAPI.pay(sale.id, { amount: sale.total_amount, method: payMethod === 'cash' ? 'cash' : 'other' });
     }
+    _slipsLoaded = false; // new/updated sale — Sale Slips list must refetch next time it's opened
     toast(`Booking saved! Invoice: ${sale.invoice_number}`,'success');
     closeBookingForm();
   } catch (err) {
@@ -3274,66 +3285,12 @@ async function renderBookingList() {
 
 // ═══════════════════════════════════════════════════════
 // SALE SLIPS MODULE
+// (clearSaleSlipsFilters / renderSaleSlips are defined further below,
+// assigned onto window — kept as the single source of truth so there's
+// no duplicate/competing implementation silently overriding this one.)
 // ═══════════════════════════════════════════════════════
-function clearSaleSlipsFilters() {
-  const ssDate = document.getElementById('ss-date');
-  if (ssDate) ssDate.value = '';
-  const ssStatus = document.getElementById('ss-status');
-  if (ssStatus) ssStatus.value = '';
-  const ssName = document.getElementById('ss-name');
-  if (ssName) ssName.value = '';
-  const ssArea = document.getElementById('ss-area');
-  if (ssArea) ssArea.value = '';
-  renderSaleSlips();
-}
-
 let _slipsCache = [];
-
-async function renderSaleSlips() {
-  const today = new Date().toISOString().split('T')[0];
-  const ssDate = document.getElementById('ss-date');
-  if (ssDate && !ssDate.value) ssDate.value = today;
-  const dateFilter   = ssDate?.value||'';
-  const nameFilter   = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
-
-  const data = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
-  _slipsCache = data.results || data;
-
-  let _slipsRaw = _slipsCache;
-  if (dateFilter) _slipsRaw = _slipsRaw.filter(b => (b.created_at||'').slice(0,10) === dateFilter);
-  if (nameFilter) _slipsRaw = _slipsRaw.filter(b => (b.customer_name||'').toLowerCase().includes(nameFilter));
-  const slips = _slipsRaw;
-
-  const countEl = document.getElementById('ss-count-label');
-  if (countEl) countEl.textContent = `${slips.length} slip${slips.length!==1?'s':''}`;
-
-  const badges = {completed:'badge-green',draft:'badge-yellow',returned:'badge-red',partially_returned:'badge-yellow',cancelled:'badge-red'};
-  const labels = {completed:'Confirmed',draft:'Draft',returned:'Cancelled',partially_returned:'Partial Return',cancelled:'Cancelled'};
-
-  const tbody = document.getElementById('saleslips-tbody');
-  if (!tbody) return;
-  tbody.innerHTML = slips.length
-    ? slips.map(b=>`
-        <tr>
-          <td class="td-mono" style="color:var(--cyan)">${b.invoice_number}</td>
-          <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
-          <td class="fw-700">${b.customer_name||'Walk-in'}</td>
-          <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
-          <td>${b.items.length} item(s)</td>
-          <td class="fw-700 text-green">Rs.${Number(b.total_amount).toFixed(2)}</td>
-          <td class="fw-700 text-yellow">Rs.${Number(b.total_amount).toFixed(2)}</td>
-          <td><span class="badge ${badges[b.status]||'badge-gray'}">${labels[b.status]||b.status}</span></td>
-          <td>
-            <div class="flex-gap">
-              <button class="btn btn-ghost btn-xs" onclick="viewSlipDetail(${b.id})" title="View"><i class="fa fa-eye"></i></button>
-              <button class="btn btn-accent btn-xs" onclick="printSingleSlipA4(${b.id})" title="Print A4"><i class="fa fa-print"></i></button>
-            </div>
-          </td>
-        </tr>`).join('')
-    : `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">
-         <i class="fa fa-file-invoice" style="font-size:32px;display:block;margin-bottom:10px"></i>No sale slips for selected date
-       </td></tr>`;
-}
+let _slipsLoaded = false;
 
 function viewSlipDetail(id) {
   const b = _slipsCache.find(x=>x.id===id);
@@ -3395,6 +3352,7 @@ async function deleteSlipFromModal(id, invoiceNumber) {
     await SalesAPI.remove(id);
     toast('Held invoice deleted', 'warning');
     closeModal('order-detail-modal');
+    _slipsLoaded = false;
     renderSaleSlips();
   } catch (err) {
     toast(err.message || 'Failed to delete invoice', 'error');
@@ -3411,6 +3369,7 @@ async function cancelSlipFromModal(id) {
     if (!items.length) { toast('Nothing left to cancel — already fully returned.', 'warning'); return; }
     await SalesAPI.processReturn(id, { items, reason: 'Cancelled from Sale Slips' });
     closeModal('order-detail-modal');
+    _slipsLoaded = false;
     renderSaleSlips();
     toast('Invoice cancelled — stock and balance restored', 'warning');
   } catch (err) {
@@ -3645,13 +3604,25 @@ async function printSingleSlipA4(id) {
 }
 
 function printAllSlipsA4(mode) {
-  const dateFilter   = document.getElementById('ss-date')?.value||'';
-  const nameFilter   = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
+  const dateFilter     = document.getElementById('ss-date')?.value||'';
+  const statusFilter   = document.getElementById('ss-status')?.value||'';
+  const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
+  const invoiceFilter  = (document.getElementById('ss-invoice')?.value||'').toLowerCase().trim();
+  const usernameFilter = (document.getElementById('ss-username')?.value||'').toLowerCase().trim();
+  const areaFilter     = (document.getElementById('ss-area')?.value||'').toLowerCase().trim();
 
-  const slips = _slipsCache.filter(b=>
-    b.status!=='returned' && b.status!=='cancelled' &&
-    (!dateFilter   || (b.created_at||'').slice(0,10)===dateFilter) &&
-    (!nameFilter   || (b.customer_name||'').toLowerCase().includes(nameFilter))
+  // Must match the exact same filters as the on-screen Sale Slips list
+  // (renderSaleSlips) — this used to only filter by date+name, so "Print
+  // All" printed every salesman's slips even when the table was filtered
+  // down to one username.
+  const slips = _slipsCache.filter(b =>
+    (statusFilter ? b.status === statusFilter : (b.status!=='returned' && b.status!=='cancelled')) &&
+    (!dateFilter     || (b.created_at||'').slice(0,10) === dateFilter) &&
+    (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
+    (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
+                        ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
+    (!usernameFilter || (b.served_by_name||'').toLowerCase().includes(usernameFilter)) &&
+    (!areaFilter     || (b.customer_address||'').toLowerCase().includes(areaFilter))
   );
 
   if (!slips.length) { toast('No slips to print for selected filters','warning'); return; }
@@ -5572,6 +5543,7 @@ async function renderOrderSummary() {
       <td style="text-align:right;font-weight:800;color:var(--green)">Rs.${totalCost.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td>
     </tr>`;
   }
+  applyOsColumnVisibility();
 }
 
 function clearOsFilter() {
@@ -5613,39 +5585,59 @@ function exportOrderSummaryCsv() {
 
 function printOrderSummary() {
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
+
+  // Column list in DOM order (mirrors OS_COLUMN_MAP) — filtered by osSettings
+  // so the printed table always matches what's configured in Order Summary
+  // Settings, instead of a hardcoded header that ignored it.
+  const allCols = [
+    { key: null,             label: 'Product' },   // always shown
+    { key: 'showSku',        label: 'SKU' },
+    { key: 'showOrders',     label: 'Orders' },
+    { key: 'showPieces',     label: 'Total Pcs' },
+    { key: 'showPcsPerCtn',  label: 'Pcs/Ctn' },
+    { key: 'showCartonsOut', label: 'Cartons' },
+    { key: 'showLoosePcs',   label: 'Loose' },
+    { key: 'showUnitCost',   label: 'Unit Cost' },
+    { key: 'showTotalCost',  label: 'Total Cost' },
+  ];
+  const visibleCols = allCols.filter(c => c.key === null || osSettings[c.key] !== false);
+  const visibleIdx = visibleCols.map(c => allCols.indexOf(c));
+
   const rows = [];
   document.querySelectorAll('#os-table-body tr:not(:last-child)').forEach(tr => {
-    const cells = Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim());
-    if (cells.length) rows.push(cells);
+    // textContent (not innerText) so a column hidden on-screen via
+    // display:none still has its real value available here — we pick
+    // exactly which columns to include ourselves via visibleIdx.
+    const allCells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim());
+    if (allCells.length) rows.push(visibleIdx.map(i => allCells[i] ?? ''));
   });
+
   const today = new Date().toLocaleDateString();
-  const finOrders   = document.getElementById('os-fin-orders')?.textContent   || '—';
-  const finAmount   = document.getElementById('os-fin-amount')?.textContent   || '—';
-  const finTax      = document.getElementById('os-fin-tax')?.textContent      || '—';
-  const finDiscount = document.getElementById('os-fin-discount')?.textContent || '—';
-  const finPending  = document.getElementById('os-fin-pending')?.textContent  || '—';
-  const finReceived = document.getElementById('os-fin-received')?.textContent || '—';
+  const finCards = [
+    { key: 'finShowOrders',   label: 'Total Orders',    id: 'os-fin-orders',   bg: '#f0f9ff', border: '#bae6fd' },
+    { key: 'finShowAmount',   label: 'Total Amount',    id: 'os-fin-amount',   bg: '#f0fdf4', border: '#bbf7d0' },
+    { key: 'finShowTax',      label: 'Tax',              id: 'os-fin-tax',      bg: '#fefce8', border: '#fde68a' },
+    { key: 'finShowDiscount', label: 'Discount',         id: 'os-fin-discount', bg: '#fef2f2', border: '#fecaca' },
+    { key: 'finShowPending',  label: 'Pending Balance',  id: 'os-fin-pending',  bg: '#f5f3ff', border: '#ddd6fe' },
+    { key: 'finShowReceived', label: 'Received',         id: 'os-fin-received', bg: '#ecfdf5', border: '#6ee7b7' },
+  ].filter(c => osSettings[c.key] !== false);
+
+  const finStripHtml = finCards.length ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;font-size:11px">
+      ${finCards.map(c => `<div style="padding:8px 10px;background:${c.bg};border:1px solid ${c.border};border-radius:6px"><div style="color:#555;margin-bottom:2px">${c.label}</div><strong>${document.getElementById(c.id)?.textContent || '—'}</strong></div>`).join('')}
+    </div>` : '';
+
   const html = `<div class="a4-doc">
     <div class="a4-header">
       <div><div class="a4-logo-name">🏪 SmartRetail Store</div><div style="font-size:11px;color:#555;margin-top:3px">Warehouse Dispatch Summary${usernameFilter?' — User: '+usernameFilter:''}</div></div>
       <div class="a4-store-info"><strong>ORDER SUMMARY</strong><br>Generated: ${today}<br>By: ${currentUser?.full_name||'Admin'}</div>
     </div>
     <div class="a4-doc-title">Order Summary — Cartons &amp; Pieces Dispatched</div>
-    <!-- Financial summary strip -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;font-size:11px">
-      <div style="padding:8px 10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px"><div style="color:#555;margin-bottom:2px">Total Orders</div><strong>${finOrders}</strong></div>
-      <div style="padding:8px 10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px"><div style="color:#555;margin-bottom:2px">Total Amount</div><strong>${finAmount}</strong></div>
-      <div style="padding:8px 10px;background:#fefce8;border:1px solid #fde68a;border-radius:6px"><div style="color:#555;margin-bottom:2px">Tax</div><strong>${finTax}</strong></div>
-      <div style="padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px"><div style="color:#555;margin-bottom:2px">Discount</div><strong>${finDiscount}</strong></div>
-      <div style="padding:8px 10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:6px"><div style="color:#555;margin-bottom:2px">Pending Balance</div><strong>${finPending}</strong></div>
-      <div style="padding:8px 10px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:6px"><div style="color:#555;margin-bottom:2px">Received</div><strong>${finReceived}</strong></div>
-    </div>
+    ${finStripHtml}
     <table>
-      <thead><tr><th>Product</th><th>SKU</th><th>Orders</th><th>Total Pcs</th><th>Pcs/Ctn</th><th>Cartons</th><th>Loose</th><th>Unit Cost</th><th>Total Cost</th></tr></thead>
+      <thead><tr>${visibleCols.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead>
       <tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>
     </table>
     <div style="margin-top:14px;padding:10px 14px;border:1.5px solid #ddd;border-radius:6px;display:flex;flex-wrap:wrap;gap:20px;font-size:12px;background:#f9fafb">
-      <span>📦 Cartons: <strong>${document.getElementById('os-total-cartons').textContent}</strong></span>
       <span>🧩 Pieces: <strong>${document.getElementById('os-total-pieces').textContent}</strong></span>
       <span>💰 Warehouse Cost: <strong>${document.getElementById('os-total-cost').textContent}</strong></span>
     </div>
@@ -6186,21 +6178,32 @@ function ssToggle(key, container) {
 }
 
 // ── SALES SLIP SEARCH with username/invoice/area filter ──
-window.renderSaleSlips = async function() {
+window.renderSaleSlips = async function(forceRefresh) {
   const dateFilter     = document.getElementById('ss-date')?.value||'';
+  const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
   const invoiceFilter  = (document.getElementById('ss-invoice')?.value||'').toLowerCase().trim();
   const usernameFilter = (document.getElementById('ss-username')?.value||'').toLowerCase().trim();
+  const areaFilter     = (document.getElementById('ss-area')?.value||'').toLowerCase().trim();
 
-  const data = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
-  _slipsCache = data.results || data;
+  // Fetch from the server only once per page visit (or when explicitly
+  // refreshed, e.g. after saving a new sale) — every filter change after
+  // that runs instantly against the cached list instead of round-tripping
+  // to the backend on every keystroke.
+  if (!_slipsLoaded || forceRefresh === true) {
+    const data = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
+    _slipsCache = data.results || data;
+    _slipsLoaded = true;
+  }
 
   const slips = _slipsCache.filter(b =>
-    b.status !== 'cancelled' &&
+    (statusFilter ? b.status === statusFilter : b.status !== 'cancelled') &&
     (!dateFilter     || (b.created_at||'').slice(0,10) === dateFilter) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
-    (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter)) &&
-    (!usernameFilter || (b.served_by_name||'').toLowerCase().includes(usernameFilter))
+    (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
+                        ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
+    (!usernameFilter || (b.served_by_name||'').toLowerCase().includes(usernameFilter)) &&
+    (!areaFilter     || (b.customer_address||'').toLowerCase().includes(areaFilter))
   );
 
   const tbody = document.getElementById('saleslips-tbody');
@@ -6241,12 +6244,7 @@ window.renderSaleSlips = async function() {
   }).join('');
 };
 
-window.clearSaleSlipsFilters = function() {
-  ['ss-date','ss-status','ss-name','ss-area','ss-invoice','ss-username'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.value = '';
-  });
-  renderSaleSlips();
-};
+// clearSaleSlipsFilters is defined once, further below.
 
 // Fixed: previously overrode viewSlipDetail with a call to a non-existent
 // viewOrderDetail() function (dead code from the original template — would
@@ -6271,18 +6269,16 @@ let osSettings = (() => {
     const saved = JSON.parse(localStorage.getItem(OS_SETTINGS_KEY));
     // Merge with defaults so new keys are always present
     return Object.assign({
-      showOrders: true, showPieces: true, showCartonPrice: true,
-      showTax: true, showDiscount: true, showQty: true,
-      showSubtotal: true, showProfitMargin: false, showSku: true,
+      showSku: true, showOrders: true, showPieces: true, showPcsPerCtn: true,
+      showCartonsOut: true, showLoosePcs: true, showUnitCost: true, showTotalCost: true,
       // Financial KPI strip toggles
       finShowOrders: true, finShowAmount: true, finShowTax: true,
       finShowDiscount: true, finShowPending: true, finShowReceived: true,
     }, saved || {});
   } catch(e) { return null; }
 })() || {
-  showOrders: true, showPieces: true, showCartonPrice: true,
-  showTax: true, showDiscount: true, showQty: true,
-  showSubtotal: true, showProfitMargin: false, showSku: true,
+  showSku: true, showOrders: true, showPieces: true, showPcsPerCtn: true,
+  showCartonsOut: true, showLoosePcs: true, showUnitCost: true, showTotalCost: true,
   finShowOrders: true, finShowAmount: true, finShowTax: true,
   finShowDiscount: true, finShowPending: true, finShowReceived: true,
 };
@@ -6294,6 +6290,7 @@ function saveOsSettings() {
   localStorage.setItem(OS_SETTINGS_KEY, JSON.stringify(osSettings));
   closeModal('os-settings-modal');
   applyOsFinKpiVisibility();
+  applyOsColumnVisibility();
   renderOrderSummary();
   toast('Order Summary settings saved!', 'success');
 }
@@ -6322,6 +6319,29 @@ function applyOsFinKpiVisibility() {
   Object.entries(map).forEach(([key, elId]) => {
     const el = document.getElementById(elId);
     if (el) el.style.display = osSettings[key] === false ? 'none' : '';
+  });
+}
+
+// Hides/shows Dispatch Table columns based on osSettings. Column indexes
+// (1-based, matching <th>/<td> position in #os-main-table) — index 1 is
+// "Product" and is always visible.
+const OS_COLUMN_MAP = {
+  showSku:        2, // SKU
+  showOrders:     3, // Orders
+  showPieces:     4, // Total Pieces
+  showPcsPerCtn:  5, // Pcs / Ctn
+  showCartonsOut: 6, // Cartons Out
+  showLoosePcs:   7, // Loose Pcs
+  showUnitCost:   8, // Unit Cost
+  showTotalCost:  9, // Total Cost
+};
+function applyOsColumnVisibility() {
+  const table = document.getElementById('os-main-table');
+  if (!table) return;
+  Object.entries(OS_COLUMN_MAP).forEach(([key, colIndex]) => {
+    const visible = osSettings[key] !== false;
+    table.querySelectorAll(`th:nth-child(${colIndex}), td:nth-child(${colIndex})`)
+      .forEach(cell => { cell.style.display = visible ? '' : 'none'; });
   });
 }
 
@@ -7011,15 +7031,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <i class="fa fa-table"></i> Dispatch Table Columns
         </div>
         <div style="display:flex;flex-direction:column;gap:8px">
+          ${_osToggleRow('showSku',        'SKU Column',           'fa-barcode')}
           ${_osToggleRow('showOrders',     'Orders Count Column',  'fa-receipt')}
           ${_osToggleRow('showPieces',     'Total Pieces Column',  'fa-cube')}
-          ${_osToggleRow('showQty',        'Quantity Column',      'fa-hashtag')}
-          ${_osToggleRow('showCartonPrice','Carton Price',         'fa-boxes')}
-          ${_osToggleRow('showSubtotal',   'Subtotal Column',      'fa-dollar-sign')}
-          ${_osToggleRow('showDiscount',   'Discount Column',      'fa-tag')}
-          ${_osToggleRow('showTax',        'Tax / GST Column',     'fa-percent')}
-          ${_osToggleRow('showProfitMargin','Profit Margin',       'fa-chart-line')}
-          ${_osToggleRow('showSku',        'SKU Column',           'fa-barcode')}
+          ${_osToggleRow('showPcsPerCtn',  'Pieces / Carton Column','fa-boxes')}
+          ${_osToggleRow('showCartonsOut', 'Cartons Out Column',   'fa-dolly')}
+          ${_osToggleRow('showLoosePcs',   'Loose Pieces Column',  'fa-hashtag')}
+          ${_osToggleRow('showUnitCost',   'Unit Cost Column',     'fa-dollar-sign')}
+          ${_osToggleRow('showTotalCost',  'Total Cost Column',    'fa-chart-line')}
         </div>
       </div>
       <div class="modal-footer">

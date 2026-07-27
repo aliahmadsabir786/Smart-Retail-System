@@ -10,6 +10,11 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         demo_users = [
             ("zubairtrader", "Admin123", Role.SUPER_ADMIN, "Super", "Admin", True),
+            ("manager@smartretail.com", "Manager123!", Role.MANAGER, "Store", "Manager", False),
+            ("cashier@smartretail.com", "Cashier123!", Role.CASHIER, "Front", "Cashier", False),
+            ("sales@smartretail.com", "Sales123!", Role.SALESPERSON, "Sam", "Sales", False),
+            ("inventory@smartretail.com", "Inventory123!", Role.INVENTORY_MANAGER, "Ivy", "Inventory", False),
+            ("customer@smartretail.com", "Customer123!", Role.CUSTOMER, "Cindy", "Customer", False),
         ]
 
         for email, password, role, first, last, is_super in demo_users:

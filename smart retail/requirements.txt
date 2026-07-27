@@ -1,9 +1,9 @@
 Django>=5.0,<5.1
 djangorestframework>=3.15
 djangorestframework-simplejwt>=5.3
-psycopg2-binary>=2.9   # Postgres (default) — remove if using MySQL only
-PyMySQL>=1.1            # MySQL driver (pure Python, no compiler needed)
-cryptography>=42.0      # required by PyMySQL for MySQL 8+ auth (sha256_password/caching_sha2_password)
+psycopg2-binary>=2.9
+PyMySQL>=1.1
+cryptography>=42.0
 django-filter>=24.1
 django-cors-headers>=4.3
 drf-spectacular>=0.27
@@ -18,3 +18,4 @@ python-barcode>=0.15.1
 qrcode[pil]>=7.4.2
 openpyxl>=3.1
 reportlab>=4.1
+sentry-sdk>=1.40

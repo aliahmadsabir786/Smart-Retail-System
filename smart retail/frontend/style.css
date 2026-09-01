@@ -1242,8 +1242,17 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 
 /* ── A4 PRINT ─────────────────────────────────── */
 @page {
-  margin: 0 !important;
+  /* Page 1 gets its top spacing from .a4-doc's own padding (14mm) below, so
+     it stays at 0 here. Any page AFTER the first — e.g. when a block like
+     the Totals box doesn't fit and moves whole onto a new sheet — has no
+     padding-carryover from .a4-doc (that padding only applies once, at the
+     very top of the flow), so without this it prints flush against the raw
+     paper edge. This margin gives page 2+ some breathing room up top. */
+  margin: 12mm 0 0 0 !important;
   size: A4;
+}
+@page :first {
+  margin-top: 0 !important;
 }
 @media print {
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -1289,6 +1298,16 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   #print-area div[style*="background:#f59e0b"] {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  /* ── FIX: don't let a page break fall in the middle of one block ──
+     (BILL TO/INVOICE DETAILS, the ITEMS table rows, the TOTALS box, or
+     the Notes/Footer note) — if a block doesn't fit on the current page,
+     the WHOLE block moves down to the next page together instead of
+     splitting in half. */
+  .a4-doc .slip-atomic-block,
+  .a4-doc table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 }
 #print-area { display: none; }

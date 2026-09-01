@@ -3487,7 +3487,7 @@ function buildSlipA4Html(rawSale) {
     </div>
 
     <!-- ═══ BILL TO + INVOICE DETAILS ═══ -->
-    <div style="display:flex;gap:0;margin-bottom:5mm;border:1.5px solid #000;border-radius:5px;overflow:hidden">
+    <div class="slip-atomic-block" style="display:flex;gap:0;margin-bottom:5mm;border:1.5px solid #000;border-radius:5px;overflow:hidden">
       <!-- BILL TO -->
       <div style="flex:1.3;padding:4mm 5mm;border-right:1.5px solid #000">
         <div style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:3px 6px;margin:-4mm -5mm 3mm;display:block">BILL TO</div>
@@ -3529,9 +3529,9 @@ function buildSlipA4Html(rawSale) {
           <th style="padding:7px 6px;text-align:left;background:#000;color:#fff;font-size:10px;font-weight:700">PRODUCT NAME</th>
           <th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">PIECES</th>
           <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">UNIT PRICE</th>
-          <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">BASE AMOUNT</th>
-          ${ssSettings.showTax ? `<th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">TAX%</th>
-          <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TAX AMT</th>` : ''}
+          ${ssSettings.showSubtotal ? `<th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">BASE AMOUNT</th>` : ''}
+          ${ssSettings.showTax ? `<th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">TAX%</th>` : ''}
+          ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TAX AMT</th>` : ''}
           <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TOTAL</th>
         </tr>
       </thead>
@@ -3548,9 +3548,9 @@ function buildSlipA4Html(rawSale) {
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;font-weight:700;color:#000;background:${bg}">${it.icon||''} ${it.name||'—'}</td>
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:center;background:${bg}">${tp}</td>
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;font-weight:600;color:#000;text-align:right;background:${bg}">Rs. ${(it.rate||0).toFixed(2)}</td>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:right;background:${bg}">Rs. ${baseAmt.toFixed(2)}</td>
-            ${ssSettings.showTax ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemTaxPct>0?'#8b0000':'#999'}">${itemTaxPct>0?itemTaxPct+'%':'—'}</td>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:${taxAmt>0?'#8b0000':'#999'};text-align:right;background:${bg}">${taxAmt>0?'Rs. '+taxAmt.toFixed(2):'—'}</td>` : ''}
+            ${ssSettings.showSubtotal ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:right;background:${bg}">Rs. ${baseAmt.toFixed(2)}</td>` : ''}
+            ${ssSettings.showTax ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemTaxPct>0?'#8b0000':'#999'}">${itemTaxPct>0?itemTaxPct+'%':'—'}</td>` : ''}
+            ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:${taxAmt>0?'#8b0000':'#999'};text-align:right;background:${bg}">${taxAmt>0?'Rs. '+taxAmt.toFixed(2):'—'}</td>` : ''}
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:800;color:#000;text-align:right;background:${bg}">Rs. ${totalAmt.toFixed(2)}</td>
           </tr>`;
         }).join('')}
@@ -3558,7 +3558,7 @@ function buildSlipA4Html(rawSale) {
     </table>
 
     <!-- ═══ TOTALS ═══ -->
-    <div style="display:flex;justify-content:flex-end;margin-bottom:5mm">
+    <div class="slip-atomic-block" style="display:flex;justify-content:flex-end;margin-bottom:5mm">
       <div style="width:90mm;border:1.5px solid #000;border-radius:5px;overflow:hidden;font-size:12px">
         ${(()=>{
           // Recalculate from items for print accuracy
@@ -3569,7 +3569,7 @@ function buildSlipA4Html(rawSale) {
           const grandTotal   = subtotalBase + totalTaxAmt - discAmt;
           return `
         ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
-        ${(ssSettings.showTax && hasTax)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>`:''}
+        ${(ssSettings.showTax && ssSettings.showTaxAmount && hasTax)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>`:''}
         ${(ssSettings.showDiscount && discAmt>0)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${b.discountPct||0}%)</span><span style="font-weight:600">- Rs. ${discAmt.toFixed(2)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;padding:8px 10px;background:#1a1a1a;color:#fff;font-size:14px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>Previous Balance</span><span>Rs. ${(b.prevBal||0).toFixed(2)}</span></div>
@@ -3578,11 +3578,11 @@ function buildSlipA4Html(rawSale) {
       </div>
     </div>
 
-    ${b.notes?`<div style="margin-bottom:5mm;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:11px;color:#000"><strong>Notes:</strong> ${b.notes}</div>`:''}
+    ${b.notes?`<div class="slip-atomic-block" style="margin-bottom:5mm;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:11px;color:#000"><strong>Notes:</strong> ${b.notes}</div>`:''}
 
     
     <!-- ═══ FOOTER ═══ -->
-    ${(ssSettings.showFooterNotes && footerNote) ? `<div style="margin-top:8mm;text-align:center;font-size:11px;color:#333;font-style:italic">${footerNote}</div>` : ''}
+    ${(ssSettings.showFooterNotes && footerNote) ? `<div class="slip-atomic-block" style="margin-top:8mm;text-align:center;font-size:11px;color:#333;font-style:italic">${footerNote}</div>` : ''}
     <div class="slip-footer" style="margin-top:6mm;display:flex;justify-content:space-between;font-size:10px;color:#555;border-top:1px solid #ccc;padding-top:4mm">
       <span>SmartRetail ERP — Order Booking System</span>
       <span>${b.invoice} · Printed: ${new Date().toLocaleString()}</span>
@@ -6168,14 +6168,21 @@ async function confirmCustomerImport() {
 
 // ── Sale Slip Settings ─────────────────────────────────
 const SS_SETTINGS_KEY = 'smartretail_ss_settings_v2';
-let ssSettings = (() => {
-  try { return JSON.parse(localStorage.getItem(SS_SETTINGS_KEY)); } catch(e) { return null; }
-})() || {
-  showTax: true, showDiscount: true, showCartonPrice: true,
+const SS_SETTINGS_DEFAULTS = {
+  showTax: true, showTaxAmount: true, showDiscount: true, showCartonPrice: true,
   showSubtotal: true, showCustomerDetails: true, showProfit: false,
   showCompanyLogo: true, showFooterNotes: true, showBookedBy: true,
   showPaymentMethod: true
 };
+let ssSettings = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SS_SETTINGS_KEY));
+    // Merge over defaults (not replace) so a NEW toggle we add later still
+    // gets a sensible default for people who already saved settings before
+    // that toggle existed, instead of silently coming out as "off".
+    return saved ? { ...SS_SETTINGS_DEFAULTS, ...saved } : null;
+  } catch(e) { return null; }
+})() || { ...SS_SETTINGS_DEFAULTS };
 
 function saveSsSettings() {
   document.querySelectorAll('.ss-setting-check').forEach(cb => {
@@ -7041,9 +7048,10 @@ document.addEventListener('DOMContentLoaded', function() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           ${[
             ['showCustomerDetails','Customer Details','fa-user'],
+            ['showSubtotal','Base Amount','fa-calculator'],
             ['showTax','Sale Tax / GST','fa-percent'],
+            ['showTaxAmount','Tax Amount','fa-money-bill-wave'],
             ['showDiscount','Discount Amount','fa-tag'],
-            ['showSubtotal','Subtotal Breakdown','fa-calculator'],
             ['showCartonPrice','Carton Price','fa-boxes'],
             ['showProfit','Profit Info','fa-chart-line'],
             ['showCompanyLogo','Company Logo / Header','fa-store'],

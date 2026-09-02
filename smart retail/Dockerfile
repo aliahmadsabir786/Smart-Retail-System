@@ -25,6 +25,10 @@ COPY ["smart retail/", "."]
 
 RUN mkdir -p /app/logs /app/staticfiles /app/media
 
+# entrypoint.sh already copied in via the line above (it lives inside
+# "smart retail/"). Make it executable and use it as the container's entry.
+RUN chmod +x /app/entrypoint.sh
+
 EXPOSE 8000
 
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+echo "DEBUG: DB_HOST=[$DB_HOST] DB_PORT=[$DB_PORT] DB_NAME=[$DB_NAME] DB_USER=[$DB_USER]"
+
 echo "Running database migrations..."
 python manage.py migrate --noinput
 

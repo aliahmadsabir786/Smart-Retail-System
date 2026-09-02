@@ -2,6 +2,7 @@
 Base settings shared by all environments.
 Environment-specific overrides live in development.py / production.py
 """
+import os
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
@@ -18,6 +19,18 @@ ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv(
 # added explicitly (via the CSRF_TRUSTED_ORIGINS env var, "https://" and
 # all — this one needs the scheme, ALLOWED_HOSTS doesn't).
 CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
+
+# Railway assigns a domain like "smart-retail-system-production-XXXX.up.railway.app"
+# and it CAN change (a redeploy, regenerating the domain, etc.) — manually
+# keeping ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS in sync with it every time is
+# exactly the DisallowedHost 400 loop this project kept hitting. Railway
+# always exposes the CURRENT public domain as RAILWAY_PUBLIC_DOMAIN, so pull
+# it in automatically here — this makes both settings self-updating on every
+# deploy instead of a manual step you have to remember.
+_railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+if _railway_domain:
+    ALLOWED_HOSTS.append(_railway_domain)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{_railway_domain}")
 
 # ------------------------------------------------------------------
 # Applications

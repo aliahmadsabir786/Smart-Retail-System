@@ -3,6 +3,13 @@ from decouple import config
 
 DEBUG = False
 
+# Railway (and most platforms like it) terminate HTTPS at their own proxy
+# and forward the request to this container as plain HTTP, adding an
+# X-Forwarded-Proto header to say so. Without this line, Django can't tell
+# the request was actually HTTPS and SECURE_SSL_REDIRECT below sends it
+# into an infinite redirect loop.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True

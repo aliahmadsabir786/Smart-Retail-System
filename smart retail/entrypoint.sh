@@ -1,7 +1,11 @@
 #!/bin/sh
 set -e
 
-echo "DEBUG: DB_HOST=[$DB_HOST] DB_PORT=[$DB_PORT] DB_NAME=[$DB_NAME] DB_USER=[$DB_USER]"
+if [ -z "$DATABASE_URL" ]; then
+  echo "DEBUG: DATABASE_URL is NOT SET"
+else
+  echo "DEBUG: DATABASE_URL IS SET (starts with: $(echo $DATABASE_URL | cut -c1-15)...)"
+fi
 
 echo "Running database migrations..."
 python manage.py migrate --noinput

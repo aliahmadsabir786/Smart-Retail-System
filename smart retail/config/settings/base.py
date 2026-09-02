@@ -23,14 +23,24 @@ CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
 # Railway assigns a domain like "smart-retail-system-production-XXXX.up.railway.app"
 # and it CAN change (a redeploy, regenerating the domain, etc.) — manually
 # keeping ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS in sync with it every time is
-# exactly the DisallowedHost 400 loop this project kept hitting. Railway
-# always exposes the CURRENT public domain as RAILWAY_PUBLIC_DOMAIN, so pull
-# it in automatically here — this makes both settings self-updating on every
-# deploy instead of a manual step you have to remember.
+# exactly the DisallowedHost 400 loop this project kept hitting.
+#
+# Two layers, so this stops depending on timing/env-var luck:
+# 1. RAILWAY_PUBLIC_DOMAIN, if the platform happens to expose it to this
+#    process — a nice-to-have, but not guaranteed to be there at every boot.
+# 2. A wildcard for "*.up.railway.app" — EVERY Railway-generated domain ends
+#    in this suffix, no matter what random prefix it gets, so this alone
+#    guarantees the app accepts whatever domain Railway hands it, forever,
+#    with no manual step. Django supports a leading-dot wildcard in
+#    ALLOWED_HOSTS and a "https://*.host" wildcard in CSRF_TRUSTED_ORIGINS
+#    natively — no custom code needed for the matching itself.
 _railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
 if _railway_domain:
     ALLOWED_HOSTS.append(_railway_domain)
     CSRF_TRUSTED_ORIGINS.append(f"https://{_railway_domain}")
+
+ALLOWED_HOSTS.append(".up.railway.app")
+CSRF_TRUSTED_ORIGINS.append("https://*.up.railway.app")
 
 # ------------------------------------------------------------------
 # Applications

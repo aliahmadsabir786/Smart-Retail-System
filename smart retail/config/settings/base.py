@@ -125,16 +125,12 @@ if DB_ENGINE == "mysql":
 else:
     DATABASES = {
         "default": {
-            "ENGINE": "django.db.backends.mysql",
+            "ENGINE": "django.db.backends.postgresql",
             "NAME": config("DB_NAME", default="smartretail_db"),
-            "USER": config("DB_USER", default="root"),
+            "USER": config("DB_USER", default="smartretail_user"),
             "PASSWORD": config("DB_PASSWORD", default="123456"),
             "HOST": config("DB_HOST", default="localhost"),
-            "PORT": config("DB_PORT", default="3306"),
-            "OPTIONS": {
-                "charset": "utf8mb4",
-                "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-            },
+            "PORT": config("DB_PORT", default="5432"),
         }
     }
 # ------------------------------------------------------------------

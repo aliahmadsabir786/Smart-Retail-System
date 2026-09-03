@@ -53,6 +53,17 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     import debug_toolbar
     urlpatterns += [path("__debug__/", include(debug_toolbar.urls))]
+
+# Serving uploaded media (company logo, product images, etc.) through Django
+# itself is normally a DEBUG-only thing — Django's docs recommend a real
+# webserver/CDN for this in production. But this project has no such
+# webserver in front of it (Railway just proxies straight to gunicorn), so
+# without this line NO uploaded file — including the store logo — is ever
+# reachable at all once DEBUG=False: the upload succeeds (the file saves to
+# disk fine) but its URL 404s for every single request, which is exactly
+# why the logo never showed up on the invoice. This is a fine trade-off for
+# a small business app's traffic level; a CDN/S3 backend is the "proper"
+# fix if this app ever needs to scale that upload traffic.
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

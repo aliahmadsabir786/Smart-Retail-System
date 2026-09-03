@@ -1,7 +1,6 @@
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, re_path, include
 from django.conf import settings
-from django.conf.urls.static import static
 from django.views.static import serve as serve_static_file
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -57,13 +56,20 @@ if settings.DEBUG:
     urlpatterns += [path("__debug__/", include(debug_toolbar.urls))]
 
 # Serving uploaded media (company logo, product images, etc.) through Django
-# itself is normally a DEBUG-only thing — Django's docs recommend a real
-# webserver/CDN for this in production. But this project has no such
-# webserver in front of it (Railway just proxies straight to gunicorn), so
-# without this line NO uploaded file — including the store logo — is ever
-# reachable at all once DEBUG=False: the upload succeeds (the file saves to
-# disk fine) but its URL 404s for every single request, which is exactly
-# why the logo never showed up on the invoice. This is a fine trade-off for
-# a small business app's traffic level; a CDN/S3 backend is the "proper"
-# fix if this app ever needs to scale that upload traffic.
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# itself is normally a DEBUG-only thing. The FIRST attempt at this fix used
+# Django's `static()` helper outside the `if settings.DEBUG` block — but
+# that helper has its OWN internal check (in django/conf/urls/static.py:
+# "elif not settings.DEBUG: return []") that silently no-ops whenever
+# DEBUG=False, no matter where you call it from. That's why moving it
+# outside the if-block here didn't actually change anything last time.
+#
+# The real fix is to wire up django.views.static.serve directly with our
+# own re_path, bypassing that helper (and its built-in check) entirely.
+# This project has no separate webserver/CDN in front of gunicorn (Railway
+# proxies straight to it), so without this, NO uploaded file is ever
+# reachable once DEBUG=False — this is a fine trade-off for a small
+# business app's traffic level; a CDN/S3 backend is the "proper" fix if
+# this app ever needs to scale that upload traffic.
+urlpatterns += [
+    re_path(r"^media/(?P<path>.*)$", serve_static_file, {"document_root": settings.MEDIA_ROOT}),
+]

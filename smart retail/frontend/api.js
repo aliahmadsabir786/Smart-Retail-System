@@ -341,3 +341,8 @@ const SettingsAPI = {
   clearSaleSlips() { return apiRequest('/settings/clear-sale-slips/', { method: 'POST', body: { confirm: 'DELETE' } }); },
   clearCustomers() { return apiRequest('/settings/clear-customers/', { method: 'POST', body: { confirm: 'DELETE' } }); },
 };
+
+const BackupsAPI = {
+  list() { return apiRequest('/backups/'); },
+  run() { return apiRequest('/backups/run/', { method: 'POST' }); },
+};

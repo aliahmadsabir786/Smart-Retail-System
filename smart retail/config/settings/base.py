@@ -84,6 +84,7 @@ LOCAL_APPS = [
     "apps.reports",
     "apps.settings",
     "apps.routes",
+    "apps.backups",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

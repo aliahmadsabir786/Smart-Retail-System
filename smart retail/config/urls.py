@@ -28,6 +28,7 @@ api_v1_patterns = [
     path("dashboard/", include("apps.dashboard.urls")),
     path("reports/", include("apps.reports.urls")),
     path("settings/", include("apps.settings.urls")),
+    path("backups/", include("apps.backups.urls")),
 ]
 
 FRONTEND_DIR = settings.BASE_DIR / "frontend"

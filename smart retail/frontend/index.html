@@ -1336,6 +1336,24 @@
           </div>
         </div>
 
+        <!-- Backup & Restore -->
+        <div class="card" style="margin-top:20px">
+          <div class="card-header"><div class="card-title">💾 Backup &amp; Restore</div></div>
+          <div class="card-body">
+            <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+              <i class="fa fa-info-circle" style="color:var(--accent)"></i> A backup is a full export of every bill, customer, product, and stock record — saved as a downloadable .zip. The last 12 backups are kept automatically.
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+              <div style="font-size:12px;color:var(--text-muted)">Click below any time you want a fresh backup of everything — bills, customers, products, and stock.</div>
+              <button class="btn btn-primary btn-sm" onclick="runBackupNow()" id="run-backup-btn"><i class="fa fa-download"></i> Run Backup Now</button>
+            </div>
+            <table class="data-table" style="width:100%">
+              <thead><tr><th>Date</th><th>Type</th><th>Size</th><th>By</th><th style="text-align:right">Download</th></tr></thead>
+              <tbody id="backups-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- Danger Zone: Start New Business (independent, single-purpose actions) -->
         <div class="card" style="margin-top:20px;border:1px solid rgba(239,68,68,.35)">
           <div class="card-header"><div class="card-title" style="color:var(--red)"><i class="fa fa-exclamation-triangle"></i> Danger Zone — Start New Business</div></div>

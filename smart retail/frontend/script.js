@@ -3772,6 +3772,45 @@ function printAllSlipsA4(mode) {
 // ═══════════════════════════════════════════════════════
 let _companySettingsCache = null;
 
+async function renderBackupsList() {
+  const tbody = document.getElementById('backups-tbody');
+  if (!tbody) return;
+  try {
+    const data = await BackupsAPI.list();
+    const backups = data.results || data;
+    if (!backups.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">No backups yet — run one now, or turn on Automatic Backups above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = backups.map(b => `
+      <tr>
+        <td>${new Date(b.created_at).toLocaleString()}</td>
+        <td>${b.is_automatic ? '<span class="badge badge-blue">Auto</span>' : '<span class="badge badge-green">Manual</span>'}</td>
+        <td>${b.size_display}</td>
+        <td>${b.created_by_name || '—'}</td>
+        <td style="text-align:right"><a href="${b.file}" target="_blank" class="btn btn-ghost btn-xs" title="Download"><i class="fa fa-download"></i></a></td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--red);padding:16px">${err.message || 'Failed to load backups'}</td></tr>`;
+  }
+}
+
+async function runBackupNow() {
+  const btn = document.getElementById('run-backup-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Backing up...'; }
+  try {
+    await BackupsAPI.run();
+    toast('Backup created successfully!', 'success');
+    await renderBackupsList();
+  } catch (err) {
+    toast(err.message || 'Backup failed', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-download"></i> Run Backup Now'; }
+  }
+}
+
+
 async function renderSettings() {
   const s = await SettingsAPI.getCompany();
   _companySettingsCache = s;
@@ -3794,6 +3833,7 @@ async function renderSettings() {
   setVal('set-dist-phone', s.distributor_phone);
   setVal('set-dist-address', s.distributor_address);
   setVal('set-dist-email', s.distributor_email);
+  renderBackupsList();
 
   const cur = document.getElementById('set-currency');
   if (cur) { Array.from(cur.options).forEach(o=>{ o.selected = o.value===s.default_currency||o.text===s.default_currency; }); }

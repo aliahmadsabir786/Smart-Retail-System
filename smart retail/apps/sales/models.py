@@ -50,6 +50,7 @@ class Sale(BaseModel):
         CANCELLED = "cancelled", "Cancelled"
         RETURNED = "returned", "Returned"
         PARTIALLY_RETURNED = "partially_returned", "Partially Returned"
+        EDITED = "edited", "Edited"
 
     class PaymentStatus(models.TextChoices):
         UNPAID = "unpaid", "Unpaid"

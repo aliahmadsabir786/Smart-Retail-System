@@ -60,10 +60,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def ledger(self, request, pk=None):
-        """GET /customers/{id}/ledger/ — chronological statement of invoices,
-        payments, and returns with a running balance."""
+        """GET /customers/{id}/ledger/ — payment-receipt statement: what's
+        owed in total, what's been paid so far, and a dated line for each
+        actual payment received, each with the balance remaining after it."""
         customer = self.get_object()
-        entries = services.get_customer_ledger(customer)
+        ledger = services.get_customer_ledger(customer)
         return Response({"success": True, "customer": customer.name,
-                          "opening_balance": "0.00", "entries": entries,
-                          "closing_balance": str(customer.outstanding_balance)})
+                          "amount_owed": ledger["amount_owed"], "total_paid": ledger["total_paid"],
+                          "remaining": ledger["remaining"], "entries": ledger["entries"]})

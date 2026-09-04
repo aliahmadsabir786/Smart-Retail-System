@@ -283,6 +283,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 let _lastOrder = null;
 let _editingBookingId = null;
+// Set instead of _editingBookingId when re-opening the booking form to edit
+// an already-finalized invoice in place (see editCompletedSlipFromModal) —
+// saveBooking() checks this to call SalesAPI.edit() instead of create().
+let _editingCompletedSaleId = null;
 let _bookingItems = [];
 
 // ═══════════════════════════════════════════════════════
@@ -1583,7 +1587,6 @@ async function renderCustomers(page) {
       <td>${c.phone||'—'}</td>
       <td style="font-family:var(--mono);font-size:12px">${c.cnic || '<span style="color:var(--text-muted)">—</span>'}</td>
       <td>${c.email||'—'}</td>
-      <td class="fw-700 text-green">Rs.${Number(c.credit_limit).toFixed(2)}</td>
       <td class="${Number(c.outstanding_balance)>0?'text-red':'text-green'} fw-700">Rs.${Number(c.outstanding_balance).toFixed(2)}</td>
       <td><span class="badge badge-purple">⭐ ${c.loyalty_points}</span></td>
       <td style="font-size:12px">${(c.updated_at||'').split('T')[0]||'—'}</td>
@@ -1604,7 +1607,6 @@ function openCustomerModal() {
   });
   document.getElementById('cust-points').value = 0;
   document.getElementById('cust-prev-balance').value = 0;
-  document.getElementById('cust-credit-limit').value = 0;
   const errEl = document.getElementById('cust-cnic-error');
   const statusEl = document.getElementById('cust-cnic-status');
   if (errEl) errEl.style.display = 'none';
@@ -1625,7 +1627,6 @@ function editCustomer(id) {
   document.getElementById('cust-points').value     = c.loyalty_points || 0;
   document.getElementById('cust-acc').value        = 'ACC-' + String(c.id).padStart(4,'0');
   document.getElementById('cust-prev-balance').value = c.outstanding_balance || 0;
-  document.getElementById('cust-credit-limit').value = c.credit_limit || 0;
   const cnicEl = document.getElementById('cust-cnic');
   if (cnicEl) { cnicEl.value = c.cnic || ''; }
   openModal('customer-modal');
@@ -1659,7 +1660,6 @@ async function saveCustomer() {
     address: document.getElementById('cust-address').value,
     loyalty_points: parseInt(document.getElementById('cust-points').value) || 0,
     outstanding_balance: parseFloat(document.getElementById('cust-prev-balance').value) || 0,
-    credit_limit: parseFloat(document.getElementById('cust-credit-limit').value) || 0,
   };
 
   try {
@@ -2577,6 +2577,7 @@ async function printReportA4() {
 // ═══════════════════════════════════════════════════════
 function initBooking() {
   _editingBookingId = null;
+  _editingCompletedSaleId = null;
   document.getElementById('booking-form-wrap').style.display = 'none';
   document.getElementById('booking-list-wrap').style.display = '';
   const today = new Date().toISOString().split('T')[0];
@@ -2585,8 +2586,9 @@ function initBooking() {
   renderBookingList();
 }
 
-async function newBookingForm(editId) {
+async function newBookingForm(editId, editCompletedInPlace) {
   _editingBookingId = null;
+  _editingCompletedSaleId = null;
   document.getElementById('booking-form-wrap').style.display = '';
   document.getElementById('booking-list-wrap').style.display = 'none';
   setTimeout(()=>document.getElementById('booking-form-wrap').scrollIntoView({behavior:'smooth'}),50);
@@ -2598,7 +2600,7 @@ async function newBookingForm(editId) {
   document.getElementById('bk-invoice').value = 'Assigned on save';
   document.getElementById('bk-customer').value = '';
   document.getElementById('bk-customer-search').value = '';
-  document.getElementById('bk-payment').value = 'credit';
+  document.getElementById('bk-payment').value = 'cash';
   document.getElementById('bk-notes').value = '';
   document.getElementById('bk-discount').value = 0;
   document.getElementById('bk-tax').value = 0;
@@ -2607,7 +2609,30 @@ async function newBookingForm(editId) {
   document.getElementById('bk-customer-info').style.display = 'none';
   _bookingItems = [{ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 }];
 
-  if (editId) {
+  if (editId && editCompletedInPlace) {
+    // Editing an already-finalized invoice IN PLACE — same invoice_number,
+    // same row (see editCompletedSlipFromModal / SalesAPI.edit). Nothing is
+    // returned/reversed here on the frontend; the backend's edit_completed_sale
+    // service handles reversing the old items and reapplying the new ones.
+    let sale;
+    try { sale = await SalesAPI.get(editId); }
+    catch (err) { toast(err.message || 'Failed to load invoice', 'error'); return; }
+    _editingCompletedSaleId = editId;
+    document.getElementById('booking-form-title').textContent = `✏️ Editing Invoice — ${sale.invoice_number}`;
+    document.getElementById('bk-invoice').value = sale.invoice_number;
+    document.getElementById('bk-notes').value = (sale.notes||'').replace(/^Order Booking\s*(—\s*)?/,'').replace(/\s*\(date:[^)]*\)\s*$/,'');
+    if (sale.customer) {
+      document.getElementById('bk-customer').value = sale.customer;
+      onBookingCustomerChange();
+    }
+    _bookingItems = sale.items
+      .filter(it => (it.quantity - it.quantity_returned) > 0)
+      .map(it => ({
+        productId: it.product, name: it.product_name, rate: Number(it.unit_price),
+        qty: it.quantity - it.quantity_returned, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent)||0,
+      }));
+    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 });
+  } else if (editId) {
     // Editing a held (draft) invoice — pull its saved items/customer back in.
     let sale;
     try { sale = await SalesAPI.get(editId); }
@@ -2643,6 +2668,7 @@ async function newBookingForm(editId) {
 
 function closeBookingForm() {
   _editingBookingId = null;
+  _editingCompletedSaleId = null;
   document.getElementById('booking-form-wrap').style.display = 'none';
   document.getElementById('booking-list-wrap').style.display = '';
   renderBookingList();
@@ -2706,7 +2732,7 @@ function onBookingCustomerChange() {
   if (searchEl) searchEl.value = `${cust.name} (${acc})`;
   document.getElementById('bk-customer-info').style.display='';
   document.getElementById('bk-prev-balance').textContent = 'Rs.'+Number(cust.outstanding_balance).toFixed(2);
-  document.getElementById('bk-total-purchases').textContent = 'Rs.'+Number(cust.credit_limit).toFixed(2);
+  document.getElementById('bk-total-purchases').textContent = String(cust.loyalty_points || 0);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
   calcBookingTotals();
 }
@@ -3186,7 +3212,11 @@ async function saveBooking(status) {
 
     // status === 'saved' → a real, completed sale.
     let sale;
-    if (_editingBookingId) {
+    if (_editingCompletedSaleId) {
+      // In-place edit of an already-finalized invoice — same invoice_number,
+      // marked EDITED (not RETURNED). See SalesAPI.edit / edit_completed_sale.
+      sale = await SalesAPI.edit(_editingCompletedSaleId, { ...payload, is_credit_sale: payMethod === 'credit' });
+    } else if (_editingBookingId) {
       // Save the edits back to the held invoice, then finalize it.
       await SalesAPI.updateHold(_editingBookingId, payload);
       sale = await SalesAPI.finalize(_editingBookingId, { is_credit_sale: payMethod === 'credit' });
@@ -3197,7 +3227,7 @@ async function saveBooking(status) {
       await SalesAPI.pay(sale.id, { amount: sale.total_amount, method: payMethod === 'cash' ? 'cash' : 'other' });
     }
     _slipsLoaded = false; // new/updated sale — Sale Slips list must refetch next time it's opened
-    toast(`Booking saved! Invoice: ${sale.invoice_number}`,'success');
+    toast(_editingCompletedSaleId ? `Invoice updated — ${sale.invoice_number}` : `Booking saved! Invoice: ${sale.invoice_number}`, 'success');
     closeBookingForm();
   } catch (err) {
     toast(err.message || 'Failed to save booking', 'error');
@@ -3247,7 +3277,8 @@ async function renderBookingList() {
   if (df) filtered = filtered.filter(b => (b.created_at||'').slice(0,10) === df);
 
   const statusMap = { completed:['badge-green','Confirmed'], returned:['badge-red','Cancelled'],
-    partially_returned:['badge-yellow','Partial Return'], cancelled:['badge-red','Cancelled'], draft:['badge-yellow','⏸ On Hold'] };
+    partially_returned:['badge-yellow','Partial Return'], cancelled:['badge-red','Cancelled'], draft:['badge-yellow','⏸ On Hold'],
+    edited:['badge-blue','✏️ Edited'] };
 
   document.getElementById('booking-table-body').innerHTML = filtered.length
     ? filtered.map(b=>{
@@ -3303,7 +3334,7 @@ function viewSlipDetail(id) {
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">DATE</div><div style="font-weight:600">${(b.created_at||'').slice(0,10)}</div></div>
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">INVOICE</div><div style="font-weight:700;color:var(--cyan);font-family:var(--mono)">${b.invoice_number}</div></div>
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">PAYMENT</div><div style="font-weight:600">${(b.payments[0]?.method)||'—'}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">STATUS</div><span class="badge ${b.status==='completed'?'badge-green':'badge-red'}">${b.status}</span></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">STATUS</div><span class="badge ${b.status==='completed'?'badge-green':b.status==='edited'?'badge-blue':'badge-red'}">${b.status==='edited'?'Edited':b.status}</span></div>
     </div>
     <table>
       <thead><tr><th>Product</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead>
@@ -3326,7 +3357,7 @@ function viewSlipDetail(id) {
       ${b.status === 'draft' ? `
         <button class="btn btn-red btn-sm" onclick="deleteSlipFromModal(${b.id}, '${b.invoice_number}')"><i class="fa fa-trash"></i> Delete</button>
         <button class="btn btn-ghost btn-sm" onclick="editSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit</button>
-      ` : (b.status === 'completed' || b.status === 'partially_returned') ? `
+      ` : ['completed', 'partially_returned', 'edited'].includes(b.status) ? `
         <button class="btn btn-red btn-sm" onclick="cancelSlipFromModal(${b.id})"><i class="fa fa-undo"></i> Cancel / Return</button>
         <button class="btn btn-ghost btn-sm" onclick="editCompletedSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit Invoice</button>
       ` : ''}
@@ -3378,49 +3409,18 @@ async function cancelSlipFromModal(id) {
 }
 
 // A COMPLETED (or partially-returned) invoice has already moved stock and
-// touched the customer's balance/loyalty points — the backend won't let it
-// be edited in place (only a still-held DRAFT can be). The safe, correct
-// way to "edit" one is the same thing an accountant would do on paper:
-// return it in full first (so stock/balance go back to where they were),
-// then re-book the same items in an editable form so the user's changes
-// go out as a fresh, correct invoice instead of silently mutating a
-// finalized financial record.
+// touched the customer's balance/loyalty points. Editing it opens the same
+// booking form pre-filled with its items — on save, SalesAPI.edit() reverses
+// the old items' stock/balance/loyalty effects and reapplies the new ones on
+// the SAME Sale row: the invoice number never changes, and the invoice is
+// marked "Edited" rather than "Returned" (see edit_completed_sale on the
+// backend). Use "Cancel / Return" instead if the goal is an actual refund.
 async function editCompletedSlipFromModal(id) {
-  if (!(await confirmModal('This will first return all items on the invoice (restoring stock and customer balance), then let you re-book it with your changes as a brand-new invoice.', { title: 'Edit Completed Invoice?', confirmText: 'Continue', icon: 'fa-pen' }))) return;
-
-  let sale;
-  try {
-    sale = await SalesAPI.get(id);
-    const items = sale.items
-      .filter(i => (i.quantity - i.quantity_returned) > 0)
-      .map(i => ({ sale_item: i.id, quantity: i.quantity - i.quantity_returned }));
-    if (items.length) {
-      await SalesAPI.processReturn(id, { items, reason: 'Returned for edit' });
-    }
-  } catch (err) {
-    toast(err.message || 'Failed to prepare invoice for editing', 'error');
-    return;
-  }
+  if (!(await confirmModal('Adjust the items below and save — the invoice number stays the same and it will be marked as Edited.', { title: 'Edit Invoice?', confirmText: 'Continue', icon: 'fa-pen' }))) return;
 
   closeModal('order-detail-modal');
   navigate('booking');
-  await newBookingForm(); // fresh booking — the old invoice is now closed/returned, not edited in place
-
-  if (sale.customer) {
-    document.getElementById('bk-customer').value = sale.customer;
-    onBookingCustomerChange();
-  }
-  document.getElementById('bk-notes').value =
-    (sale.notes || '').replace(/^Order Booking\s*(—\s*)?/, '').replace(/\s*\(date:[^)]*\)\s*$/, '');
-  _bookingItems = sale.items.map(it => ({
-    productId: it.product, name: it.product_name, rate: Number(it.unit_price),
-    qty: it.quantity, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent) || 0,
-  }));
-  _bookingItems.push({ productId: '', name: '', rate: 0, qty: 0, cartons: 0, ppc: 1 });
-  document.getElementById('booking-form-title').textContent = `✏️ Re-booking (was ${sale.invoice_number})`;
-  renderBookingItemRows();
-  calcBookingTotals();
-  toast(`${sale.invoice_number} returned — adjust the items below and save to issue the corrected invoice.`, 'warning');
+  await newBookingForm(id, /* editCompletedInPlace */ true);
 }
 
 // Adapts a real Sale object (from the backend) into the field shape this
@@ -4018,20 +4018,60 @@ async function loadLedgerAccount() {
   if (from) entries = entries.filter(e=>e.date.slice(0,10)>=from);
   if (to)   entries = entries.filter(e=>e.date.slice(0,10)<=to);
 
-  const totalDebit = entries.reduce((s,e)=>s+Number(e.debit),0);
-  const totalCredit = entries.reduce((s,e)=>s+Number(e.credit),0);
-
   document.getElementById('ldg-account-summary').style.display='';
   document.getElementById('ldg-table-card').style.display='';
   document.getElementById('ldg-all-accounts').style.display='none';
   document.getElementById('ldg-acc-name').textContent = entity.name;
   document.getElementById('ldg-acc-no').textContent = type==='customer'?'Customer':'Supplier';
+  document.getElementById('ldg-table-title').textContent = `Ledger: ${entity.name}`;
+
+  if (type === 'customer') {
+    // Payment-receipt view: no invoice/return line items, no debit/credit
+    // flip-flopping — just what's owed, what's been paid, and a dated row
+    // for each payment with the balance remaining right after it.
+    const amountOwed = Number(ledger.amount_owed || 0);
+    const totalPaid  = Number(ledger.total_paid || 0);
+    const remaining  = Number(ledger.remaining || 0);
+
+    document.getElementById('ldg-total-debit-label').textContent  = 'Total Billed';
+    document.getElementById('ldg-total-credit-label').textContent = 'Total Paid';
+    document.getElementById('ldg-net-balance-label').textContent  = 'Remaining Due';
+    document.getElementById('ldg-total-debit').textContent  = 'Rs.'+amountOwed.toFixed(2);
+    document.getElementById('ldg-total-credit').textContent = 'Rs.'+totalPaid.toFixed(2);
+    document.getElementById('ldg-net-balance').textContent  = 'Rs.'+Math.abs(remaining).toFixed(2);
+    document.getElementById('ldg-net-balance').className = 'stat-value '+(remaining>0?'text-red':'text-green');
+
+    document.getElementById('ldg-thead-row').innerHTML =
+      '<th>Date</th><th>Description</th><th>Reference</th><th>Amount Received</th><th>Remaining Balance</th>';
+
+    document.getElementById('ldg-tbody').innerHTML = entries.length
+      ? entries.map(r=>`
+          <tr>
+            <td style="font-size:12px">${r.date.slice(0,10)}</td>
+            <td>${r.description}</td>
+            <td class="td-mono" style="font-size:11px">${r.reference||'—'}</td>
+            <td class="text-green fw-700">Rs.${Number(r.amount).toFixed(2)}</td>
+            <td class="fw-700 ${Number(r.remaining)>0?'text-red':'text-green'}">Rs.${Number(r.remaining).toFixed(2)}</td>
+          </tr>`).join('')
+      : `<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--text-muted)">No payments received yet</td></tr>`;
+    return;
+  }
+
+  // Supplier view — unchanged: debit/credit/balance statement.
+  const totalDebit = entries.reduce((s,e)=>s+Number(e.debit),0);
+  const totalCredit = entries.reduce((s,e)=>s+Number(e.credit),0);
+
+  document.getElementById('ldg-total-debit-label').textContent  = 'Total Debit (Receivable)';
+  document.getElementById('ldg-total-credit-label').textContent = 'Total Credit (Paid)';
+  document.getElementById('ldg-net-balance-label').textContent  = 'Net Balance';
   document.getElementById('ldg-total-debit').textContent  = 'Rs.'+totalDebit.toFixed(2);
   document.getElementById('ldg-total-credit').textContent = 'Rs.'+totalCredit.toFixed(2);
   const net = totalDebit - totalCredit;
   document.getElementById('ldg-net-balance').textContent = 'Rs.'+Math.abs(net).toFixed(2);
   document.getElementById('ldg-net-balance').className = 'stat-value '+(net>0?'text-red':'text-green');
-  document.getElementById('ldg-table-title').textContent = `Ledger: ${entity.name}`;
+
+  document.getElementById('ldg-thead-row').innerHTML =
+    '<th>Date</th><th>Description</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th>';
 
   document.getElementById('ldg-tbody').innerHTML = entries.length
     ? entries.map(r=>`
@@ -5662,9 +5702,15 @@ function printOrderSummary() {
       ${finCards.map(c => `<div style="padding:8px 10px;background:${c.bg};border:1px solid ${c.border};border-radius:6px"><div style="color:#555;margin-bottom:2px">${c.label}</div><strong>${document.getElementById(c.id)?.textContent || '—'}</strong></div>`).join('')}
     </div>` : '';
 
+  const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
+  const storeName = s.company_name || 'SmartRetail Store';
+  const logoBlock = s.logo
+    ? `<img src="${s.logo}" style="max-width:44px;max-height:38px;object-fit:contain;vertical-align:middle;margin-right:8px">`
+    : `<span style="font-size:22px;line-height:1;vertical-align:middle;margin-right:6px">🏪</span>`;
+
   const html = `<div class="a4-doc">
     <div class="a4-header">
-      <div><div class="a4-logo-name">🏪 SmartRetail Store</div><div style="font-size:11px;color:#555;margin-top:3px">Warehouse Dispatch Summary${usernameFilter?' — User: '+usernameFilter:''}</div></div>
+      <div><div class="a4-logo-name">${logoBlock}${storeName}</div><div style="font-size:11px;color:#555;margin-top:3px">Warehouse Dispatch Summary${usernameFilter?' — User: '+usernameFilter:''}</div></div>
       <div class="a4-store-info"><strong>ORDER SUMMARY</strong><br>Generated: ${today}<br>By: ${currentUser?.full_name||'Admin'}</div>
     </div>
     <div class="a4-doc-title">Order Summary — Cartons &amp; Pieces Dispatched</div>
@@ -6306,7 +6352,9 @@ window.renderSaleSlips = async function(forceRefresh) {
   }
 
   tbody.innerHTML = slips.map(b => {
-    const statusClass = b.status === 'completed' ? 'badge-green' : ['returned','partially_returned'].includes(b.status) ? 'badge-red' : 'badge-yellow';
+    const statusClass = b.status === 'completed' ? 'badge-green'
+      : b.status === 'edited' ? 'badge-blue'
+      : ['returned','partially_returned'].includes(b.status) ? 'badge-red' : 'badge-yellow';
     const hasTax  = Number(b.tax_amount) > 0;
     const hasDisc = Number(b.discount_amount) > 0;
     return `<tr>
@@ -6539,7 +6587,12 @@ async function renderCollection() {
     SalesAPI.returnHistory({ page_size: 1000 }),
   ]);
   _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: 'ACC-'+String(c.id).padStart(4,'0') }));
-  _colSalesCache = (salesData.results || salesData).filter(b => b.status !== 'cancelled');
+  // Exclude both cancelled AND fully-returned sales — a bill that was voided
+  // (e.g. edited from cash to credit, which cancels/returns the old invoice
+  // and creates a fresh one) must disappear from Collection entirely, not
+  // just the ones explicitly marked 'cancelled'. A partially-returned sale
+  // still has a legitimate remaining balance, so it stays included.
+  _colSalesCache = (salesData.results || salesData).filter(b => !['cancelled', 'returned'].includes(b.status));
   _colReturnsCache = returnsData.results || returnsData;
 
   const q           = (document.getElementById('col-search')?.value||'').toLowerCase();
@@ -6735,84 +6788,132 @@ function clearCollectionFilters() {
 function printTodaysCollectionSheet() {
   const todayLabel = new Date().toLocaleDateString('en-PK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const now = new Date().toLocaleString('en-PK');
+  const today = new Date().toISOString().split('T')[0];
 
-  const rows = _colCustomerCache.map(c => {
-    const bal = getCustomerBalance(c.id);
-    const todayOrders = getTodayOrders(c.id);
-    const totalDue = Math.max(0, bal.totalOrders - bal.payments);
-    return {
-      name: c.name,
-      phone: c.phone || '—',
-      acct: c.accountNo || '—',
-      todayBill: todayOrders,
-      totalDue,
-    };
-  }).filter(r => r.totalDue > 0).sort((a, b) => b.totalDue - a.totalDue);
+  const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
+  const storeName = s.company_name || 'SmartRetail Store';
+  const logoDataUrl = s.logo || '';
+  const logoBlock = logoDataUrl
+    ? `<img src="${logoDataUrl}" style="max-width:44px;max-height:38px;object-fit:contain;vertical-align:middle;margin-right:8px">`
+    : `<span style="font-size:22px;line-height:1;vertical-align:middle;margin-right:6px">🏪</span>`;
 
-  if (!rows.length) {
-    toast('No pending balances to collect today.', 'success');
+  // Every bill cut today — cash or credit — grouped by the username who
+  // booked it. Orders booked in the morning are only actually collected
+  // in the evening, so this sheet always shows the FULL bill amount as
+  // due for collection — cash or credit — regardless of whether the
+  // system already recorded an automatic payment at booking time. Once a
+  // bill is physically collected in the evening, record/process that
+  // payment against the customer's account separately; that's what
+  // updates a bill to "Cleared" — not the act of booking it.
+  let todaySales = _colSalesCache.filter(b => (b.created_at || '').slice(0, 10) === today);
+
+  // Respect the same username filter used on the Collection page itself —
+  // if the user has typed something in there, print ONLY that user's
+  // section (their own page), instead of always dumping every user onto
+  // one sheet regardless of the filter.
+  const usernameFilter = (document.getElementById('col-username-filter')?.value || '').toLowerCase().trim();
+  if (usernameFilter) {
+    todaySales = todaySales.filter(b => (b.served_by_name || '').toLowerCase().includes(usernameFilter));
+  }
+
+  if (!todaySales.length) {
+    toast(usernameFilter ? `No bills cut today by "${usernameFilter}".` : 'No bills cut today.', 'success');
     return;
   }
 
-  const grandTotal = rows.reduce((s, r) => s + r.totalDue, 0);
-  const grandTodayBill = rows.reduce((s, r) => s + r.todayBill, 0);
+  const groups = {};
+  todaySales.forEach(b => {
+    const username = b.served_by_name || 'Unassigned';
+    if (!groups[username]) groups[username] = [];
+    const total = Number(b.total_amount) || 0;
+    const isCredit = b.payment_status !== 'paid';
+    groups[username].push({
+      invoice: b.invoice_number,
+      customer: b.customer_name || 'Walk-in',
+      mode: isCredit ? 'Credit' : 'Cash',
+      total,
+    });
+  });
+
+  const usernames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+  const grandTotal = todaySales.reduce((s, b) => s + Number(b.total_amount || 0), 0);
+
+  const groupHtml = usernames.map(username => {
+    const rows = groups[username];
+    const subTotal = rows.reduce((s, r) => s + r.total, 0);
+    return `
+    <div style="margin-top:16px">
+      <div style="background:var(--accent-glow,#eef2ff);border:1px solid #ccc;border-radius:6px 6px 0 0;padding:7px 12px;font-size:12.5px;font-weight:800;display:flex;justify-content:space-between">
+        <span><i class="fa fa-user-tag"></i> Booked by: ${username}</span>
+        <span>${rows.length} bill${rows.length !== 1 ? 's' : ''}</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#1a1a1a;color:#fff">
+            <th style="padding:7px 10px;text-align:left">#</th>
+            <th style="padding:7px 10px;text-align:left">Invoice</th>
+            <th style="padding:7px 10px;text-align:left">Customer</th>
+            <th style="padding:7px 10px;text-align:center">Mode</th>
+            <th style="padding:7px 10px;text-align:right">Amount to Collect</th>
+            <th style="padding:7px 10px;text-align:center">Signature</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((r, i) => `
+          <tr style="background:${i % 2 ? '#f8f8f8' : '#fff'};border-bottom:1px solid #e5e7eb">
+            <td style="padding:7px 10px;color:#666">${i + 1}</td>
+            <td style="padding:7px 10px;font-family:monospace;font-size:10.5px">${r.invoice}</td>
+            <td style="padding:7px 10px;font-weight:700">${r.customer}</td>
+            <td style="padding:7px 10px;text-align:center">
+              <span style="padding:2px 8px;border-radius:4px;font-size:10.5px;font-weight:700;background:${r.mode === 'Cash' ? '#dcfce7' : '#fee2e2'};color:${r.mode === 'Cash' ? '#166534' : '#991b1b'}">${r.mode}</span>
+            </td>
+            <td style="padding:7px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${r.total.toFixed(2)}</td>
+            <td style="padding:7px 10px;border:1px solid #ccc;height:26px"></td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:#f1f1f1">
+            <td colspan="4" style="padding:8px 10px;font-weight:800;font-size:11.5px">Subtotal — ${username}</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${subTotal.toFixed(2)}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+  }).join('');
 
   const html = `<div class="a4-doc" style="font-family:Arial,sans-serif;color:#000">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:14px">
       <div>
-        <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">🏪 SmartRetail ERP</div>
-        <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Today's Collection Sheet</div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">${logoBlock}${storeName}</div>
+        <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Today's Collection Sheet${usernameFilter ? ` — ${usernames[0]}` : ''}</div>
         <div style="font-size:11px;color:#666;margin-top:2px">Date: ${todayLabel}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:11px;color:#555">Order Booker: ______________________</div>
-        <div style="font-size:11px;color:#555;margin-top:4px">Accounts to visit: <strong>${rows.length}</strong></div>
+        <div style="font-size:11px;color:#555">Booked by ${usernames.length} user${usernames.length !== 1 ? 's' : ''} today</div>
+        <div style="font-size:11px;color:#555;margin-top:4px">Total bills today: <strong>${todaySales.length}</strong></div>
       </div>
     </div>
 
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead>
-        <tr style="background:#1a1a1a;color:#fff">
-          <th style="padding:8px 10px;text-align:left">#</th>
-          <th style="padding:8px 10px;text-align:left">Customer</th>
-          <th style="padding:8px 10px;text-align:left">Phone</th>
-          <th style="padding:8px 10px;text-align:left">Account</th>
-          <th style="padding:8px 10px;text-align:right">Today's Bill</th>
-          <th style="padding:8px 10px;text-align:right">Total to Collect</th>
-          <th style="padding:8px 10px;text-align:center">Collected (Rs.)</th>
-          <th style="padding:8px 10px;text-align:center">Signature</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((r, i) => `
-        <tr style="background:${i % 2 ? '#f8f8f8' : '#fff'};border-bottom:1px solid #e5e7eb">
-          <td style="padding:8px 10px;color:#666">${i + 1}</td>
-          <td style="padding:8px 10px;font-weight:700">${r.name}</td>
-          <td style="padding:8px 10px">${r.phone}</td>
-          <td style="padding:8px 10px;font-family:monospace;font-size:10.5px">${r.acct}</td>
-          <td style="padding:8px 10px;text-align:right">${r.todayBill > 0 ? 'Rs.' + r.todayBill.toFixed(2) : '—'}</td>
-          <td style="padding:8px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${r.totalDue.toFixed(2)}</td>
-          <td style="padding:8px 10px;border:1px solid #ccc;height:28px"></td>
-          <td style="padding:8px 10px;border:1px solid #ccc;height:28px"></td>
-        </tr>`).join('')}
-      </tbody>
+    ${groupHtml}
+
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px">
       <tfoot>
         <tr style="background:#1a1a1a;color:#fff">
-          <td colspan="4" style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL TO COLLECT TODAY</td>
-          <td style="padding:11px 10px;text-align:right;font-size:11px;color:#94a3b8">Today's bills: Rs.${grandTodayBill.toFixed(2)}</td>
+          <td style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL COLLECTION EXPECTED TODAY — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'}</td>
           <td style="padding:11px 10px;text-align:right;font-size:18px;font-weight:900;color:#f87171">Rs.${grandTotal.toFixed(2)}</td>
-          <td colspan="2"></td>
         </tr>
       </tfoot>
     </table>
 
     <div style="margin-top:14px;font-size:10.5px;color:#555;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;background:#fefce8">
-      ⚠ Collect exactly the amount shown in <strong>"Total to Collect"</strong> — this already includes any previous balance plus today's bill.
-      Record the payment in the app immediately after collecting to avoid mismatch with office records.
+      ⚠ This sheet lists the full amount to be collected for every bill cut today — cash and credit both — grouped by the user who booked it.
+      Cash bills are shown as due here too, since actual collection happens in the evening, not at the moment of booking.
+      Once a bill is physically collected, process that payment against the customer's account in the app so it's marked received.
     </div>
 
     <div style="margin-top:10px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between">
-      <span>SmartRetail ERP — Today's Collection Sheet</span>
+      <span>${storeName} — Today's Collection Sheet</span>
       <span>Printed: ${now} by ${currentUser?.full_name || 'Admin'}</span>
     </div>
   </div>`;

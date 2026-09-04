@@ -7,7 +7,7 @@ from apps.customers.models import Customer
 from apps.inventory import services as inv_services
 from apps.sales import services as sales_services
 from apps.sales.models import Sale
-from apps.core.exceptions import CreditLimitExceededException, InsufficientStockException, ServiceException
+from apps.core.exceptions import InsufficientStockException, ServiceException
 
 pytestmark = pytest.mark.django_db
 
@@ -95,17 +95,20 @@ class TestCreditSale:
         assert customer.outstanding_balance == Decimal("200.00")
         assert sale.payment_status == Sale.PaymentStatus.UNPAID
 
-    def test_credit_sale_exceeding_limit_raises_and_rolls_back(self, product, warehouse, customer):
+    def test_credit_sale_beyond_old_limit_is_still_allowed(self, product, warehouse, customer):
+        # Per-customer credit limit is no longer enforced — a credit sale beyond
+        # the customer's (now-unused) credit_limit value must still go through,
+        # and outstanding_balance must still update as normal.
         inv_services.stock_in(product, warehouse, 100)
-        with pytest.raises(CreditLimitExceededException):
-            sales_services.create_sale(
-                customer=customer, warehouse=warehouse,
-                items=[{"product": product, "quantity": 50, "unit_price": Decimal("100.00")}],  # 5000 > 1000 limit
-                user=None, is_credit_sale=True,
-            )
+        sale = sales_services.create_sale(
+            customer=customer, warehouse=warehouse,
+            items=[{"product": product, "quantity": 50, "unit_price": Decimal("100.00")}],  # 5000 > old 1000 limit
+            user=None, is_credit_sale=True,
+        )
         customer.refresh_from_db()
-        assert customer.outstanding_balance == Decimal("0.00")
-        assert inv_services.get_available_quantity(product, warehouse) == 100  # rolled back
+        assert customer.outstanding_balance == Decimal("5000.00")
+        assert sale.payment_status == Sale.PaymentStatus.UNPAID
+        assert inv_services.get_available_quantity(product, warehouse) == 50
 
     def test_credit_sale_awards_loyalty_points(self, product, warehouse, customer):
         inv_services.stock_in(product, warehouse, 10)

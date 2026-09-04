@@ -47,7 +47,7 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
     ordering_fields = ["created_at", "total_amount"]
 
     def get_serializer_class(self):
-        if self.action in ("create", "hold", "edit_hold"):
+        if self.action in ("create", "hold", "edit_hold", "edit"):
             return CreateSaleSerializer
         if self.action == "finalize":
             return FinalizeSaleSerializer
@@ -151,6 +151,30 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             user=request.user, reference=serializer.validated_data.get("reference", ""),
         )
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["patch"], url_path="edit")
+    def edit(self, request, pk=None):
+        """PATCH /sales/{id}/edit/ — edits an already-finalized invoice IN
+        PLACE: same invoice_number, same row. Reverses the old items' stock/
+        credit/loyalty effects and reapplies fresh ones for the new items,
+        then marks the invoice EDITED (not RETURNED). Refused for a
+        cancelled or still-held (draft) invoice — see edit_completed_sale."""
+        sale = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        v = serializer.validated_data
+        customer, warehouse = self._resolve_customer_warehouse(v)
+
+        coupon = None
+        if v.get("coupon_code"):
+            coupon = Coupon.objects.filter(code=v["coupon_code"]).first()
+
+        sale = services.edit_completed_sale(
+            sale, customer=customer, warehouse=warehouse, items=v["items"], user=request.user,
+            discount_amount=v.get("discount_amount", 0), coupon=coupon,
+            is_credit_sale=v.get("is_credit_sale"), notes=v.get("notes", ""),
+        )
+        return Response(SaleSerializer(sale).data)
 
     @action(detail=True, methods=["post"], url_path="return")
     def process_return(self, request, pk=None):

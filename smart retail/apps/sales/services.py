@@ -2,7 +2,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from apps.core.exceptions import CreditLimitExceededException, ServiceException, InvalidTransitionException
+from apps.core.exceptions import ServiceException, InvalidTransitionException
 from apps.inventory import services as inventory_services
 from apps.inventory.models import StockTransaction
 from .models import Sale, SaleItem, Payment, SaleReturn, SaleReturnItem
@@ -78,10 +78,10 @@ def create_sale(customer, warehouse, items, user, discount_amount=Decimal("0"),
     sale.save(update_fields=["subtotal", "discount_amount", "tax_amount", "total_amount"])
 
     if is_credit_sale:
-        if not customer.can_purchase_on_credit(total_amount):
-            raise CreditLimitExceededException(
-                f"Sale of {total_amount} exceeds available credit of {customer.available_credit}."
-            )
+        # Per-customer credit limit is no longer enforced — a credit sale is
+        # always allowed regardless of the customer's outstanding balance.
+        # We still track outstanding_balance itself, since Customer Collection
+        # (previous balance / total-to-collect) depends on it.
         customer.outstanding_balance += total_amount
         customer.save(update_fields=["outstanding_balance"])
         sale.payment_status = Sale.PaymentStatus.UNPAID
@@ -224,10 +224,7 @@ def finalize_draft_sale(sale, user, coupon=None, is_credit_sale=False):
     if is_credit_sale:
         if not sale.customer:
             raise ServiceException("Credit sales require a registered customer.")
-        if not sale.customer.can_purchase_on_credit(total_amount):
-            raise CreditLimitExceededException(
-                f"Sale of {total_amount} exceeds available credit of {sale.customer.available_credit}."
-            )
+        # Per-customer credit limit is no longer enforced — see create_sale() above.
         sale.customer.outstanding_balance += total_amount
         sale.customer.save(update_fields=["outstanding_balance"])
         sale.payment_status = Sale.PaymentStatus.UNPAID
@@ -240,6 +237,134 @@ def finalize_draft_sale(sale, user, coupon=None, is_credit_sale=False):
         points_earned = int(total_amount)
         sale.customer.loyalty_points += points_earned
         sale.customer.save(update_fields=["loyalty_points"])
+
+    return sale
+
+
+@transaction.atomic
+def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=Decimal("0"),
+                         coupon=None, is_credit_sale=None, notes=""):
+    """
+    Edits an already-finalized invoice IN PLACE: same Sale row, same
+    invoice_number. Internally this still reverses every side effect the
+    original items caused (stock, customer credit balance, loyalty points)
+    and reapplies fresh ones for the new items — it just does it on the
+    existing row and marks it EDITED instead of creating a second invoice
+    and marking the first one RETURNED.
+
+    Refuses a CANCELLED sale (nothing meaningful to edit) or a DRAFT (use
+    update_draft_sale/finalize_draft_sale for those instead).
+
+    NOTE on payments: any cash/card payments already recorded against the
+    old total are left in the Payment history for audit purposes, but
+    paid_amount is reset to 0 and payment_status back to UNPAID/credit —
+    since the item list (and therefore what's actually owed) has changed,
+    the till needs to re-collect against the new total. Adjust here if your
+    business instead wants old payments carried forward onto the new total.
+    """
+    if sale.status == Sale.Status.CANCELLED:
+        raise InvalidTransitionException("A cancelled invoice cannot be edited.")
+    if sale.status == Sale.Status.DRAFT:
+        raise InvalidTransitionException("This invoice is still held — use the hold/edit-hold endpoint instead.")
+    if not items:
+        raise ServiceException("A sale must contain at least one item.")
+
+    # Was the ORIGINAL sale a credit sale? Best available signal: it was
+    # left UNPAID/PARTIAL rather than PAID (see create_sale — a cash/card
+    # sale is paid in full right away via add_payment).
+    was_credit_sale = sale.customer_id is not None and sale.payment_status != Sale.PaymentStatus.PAID
+    if is_credit_sale is None:
+        is_credit_sale = was_credit_sale
+
+    old_items = list(sale.items.select_related("product", "variant"))
+
+    # --- 1. Reverse the OLD items' stock + credit + loyalty side effects ---
+    for old_item in old_items:
+        remaining = old_item.quantity - old_item.quantity_returned
+        if remaining > 0:
+            inventory_services.stock_in(
+                product=old_item.product, warehouse=sale.warehouse, quantity=remaining,
+                variant=old_item.variant, reference=sale.invoice_number,
+                notes=f"Edit: reversing original items on {sale.invoice_number}", user=user,
+                transaction_type=StockTransaction.TransactionType.SALE_RETURN,
+            )
+
+    if sale.customer:
+        if was_credit_sale:
+            # due_amount (not total_amount) is what's still actually sitting
+            # on the customer's balance from this sale — any payments already
+            # made against it were already subtracted by add_payment.
+            sale.customer.outstanding_balance = max(
+                Decimal("0"), sale.customer.outstanding_balance - sale.due_amount
+            )
+        sale.customer.loyalty_points = max(0, sale.customer.loyalty_points - int(sale.total_amount))
+        sale.customer.save(update_fields=["outstanding_balance", "loyalty_points"])
+
+    # --- 2. Replace line items and reapply stock/pricing for the new ones ---
+    sale.items.all().delete()
+
+    subtotal = Decimal("0")
+    total_discount = Decimal("0")
+    total_tax = Decimal("0")
+
+    for item in items:
+        sale_item = SaleItem.objects.create(
+            sale=sale, product=item["product"], variant=item.get("variant"),
+            quantity=item["quantity"], unit_price=item["unit_price"],
+            discount_percent=item.get("discount_percent", Decimal("0")),
+            tax_percent=item.get("tax_percent", Decimal("0")),
+            created_by=user,
+        )
+        subtotal += sale_item.line_subtotal
+        total_discount += sale_item.line_discount
+        total_tax += sale_item.line_tax
+
+        inventory_services.stock_out(
+            product=item["product"], warehouse=warehouse, quantity=item["quantity"],
+            variant=item.get("variant"), reference=sale.invoice_number,
+            notes=f"Edit: new items on {sale.invoice_number}", user=user,
+            transaction_type=StockTransaction.TransactionType.SALE,
+        )
+
+    extra_discount = Decimal(discount_amount or 0)
+    if coupon:
+        if not coupon.is_valid():
+            raise ServiceException("Coupon is invalid, expired, or has reached its usage limit.")
+        extra_discount += coupon.calculate_discount(subtotal)
+        coupon.used_count += 1
+        coupon.save(update_fields=["used_count"])
+
+    total_discount += extra_discount
+    total_amount = (subtotal - total_discount + total_tax).quantize(Decimal("0.01"))
+    if total_amount < 0:
+        total_amount = Decimal("0.00")
+
+    sale.customer = customer
+    sale.warehouse = warehouse
+    sale.notes = notes
+    sale.coupon = coupon
+    sale.subtotal = subtotal.quantize(Decimal("0.01"))
+    sale.discount_amount = total_discount.quantize(Decimal("0.01"))
+    sale.tax_amount = total_tax.quantize(Decimal("0.01"))
+    sale.total_amount = total_amount
+    sale.paid_amount = Decimal("0.00")
+    sale.status = Sale.Status.EDITED
+    sale.payment_status = Sale.PaymentStatus.UNPAID
+
+    if is_credit_sale:
+        if not customer:
+            raise ServiceException("Credit sales require a registered customer.")
+        customer.outstanding_balance += total_amount
+        customer.save(update_fields=["outstanding_balance"])
+
+    sale.save(update_fields=[
+        "customer", "warehouse", "notes", "coupon", "subtotal", "discount_amount",
+        "tax_amount", "total_amount", "paid_amount", "status", "payment_status",
+    ])
+
+    if customer:
+        customer.loyalty_points += int(total_amount)
+        customer.save(update_fields=["loyalty_points"])
 
     return sale
 

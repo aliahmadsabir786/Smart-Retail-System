@@ -497,8 +497,8 @@
                     <div style="font-size:18px;font-weight:800;color:var(--red)" id="bk-prev-balance">$0.00</div>
                   </div>
                   <div style="background:var(--green-glow);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:12px">
-                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">TOTAL PURCHASES</div>
-                    <div style="font-size:18px;font-weight:800;color:var(--green)" id="bk-total-purchases">$0.00</div>
+                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">LOYALTY POINTS</div>
+                    <div style="font-size:18px;font-weight:800;color:var(--green)" id="bk-total-purchases">0</div>
                   </div>
                   <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px">
                     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">LAST VISIT</div>
@@ -900,7 +900,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Account No</th><th>ID</th><th>Name</th><th>Phone</th><th>CNIC</th><th>Email</th><th>Credit Limit</th><th>Outstanding Balance</th><th>Loyalty Points</th><th>Last Updated</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Account No</th><th>ID</th><th>Name</th><th>Phone</th><th>CNIC</th><th>Email</th><th>Outstanding Balance</th><th>Loyalty Points</th><th>Last Updated</th><th>Actions</th></tr></thead>
               <tbody id="customers-table"></tbody>
             </table>
           </div>
@@ -1414,9 +1414,9 @@
         <div id="ldg-account-summary" style="display:none;margin-bottom:16px">
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
             <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-user"></i></div></div><div class="stat-value" id="ldg-acc-name" style="font-size:16px;margin-bottom:2px">—</div><div class="stat-label" id="ldg-acc-no">Account</div></div>
-            <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-arrow-up"></i></div></div><div class="stat-value" id="ldg-total-debit">$0.00</div><div class="stat-label">Total Debit (Receivable)</div></div>
-            <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-arrow-down"></i></div></div><div class="stat-value" id="ldg-total-credit">$0.00</div><div class="stat-label">Total Credit (Paid)</div></div>
-            <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-balance-scale"></i></div></div><div class="stat-value" id="ldg-net-balance">$0.00</div><div class="stat-label">Net Balance</div></div>
+            <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-arrow-up"></i></div></div><div class="stat-value" id="ldg-total-debit">$0.00</div><div class="stat-label" id="ldg-total-debit-label">Total Debit (Receivable)</div></div>
+            <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-arrow-down"></i></div></div><div class="stat-value" id="ldg-total-credit">$0.00</div><div class="stat-label" id="ldg-total-credit-label">Total Credit (Paid)</div></div>
+            <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-balance-scale"></i></div></div><div class="stat-value" id="ldg-net-balance">$0.00</div><div class="stat-label" id="ldg-net-balance-label">Net Balance</div></div>
           </div>
         </div>
 
@@ -1431,7 +1431,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Description</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+              <thead><tr id="ldg-thead-row"><th>Date</th><th>Description</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
               <tbody id="ldg-tbody"></tbody>
             </table>
           </div>
@@ -2153,10 +2153,6 @@
         <div class="form-group-inline">
           <label>Loyalty Points</label>
           <input class="form-input" type="number" id="cust-points" value="0">
-        </div>
-        <div class="form-group-inline">
-          <label>Credit Limit (Rs.)</label>
-          <input class="form-input" type="number" id="cust-credit-limit" value="0" step="0.01">
         </div>
       </div>
       <div class="form-group-inline">

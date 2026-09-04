@@ -256,6 +256,7 @@ const SalesAPI = {
   // "Hold Invoice" — parks a booking as a draft with no stock/balance impact.
   hold(data) { return apiRequest('/sales/hold/', { method: 'POST', body: data }); },
   updateHold(id, data) { return apiRequest(`/sales/${id}/hold/`, { method: 'PATCH', body: data }); },
+  edit(id, data) { return apiRequest(`/sales/${id}/edit/`, { method: 'PATCH', body: data }); },
   finalize(id, data) { return apiRequest(`/sales/${id}/finalize/`, { method: 'POST', body: data }); },
 };
 

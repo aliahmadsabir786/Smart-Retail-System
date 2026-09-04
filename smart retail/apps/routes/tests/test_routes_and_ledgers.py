@@ -61,7 +61,7 @@ class TestSupplyRoute:
 
 
 class TestCustomerLedger:
-    def test_ledger_matches_outstanding_balance(self, warehouse, product):
+    def test_ledger_shows_only_payments_with_running_remaining(self, warehouse, product):
         customer = Customer.objects.create(name="Ledger Cust", credit_limit=Decimal("1000"))
         inv_services.stock_in(product, warehouse, 20)
 
@@ -73,21 +73,23 @@ class TestCustomerLedger:
         sales_services.add_payment(sale, Decimal("20.00"), "cash", user=None)
 
         customer.refresh_from_db()
-        entries = customer_services.get_customer_ledger(customer)
+        ledger = customer_services.get_customer_ledger(customer)
 
-        assert len(entries) == 2
-        assert entries[0]["type"] == "invoice"
-        assert entries[0]["debit"] == "50.00"
-        assert entries[1]["type"] == "payment"
-        assert entries[1]["credit"] == "20.00"
-        assert Decimal(entries[-1]["balance"]) == customer.outstanding_balance == Decimal("30.00")
+        # Invoice itself is NOT a line item — it's folded into amount_owed.
+        assert ledger["amount_owed"] == "50.00"
+        assert len(ledger["entries"]) == 1
+        assert ledger["entries"][0]["type"] == "payment"
+        assert ledger["entries"][0]["amount"] == "20.00"
+        assert ledger["entries"][0]["remaining"] == "30.00"
+        assert ledger["total_paid"] == "20.00"
+        assert Decimal(ledger["remaining"]) == customer.outstanding_balance == Decimal("30.00")
 
     def test_ledger_api_endpoint(self, admin_client, warehouse, product):
         customer = Customer.objects.create(name="API Ledger Cust", credit_limit=Decimal("1000"))
         response = admin_client.get(f"/api/v1/customers/{customer.id}/ledger/")
         assert response.status_code == status.HTTP_200_OK
         assert response.data["entries"] == []
-        assert response.data["closing_balance"] == "0.00"
+        assert response.data["remaining"] == "0.00"
 
 
 class TestSupplierLedger:

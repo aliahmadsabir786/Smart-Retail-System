@@ -79,18 +79,21 @@ class Product(BaseModel):
         return value if isinstance(value, Decimal) else Decimal(str(value))
 
     @property
-    def final_price(self):
-        """Selling price after discount, before tax."""
+    def price_with_tax(self):
+        """Selling price with tax added — tax is calculated on the selling
+        price itself, before any discount is taken off."""
         selling_price = self._as_decimal(self.selling_price)
-        discount_percent = self._as_decimal(self.discount_percent)
-        discount_amount = selling_price * (discount_percent / Decimal("100"))
-        return (selling_price - discount_amount).quantize(Decimal("0.01"))
+        tax_rate = self._as_decimal(self.tax_rate)
+        tax_amount = selling_price * (tax_rate / Decimal("100"))
+        return (selling_price + tax_amount).quantize(Decimal("0.01"))
 
     @property
-    def price_with_tax(self):
-        tax_rate = self._as_decimal(self.tax_rate)
-        tax_amount = self.final_price * (tax_rate / Decimal("100"))
-        return (self.final_price + tax_amount).quantize(Decimal("0.01"))
+    def final_price(self):
+        """Actual price charged to the customer: tax is added to the selling
+        price first, then the discount is taken off that tax-inclusive price."""
+        discount_percent = self._as_decimal(self.discount_percent)
+        discount_amount = self.price_with_tax * (discount_percent / Decimal("100"))
+        return (self.price_with_tax - discount_amount).quantize(Decimal("0.01"))
 
     @property
     def profit_margin(self):

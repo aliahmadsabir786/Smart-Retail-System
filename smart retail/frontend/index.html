@@ -384,14 +384,14 @@
               <div class="cart-empty"><i class="fa fa-shopping-cart"></i><div style="font-size:13px;font-weight:600">Cart is empty</div><div style="font-size:12px">Click products to add</div></div>
             </div>
             <div class="pos-totals">
-              <div class="pos-total-row"><span>Subtotal</span><span id="cart-subtotal">$0.00</span></div>
+              <div class="pos-total-row"><span>Amount (tax incl.)</span><span id="cart-subtotal">$0.00</span></div>
               <div class="pos-total-row">
                 <span>Discount <input type="number" id="cart-discount" value="0" min="0" max="100" style="width:45px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 4px;font-size:11px;margin-left:4px">%</span>
                 <span id="cart-discount-val" class="text-red">-$0.00</span>
               </div>
               <div class="pos-total-row">
-                <span>Tax <input type="number" id="cart-tax" value="8" min="0" max="30" style="width:40px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 4px;font-size:11px;margin-left:4px">%</span>
-                <span id="cart-tax-val" class="text-yellow">+$0.00</span>
+                <span>Tax (included above)</span>
+                <span id="cart-tax-val" class="text-yellow">$0.00</span>
               </div>
               <div class="divider"></div>
               <div class="pos-total-row pos-total-grand"><span>TOTAL</span><span id="cart-total">$0.00</span></div>
@@ -555,17 +555,17 @@
 
                     <!-- Base Amount -->
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px;color:var(--text-secondary)">
-                      <span>Base Amount</span>
+                      <span>Amount (tax incl.)</span>
                       <span id="bk-subtotal" style="font-family:var(--mono)">Rs.0.00</span>
                     </div>
 
-                    <!-- Auto Product Tax (read-only, from product config) -->
+                    <!-- Auto Product Tax (informational only — already included above, not added again) -->
                     <div id="bk-auto-tax-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;color:var(--text-secondary)">
                       <span style="display:flex;align-items:center;gap:5px">
                         <span style="width:6px;height:6px;border-radius:50%;background:var(--yellow);display:inline-block;flex-shrink:0"></span>
-                        Sale Tax/GST <span id="bk-tax-pct-label" style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">(auto)</span>
+                        Sale Tax/GST <span id="bk-tax-pct-label" style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">(auto, included above)</span>
                       </span>
-                      <span id="bk-gst-val" style="color:var(--yellow);font-family:var(--mono)">+Rs.0.00</span>
+                      <span id="bk-gst-val" style="color:var(--yellow);font-family:var(--mono)">Rs.0.00</span>
                     </div>
 
                     <!-- Bill Discount -->
@@ -2041,16 +2041,16 @@
         <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">💡 Calculated Results</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
           <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Tax-Inclusive Price</div>
+            <div id="prod-calc-tax" style="font-size:16px;font-weight:800;color:var(--yellow)">$0.00</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
             <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Discount Amount</div>
             <div id="prod-calc-disc" style="font-size:16px;font-weight:800;color:var(--red)">$0.00</div>
           </div>
           <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
             <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Final Sale Price</div>
             <div id="prod-calc-final" style="font-size:16px;font-weight:800;color:var(--accent)">$0.00</div>
-          </div>
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border)">
-            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Tax-Inclusive Price</div>
-            <div id="prod-calc-tax" style="font-size:16px;font-weight:800;color:var(--yellow)">$0.00</div>
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">

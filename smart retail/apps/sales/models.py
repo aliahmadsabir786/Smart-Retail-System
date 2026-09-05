@@ -145,20 +145,24 @@ class SaleItem(BaseModel):
         return (self.unit_price * self.quantity).quantize(Decimal("0.01"))
 
     @property
-    def line_discount(self):
-        return (self.line_subtotal * self.discount_percent / Decimal("100")).quantize(Decimal("0.01"))
-
-    @property
-    def line_taxable(self):
-        return self.line_subtotal - self.line_discount
-
-    @property
     def line_tax(self):
-        return (self.line_taxable * self.tax_percent / Decimal("100")).quantize(Decimal("0.01"))
+        """Tax is calculated on the line subtotal itself (unit_price × qty),
+        before any discount is taken off — matching Product.price_with_tax."""
+        return (self.line_subtotal * self.tax_percent / Decimal("100")).quantize(Decimal("0.01"))
+
+    @property
+    def line_price_with_tax(self):
+        return self.line_subtotal + self.line_tax
+
+    @property
+    def line_discount(self):
+        """Discount is taken off the tax-inclusive line price — matching
+        Product.final_price."""
+        return (self.line_price_with_tax * self.discount_percent / Decimal("100")).quantize(Decimal("0.01"))
 
     @property
     def line_total(self):
-        return (self.line_taxable + self.line_tax).quantize(Decimal("0.01"))
+        return (self.line_price_with_tax - self.line_discount).quantize(Decimal("0.01"))
 
 
 class Payment(BaseModel):

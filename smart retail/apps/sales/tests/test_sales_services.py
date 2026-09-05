@@ -82,6 +82,26 @@ class TestCreateSale:
         assert sale.discount_amount == Decimal("20.00")
         assert sale.total_amount == Decimal("180.00")
 
+    def test_line_tax_applies_before_discount(self, product, warehouse):
+        # Tax is calculated on the line subtotal FIRST, then the discount is
+        # taken off that tax-inclusive amount — not the other way round.
+        # unit_price=100 x qty=2 -> subtotal 200; tax 18% -> 236;
+        # discount 10% of 236 -> 23.60; total -> 212.40
+        inv_services.stock_in(product, warehouse, 10)
+        sale = sales_services.create_sale(
+            customer=None, warehouse=warehouse,
+            items=[{"product": product, "quantity": 2, "unit_price": Decimal("100.00"),
+                    "tax_percent": Decimal("18.00"), "discount_percent": Decimal("10.00")}],
+            user=None,
+        )
+        item = sale.items.first()
+        assert item.line_subtotal == Decimal("200.00")
+        assert item.line_tax == Decimal("36.00")
+        assert item.line_price_with_tax == Decimal("236.00")
+        assert item.line_discount == Decimal("23.60")
+        assert item.line_total == Decimal("212.40")
+        assert sale.total_amount == Decimal("212.40")
+
 
 class TestCreditSale:
     def test_credit_sale_within_limit_updates_balance(self, product, warehouse, customer):

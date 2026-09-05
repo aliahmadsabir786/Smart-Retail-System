@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
@@ -112,3 +113,16 @@ class TestProductPricing:
         )
         product.refresh_from_db()
         assert product.price_with_tax == 230  # 200 + 15%
+
+    def test_final_price_applies_tax_before_discount(self):
+        # Tax is calculated on the selling price FIRST, then the discount
+        # is taken off that tax-inclusive price — not the other way round.
+        category = Category.objects.create(name="Test")
+        product = Product.objects.create(
+            sku="SKU-202", name="Test Item 3", category=category,
+            cost_price="100.00", selling_price="200.00",
+            tax_rate="15.00", discount_percent="10.00",
+        )
+        product.refresh_from_db()
+        assert product.price_with_tax == 230       # 200 + 15% tax
+        assert product.final_price == Decimal("207.00")  # 230 - 10% of 230

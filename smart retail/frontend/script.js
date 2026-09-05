@@ -2838,10 +2838,22 @@ function renderBookingItemRows() {
   // otherwise every keystroke in a Rate/Qty/Cartons field would knock focus
   // out of the input after a single character, since innerHTML destroys and
   // recreates every row's DOM nodes.
+  //
+  // IMPORTANT: <input type="number"> does NOT support selectionStart/
+  // selectionEnd/setSelectionRange in any browser — reading selectionStart
+  // on one just returns null (it doesn't throw, so this code never errors,
+  // but it silently never captures a position either). That left el.focus()
+  // as the only thing that ran on restore, and focusing a freshly-recreated
+  // number input places the caret at position 0 — so the NEXT digit typed
+  // lands in FRONT of what's already there instead of after it (type "7"
+  // then "2" and you'd see "27", not "72"). We work around the missing API
+  // with the standard trick for number inputs: reassigning .value to itself
+  // always moves the caret to the end.
   const active = document.activeElement;
-  let focusId = null, selStart = null, selEnd = null;
+  let focusId = null, focusIsNumber = false, selStart = null, selEnd = null;
   if (active && tbody.contains(active) && active.id) {
     focusId = active.id;
+    focusIsNumber = active.type === 'number';
     if (typeof active.selectionStart === 'number') {
       selStart = active.selectionStart;
       selEnd = active.selectionEnd;
@@ -2880,14 +2892,14 @@ function renderBookingItemRows() {
 
       </td>
       <td style="padding:5px 8px">
-        <input class="form-input" type="number" value="${item.rate||0}" step="0.01" min="0"
+        <input class="form-input" id="bk-rate-${i}" type="text" inputmode="decimal" value="${item.rate||0}"
           style="padding:7px 10px;font-size:12px;width:88px"
-          onclick="this.select()" oninput="updateBookingItem(${i},'rate',this.value)">
+          onclick="setTimeout(()=>this.select())" oninput="updateBookingItem(${i},'rate',this.value)">
       </td>
       <td style="padding:5px 8px">
-        <input class="form-input bk-qty-input" id="bk-qty-${i}" type="number" value="${item.qty||0}" min="0"
+        <input class="form-input bk-qty-input" id="bk-qty-${i}" type="text" inputmode="numeric" value="${item.qty||0}"
           style="padding:7px 10px;font-size:12px;width:75px"
-          onclick="this.select()" oninput="updateBookingItem(${i},'qty',this.value)">
+          onclick="setTimeout(()=>this.select())" oninput="updateBookingItem(${i},'qty',this.value)">
       </td>
       <td style="padding:5px 8px">
         <select class="form-input" style="padding:5px 8px;font-size:12px;width:90px"
@@ -2897,9 +2909,9 @@ function renderBookingItemRows() {
       </td>
       <td style="padding:5px 8px">
         <div style="display:flex;align-items:center;gap:4px">
-          <input class="form-input" type="number" value="${item.cartons||0}" min="0"
+          <input class="form-input" id="bk-cartons-${i}" type="text" inputmode="numeric" value="${item.cartons||0}"
             style="padding:7px 10px;font-size:12px;width:65px"
-            onclick="this.select()" oninput="updateBookingItem(${i},'cartons',this.value)">
+            onclick="setTimeout(()=>this.select())" oninput="updateBookingItem(${i},'cartons',this.value)">
           <span style="font-size:9px;color:var(--text-muted);white-space:nowrap">x${ppc}</span>
         </div>
       </td>
@@ -2924,6 +2936,12 @@ function renderBookingItemRows() {
       el.focus();
       if (selStart !== null && el.setSelectionRange) {
         try { el.setSelectionRange(selStart, selEnd); } catch (_) { /* not a text-selectable input, ignore */ }
+      } else if (focusIsNumber) {
+        // setSelectionRange isn't available for number inputs — reassigning
+        // .value to its own current value is the standard cross-browser way
+        // to push the caret to the end, so the next digit typed appends
+        // after what's already there instead of landing at the front.
+        el.value = el.value;
       }
     }
   }

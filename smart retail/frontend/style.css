@@ -795,7 +795,7 @@ body.light-mode .theme-toggle { border-color: var(--accent); color: var(--accent
   padding: 12px; border-top: 1px solid var(--border);
 }
 .logout-btn {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; position: relative;
   padding: 9px 10px; border-radius: 8px;
   color: var(--text-secondary); font-size: 13px;
   cursor: pointer; transition: all .15s; width: 100%;
@@ -804,7 +804,7 @@ body.light-mode .theme-toggle { border-color: var(--accent); color: var(--accent
 .logout-btn:hover { background: var(--red-glow); color: var(--red); }
 
 .sidebar-collapse-btn {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; position: relative;
   padding: 9px 10px; border-radius: 8px; margin-bottom: 4px;
   color: var(--text-secondary); font-size: 13px;
   cursor: pointer; transition: all .15s; width: 100%;
@@ -846,6 +846,42 @@ body.sidebar-collapsed .main { margin-left: 72px !important; width: calc(100% - 
   transform: translateX(-50%); border-radius: 3px 3px 0 0;
 }
 .sidebar.collapsed .sidebar-collapse-btn i { transform: rotate(180deg); }
+
+/* Hover tooltip (collapsed mode only) — reads straight off each item's
+   existing `title="..."` attribute via CSS attr(), so no JS or extra
+   markup is needed. Only shown when collapsed since the label text is
+   already visible right there when the sidebar is expanded. */
+.sidebar.collapsed .nav-item { overflow: visible; }
+.sidebar.collapsed .nav-item::after,
+.sidebar.collapsed .logout-btn::after,
+.sidebar.collapsed .sidebar-collapse-btn::after {
+  content: attr(title);
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-6px);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+  z-index: 500;
+}
+.sidebar.collapsed .nav-item:hover::after,
+.sidebar.collapsed .logout-btn:hover::after,
+.sidebar.collapsed .sidebar-collapse-btn:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) translateX(0);
+}
 
 /* ── MAIN ─────────────────────────────────── */
 .main {

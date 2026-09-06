@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartRetail ERP – Inventory & POS Management System</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%AA%3C/text%3E%3C/svg%3E">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -76,98 +77,101 @@
     <nav class="sidebar-nav">
       <div class="nav-section">
         <div class="nav-section-label">Overview</div>
-        <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
-          <i class="fa fa-chart-pie"></i> Dashboard
+        <div class="nav-item active" data-page="dashboard" title="Dashboard" onclick="navigate('dashboard')">
+          <i class="fa fa-chart-pie" style="color:var(--accent)"></i> <span class="nav-label">Dashboard</span>
         </div>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Operations</div>
-        <div class="nav-item" data-page="pos" onclick="navigate('pos')">
-          <i class="fa fa-cash-register"></i> POS Terminal
+        <div class="nav-item" data-page="pos" title="POS Terminal" onclick="navigate('pos')">
+          <i class="fa fa-cash-register" style="color:var(--green)"></i> <span class="nav-label">POS Terminal</span>
         </div>
-        <div class="nav-item" data-page="booking" onclick="navigate('booking')">
-          <i class="fa fa-clipboard-list"></i> Order Booking
+        <div class="nav-item" data-page="booking" title="Order Booking" onclick="navigate('booking')">
+          <i class="fa fa-clipboard-list" style="color:var(--purple)"></i> <span class="nav-label">Order Booking</span>
         </div>
-        <div class="nav-item" data-page="saleslips" onclick="navigate('saleslips')">
-          <i class="fa fa-file-invoice"></i> Sale Slips
+        <div class="nav-item" data-page="saleslips" title="Sale Slips" onclick="navigate('saleslips')">
+          <i class="fa fa-file-invoice" style="color:var(--cyan)"></i> <span class="nav-label">Sale Slips</span>
         </div>
-        <div class="nav-item" data-page="salereturn" onclick="navigate('salereturn')">
-          <i class="fa fa-undo-alt"></i> Sale Return
+        <div class="nav-item" data-page="salereturn" title="Sale Return" onclick="navigate('salereturn')">
+          <i class="fa fa-undo-alt" style="color:var(--yellow)"></i> <span class="nav-label">Sale Return</span>
         </div>
-        <div class="nav-item" data-page="orders" onclick="navigate('orders')">
-          <i class="fa fa-receipt"></i> Orders
+        <div class="nav-item" data-page="orders" title="Orders" onclick="navigate('orders')">
+          <i class="fa fa-receipt" style="color:var(--red)"></i> <span class="nav-label">Orders</span>
         </div>
-        <div class="nav-item" data-page="supplyroutes" onclick="navigate('supplyroutes')">
-          <i class="fa fa-route"></i> Supply Routes
+        <div class="nav-item" data-page="supplyroutes" title="Supply Routes" onclick="navigate('supplyroutes')">
+          <i class="fa fa-route" style="color:var(--accent)"></i> <span class="nav-label">Supply Routes</span>
         </div>
-        <div class="nav-item" data-page="ordersummary" onclick="navigate('ordersummary')">
-          <i class="fa fa-clipboard-check"></i> Order Summary
+        <div class="nav-item" data-page="ordersummary" title="Order Summary" onclick="navigate('ordersummary')">
+          <i class="fa fa-clipboard-check" style="color:var(--green)"></i> <span class="nav-label">Order Summary</span>
         </div>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Inventory</div>
-        <div class="nav-item" data-page="products" onclick="navigate('products')">
-          <i class="fa fa-box"></i> Products
+        <div class="nav-item" data-page="products" title="Products" onclick="navigate('products')">
+          <i class="fa fa-box" style="color:var(--purple)"></i> <span class="nav-label">Products</span>
         </div>
-        <div class="nav-item" data-page="inventory" onclick="navigate('inventory')">
-          <i class="fa fa-warehouse"></i> Inventory
+        <div class="nav-item" data-page="inventory" title="Inventory" onclick="navigate('inventory')">
+          <i class="fa fa-warehouse" style="color:var(--cyan)"></i> <span class="nav-label">Inventory</span>
         </div>
-        <div class="nav-item" data-page="purchases" onclick="navigate('purchases')">
-          <i class="fa fa-truck"></i> Purchases
+        <div class="nav-item" data-page="purchases" title="Purchases" onclick="navigate('purchases')">
+          <i class="fa fa-truck" style="color:var(--yellow)"></i> <span class="nav-label">Purchases</span>
         </div>
-        <div class="nav-item" data-page="purchasereturn" onclick="navigate('purchasereturn')">
-          <i class="fa fa-truck-loading"></i> Purchase Return
+        <div class="nav-item" data-page="purchasereturn" title="Purchase Return" onclick="navigate('purchasereturn')">
+          <i class="fa fa-truck-loading" style="color:var(--red)"></i> <span class="nav-label">Purchase Return</span>
         </div>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Stakeholders</div>
-        <div class="nav-item" data-page="customers" onclick="navigate('customers')">
-          <i class="fa fa-users"></i> Customers
+        <div class="nav-item" data-page="customers" title="Customers" onclick="navigate('customers')">
+          <i class="fa fa-users" style="color:var(--accent)"></i> <span class="nav-label">Customers</span>
         </div>
-        <div class="nav-item" data-page="collection" onclick="navigate('collection')">
-          <i class="fa fa-hand-holding-usd"></i> Customer Collection
+        <div class="nav-item" data-page="collection" title="Customer Collection" onclick="navigate('collection')">
+          <i class="fa fa-hand-holding-usd" style="color:var(--green)"></i> <span class="nav-label">Customer Collection</span>
         </div>
-        <div class="nav-item" data-page="suppliers" onclick="navigate('suppliers')">
-          <i class="fa fa-building"></i> Suppliers
+        <div class="nav-item" data-page="suppliers" title="Suppliers" onclick="navigate('suppliers')">
+          <i class="fa fa-building" style="color:var(--purple)"></i> <span class="nav-label">Suppliers</span>
         </div>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Finance</div>
-        <div class="nav-item" data-page="expenses" onclick="navigate('expenses')">
-          <i class="fa fa-wallet"></i> Expenses
+        <div class="nav-item" data-page="expenses" title="Expenses" onclick="navigate('expenses')">
+          <i class="fa fa-wallet" style="color:var(--cyan)"></i> <span class="nav-label">Expenses</span>
         </div>
-        <div class="nav-item" data-page="ledger" onclick="navigate('ledger')">
-          <i class="fa fa-book-open"></i> Ledger Accounts
+        <div class="nav-item" data-page="ledger" title="Ledger Accounts" onclick="navigate('ledger')">
+          <i class="fa fa-book-open" style="color:var(--yellow)"></i> <span class="nav-label">Ledger Accounts</span>
         </div>
-        <div class="nav-item" data-page="balancesheet" onclick="navigate('balancesheet')">
-          <i class="fa fa-balance-scale"></i> Balance Sheet
+        <div class="nav-item" data-page="balancesheet" title="Balance Sheet" onclick="navigate('balancesheet')">
+          <i class="fa fa-balance-scale" style="color:var(--red)"></i> <span class="nav-label">Balance Sheet</span>
         </div>
-        <div class="nav-item" data-page="accounting" onclick="navigate('accounting')">
-          <i class="fa fa-book"></i> Accounting
+        <div class="nav-item" data-page="accounting" title="Accounting" onclick="navigate('accounting')">
+          <i class="fa fa-book" style="color:var(--accent)"></i> <span class="nav-label">Accounting</span>
         </div>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Analytics</div>
-        <div class="nav-item" data-page="reports" onclick="navigate('reports')">
-          <i class="fa fa-chart-bar"></i> Reports
+        <div class="nav-item" data-page="reports" title="Reports" onclick="navigate('reports')">
+          <i class="fa fa-chart-bar" style="color:var(--green)"></i> <span class="nav-label">Reports</span>
         </div>
-        <div class="nav-item" data-page="stockreport" onclick="navigate('stockreport')">
-          <i class="fa fa-boxes"></i> Stock Report
+        <div class="nav-item" data-page="stockreport" title="Stock Report" onclick="navigate('stockreport')">
+          <i class="fa fa-boxes" style="color:var(--purple)"></i> <span class="nav-label">Stock Report</span>
         </div>
       </div>
       <div class="nav-section" id="admin-nav">
         <div class="nav-section-label">Administration</div>
-        <div class="nav-item" data-page="users" onclick="navigate('users')">
-          <i class="fa fa-user-cog"></i> User Management
+        <div class="nav-item" data-page="users" title="User Management" onclick="navigate('users')">
+          <i class="fa fa-user-cog" style="color:var(--cyan)"></i> <span class="nav-label">User Management</span>
         </div>
-        <div class="nav-item" data-page="settings" onclick="navigate('settings')">
-          <i class="fa fa-cog"></i> Settings
+        <div class="nav-item" data-page="settings" title="Settings" onclick="navigate('settings')">
+          <i class="fa fa-cog" style="color:var(--yellow)"></i> <span class="nav-label">Settings</span>
         </div>
       </div>
     </nav>
     <div class="sidebar-footer">
-      <button class="logout-btn" onclick="doLogout()">
-        <i class="fa fa-sign-out-alt"></i> Sign Out
+      <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse sidebar">
+        <i class="fa fa-angles-left"></i> <span class="nav-label">Collapse</span>
+      </button>
+      <button class="logout-btn" onclick="doLogout()" title="Sign Out">
+        <i class="fa fa-sign-out-alt"></i> <span class="nav-label">Sign Out</span>
       </button>
     </div>
   </aside>

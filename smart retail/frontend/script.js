@@ -5934,6 +5934,35 @@ function closeSidebarMobile() {
   document.body.classList.remove('sidebar-open');
 }
 
+// ── SIDEBAR COLLAPSE (Desktop, icon-only mode) ────────────────────────
+// Independent of the mobile drawer above — this is the "shrink to icons,
+// expand back to full width whenever you want" toggle for desktop, with
+// the choice remembered across page loads via localStorage.
+const SIDEBAR_COLLAPSE_KEY = 'smartretail_sidebar_collapsed';
+
+function toggleSidebarCollapse() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  const collapsed = sidebar.classList.toggle('collapsed');
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  try { localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (e) {}
+  const btn = document.getElementById('sidebar-collapse-btn');
+  if (btn) btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+}
+
+function applySavedSidebarCollapseState() {
+  let wasCollapsed = false;
+  try { wasCollapsed = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === '1'; } catch (e) {}
+  if (!wasCollapsed) return;
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  sidebar.classList.add('collapsed');
+  document.body.classList.add('sidebar-collapsed');
+  const btn = document.getElementById('sidebar-collapse-btn');
+  if (btn) btn.title = 'Expand sidebar';
+}
+document.addEventListener('DOMContentLoaded', applySavedSidebarCollapseState);
+
 // Auto-close sidebar on nav item click for mobile
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-item').forEach(item => {

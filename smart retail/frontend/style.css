@@ -803,6 +803,50 @@ body.light-mode .theme-toggle { border-color: var(--accent); color: var(--accent
 }
 .logout-btn:hover { background: var(--red-glow); color: var(--red); }
 
+.sidebar-collapse-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 8px; margin-bottom: 4px;
+  color: var(--text-secondary); font-size: 13px;
+  cursor: pointer; transition: all .15s; width: 100%;
+  background: none; border: none; font-family: var(--font);
+}
+.sidebar-collapse-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.sidebar-collapse-btn i { transition: transform .2s; }
+/* Desktop-only — mobile already has its own slide-drawer sidebar (see the
+   991px breakpoint further down), so an icon-only collapsed mode doesn't
+   apply there. */
+@media (max-width: 991px) {
+  .sidebar-collapse-btn { display: none !important; }
+}
+
+/* ── SIDEBAR COLLAPSE (icon-only mode, desktop) ──────────────────────
+   Toggled by clicking the button above; state is saved in localStorage
+   (see toggleSidebarCollapse() in api.js) so it stays collapsed across
+   page reloads. Labels aren't literally removed from the DOM — every nav
+   item's text is wrapped in a `.nav-label` span (see index.html) so this
+   can just hide that span and leave the icon centered; each nav-item also
+   carries a `title="..."` attribute so hovering still shows its name. */
+.sidebar.collapsed { width: 72px !important; }
+body.sidebar-collapsed .main { margin-left: 72px !important; width: calc(100% - 72px) !important; }
+
+.sidebar.collapsed .sidebar-brand,
+.sidebar.collapsed .user-info,
+.sidebar.collapsed .nav-section-label,
+.sidebar.collapsed .nav-label { display: none; }
+
+.sidebar.collapsed .sidebar-header,
+.sidebar.collapsed .sidebar-user,
+.sidebar.collapsed .nav-item,
+.sidebar.collapsed .logout-btn,
+.sidebar.collapsed .sidebar-collapse-btn {
+  justify-content: center; padding-left: 0; padding-right: 0; gap: 0;
+}
+.sidebar.collapsed .nav-item.active::before {
+  left: 50%; top: auto; bottom: 0; width: 20px; height: 3px;
+  transform: translateX(-50%); border-radius: 3px 3px 0 0;
+}
+.sidebar.collapsed .sidebar-collapse-btn i { transform: rotate(180deg); }
+
 /* ── MAIN ─────────────────────────────────── */
 .main {
   margin-left: 256px;

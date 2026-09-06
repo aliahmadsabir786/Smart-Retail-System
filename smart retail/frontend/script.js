@@ -466,13 +466,101 @@ function initApp(landingPage) {
   updateClock();
   updatePosCustomers();
   SettingsAPI.getCompany().then(s => { _companySettingsCache = s; }).catch(() => {});
+  renderNotifications();
+  // Keep the bell reasonably fresh without the person needing to reload —
+  // re-checks every 2 minutes while the app is open.
+  setInterval(renderNotifications, 120000);
 }
 function updateClock() {
   const now = new Date();
   document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 }
 function toggleNotif() {
-  document.getElementById('notif-panel').classList.toggle('hidden');
+  const panel = document.getElementById('notif-panel');
+  const wasHidden = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  if (wasHidden) renderNotifications(); // refresh right as it's opened
+}
+
+function _notifRelativeTime(iso) {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
+}
+
+// Notification bell — previously always showed the same 3 hardcoded demo
+// items (Coca-Cola low stock, a Milk expiry warning, Order #ORD-0042) no
+// matter what was actually happening in the store. Now built from real
+// data: low/out-of-stock items (same source as the Dashboard's low-stock
+// card) and the most recently completed sales. There's no expiry-date
+// field anywhere in the backend's Product model, so the old "Expiry
+// Warning" notification type is dropped rather than faked.
+async function renderNotifications() {
+  const items = [];
+
+  try {
+    const summary = await DashboardAPI.summary();
+    (summary.low_stock_items || []).slice(0, 5).forEach(p => {
+      const isOut = Number(p.quantity) === 0;
+      items.push({
+        icon: 'fa-exclamation-triangle',
+        bg: 'var(--red-glow)', color: 'var(--red)',
+        title: isOut ? 'Out of Stock' : 'Low Stock Alert',
+        sub: `${p.product_name} — ${isOut ? 'No units left' : p.quantity + ' unit' + (p.quantity !== 1 ? 's' : '') + ' left'}`,
+        time: '', sortKey: Infinity, // no real timestamp on a stock LEVEL — always float to the top
+      });
+    });
+  } catch (_) { /* Dashboard summary is manager+ only — cashiers/salespeople just skip this section */ }
+
+  try {
+    const salesData = await SalesAPI.list({ ordering: '-created_at', page_size: 5 });
+    (salesData.results || salesData)
+      .filter(s => s.status === 'completed')
+      .slice(0, 5)
+      .forEach(s => {
+        items.push({
+          icon: 'fa-check-circle',
+          bg: 'var(--green-glow)', color: 'var(--green)',
+          title: 'Order Completed',
+          sub: `Invoice ${s.invoice_number} — Rs.${Number(s.total_amount).toFixed(2)}`,
+          time: _notifRelativeTime(s.created_at),
+          sortKey: new Date(s.created_at || 0).getTime(),
+        });
+      });
+  } catch (_) { /* ignore — leave whatever notifications we already have */ }
+
+  items.sort((a, b) => (b.sortKey || 0) - (a.sortKey || 0));
+
+  const count = items.length;
+  const bellBadge = document.querySelector('#notif-btn .badge');
+  if (bellBadge) {
+    bellBadge.textContent = count;
+    bellBadge.style.display = count ? '' : 'none';
+  }
+  const panelBadge = document.getElementById('notif-panel-badge');
+  if (panelBadge) {
+    panelBadge.textContent = count + ' new';
+    panelBadge.style.display = count ? '' : 'none';
+  }
+  const list = document.getElementById('notif-panel-list');
+  if (list) {
+    list.innerHTML = count
+      ? items.map(n => `
+        <div class="notif-item">
+          <div class="notif-icon" style="background:${n.bg};color:${n.color}"><i class="fa ${n.icon}"></i></div>
+          <div class="notif-text">
+            <div class="notif-title">${n.title}</div>
+            <div class="notif-sub">${n.sub}</div>
+          </div>
+          <div class="notif-time">${n.time}</div>
+        </div>`).join('')
+      : `<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No notifications right now</div>`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════

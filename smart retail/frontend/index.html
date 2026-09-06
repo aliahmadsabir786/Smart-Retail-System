@@ -194,7 +194,7 @@
         </button>
         <button class="icon-btn" onclick="toggleNotif()" id="notif-btn">
           <i class="fa fa-bell"></i>
-          <div class="badge">3</div>
+          <div class="badge" style="display:none">0</div>
         </button>
         <button class="icon-btn">
           <i class="fa fa-question-circle"></i>
@@ -207,33 +207,10 @@
       <div class="card">
         <div class="card-header">
           <div class="card-title">Notifications</div>
-          <span class="badge badge-red">3 new</span>
+          <span class="badge badge-red" id="notif-panel-badge" style="display:none">0 new</span>
         </div>
-        <div class="notif-list">
-          <div class="notif-item">
-            <div class="notif-icon" style="background:var(--red-glow);color:var(--red)"><i class="fa fa-exclamation-triangle"></i></div>
-            <div class="notif-text">
-              <div class="notif-title">Low Stock Alert</div>
-              <div class="notif-sub">Coca-Cola 330ml — Only 5 units left</div>
-            </div>
-            <div class="notif-time">2m ago</div>
-          </div>
-          <div class="notif-item">
-            <div class="notif-icon" style="background:var(--yellow-glow);color:var(--yellow)"><i class="fa fa-clock"></i></div>
-            <div class="notif-text">
-              <div class="notif-title">Expiry Warning</div>
-              <div class="notif-sub">Milk 1L — Expires in 2 days</div>
-            </div>
-            <div class="notif-time">1h ago</div>
-          </div>
-          <div class="notif-item">
-            <div class="notif-icon" style="background:var(--green-glow);color:var(--green)"><i class="fa fa-check-circle"></i></div>
-            <div class="notif-text">
-              <div class="notif-title">Order Completed</div>
-              <div class="notif-sub">Order #ORD-0042 marked as complete</div>
-            </div>
-            <div class="notif-time">3h ago</div>
-          </div>
+        <div class="notif-list" id="notif-panel-list">
+          <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Loading...</div>
         </div>
       </div>
     </div>

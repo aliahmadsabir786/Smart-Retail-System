@@ -4727,9 +4727,17 @@ function printStockReportA4() {
     return;
   }
 
-  // Print ALL products report — reuses the cache renderStockReport() just loaded
+  // Print filtered products — must match exactly what's shown on screen
+  // (renderStockReport), instead of always dumping the full _invProductCache
+  // regardless of the Category/Stock filters selected there.
+  const catFilter   = document.getElementById('sr-cat')?.value || '';
+  const stockFilter = document.getElementById('sr-stockfilter')?.value || '';
   const soldMap = {};
-  const prods = _invProductCache.map(p => ({ ...p, stock: (_invStockByProduct[p.id]||{}).quantity || 0 }));
+  let prods = _invProductCache.map(p => ({ ...p, stock: (_invStockByProduct[p.id]||{}).quantity || 0 }));
+  if (catFilter)             prods = prods.filter(p => p.category_name === catFilter);
+  if (stockFilter === 'low') prods = prods.filter(p => p.stock > 0 && p.stock <= (p.reorder_level||10));
+  if (stockFilter === 'out') prods = prods.filter(p => p.stock === 0);
+  if (stockFilter === 'ok')  prods = prods.filter(p => p.stock > (p.reorder_level||10));
   const totalValue = prods.reduce((s, p) => s + Number(p.final_price||p.selling_price||0) * p.stock, 0);
   const rows = prods.map((p, i) => {
     const minStock = p.reorder_level || 10;
@@ -4756,7 +4764,8 @@ function printStockReportA4() {
 
   const html = `<div class="a4-doc">
     ${getInvoiceHeaderHtml('STOCK REPORT', 'SR-'+reportDate, reportDate, { showLogo: prefs.logo, showAddress: prefs.address })}
-    <div style="padding:5mm 0 3mm"><strong>Overall Stock Report — ${reportDate}</strong> &nbsp;·&nbsp; ${prods.length} products &nbsp;·&nbsp; Total Value: Rs. ${totalValue.toFixed(2)}</div>
+    <div style="padding:5mm 0 3mm"><strong>Stock Report — ${reportDate}${catFilter?' — '+catFilter:''}</strong> &nbsp;·&nbsp; ${prods.length} products &nbsp;·&nbsp; Total Value: Rs. ${totalValue.toFixed(2)}</div>
+    ${(catFilter || stockFilter) ? `<div style="margin-bottom:3mm;font-size:10px;color:#555">Filtered by: ${catFilter ? 'Category = <strong>'+catFilter+'</strong>' : ''}${(catFilter && stockFilter) ? ' &nbsp;|&nbsp; ' : ''}${stockFilter ? 'Stock = <strong>'+({low:'Low Stock',out:'Out of Stock',ok:'In Stock'}[stockFilter]||stockFilter)+'</strong>' : ''}</div>` : ''}
     <table style="width:100%;border-collapse:collapse;margin-bottom:5mm;font-size:10px">
       <thead>
         <tr>

@@ -847,7 +847,7 @@ async function processPayment() {
   if (cart.length === 0) { toast('Cart is empty!', 'error'); return; }
   const discount = parseFloat(document.getElementById('cart-discount').value)||0;
   const subtotal = cart.reduce((a,i) => a+i.price*i.qty, 0);
-  const discountAmt = subtotal * discount / 100;
+  const discountAmt = Math.round(subtotal * discount / 100 * 100) / 100;
   const taxAmt = cart.reduce((a,i) => a + (i.price*i.qty) * (i.taxRate||0)/100, 0);
   const total = subtotal - discountAmt + taxAmt;
 
@@ -3288,7 +3288,7 @@ async function saveBooking(status) {
     const tp=(i.qty||0)+(i.cartons||0)*(i.ppc||1);
     return s+tp*(i.rate||0);
   },0);
-  const discountAmount = subtotal*discPct/100;
+  const discountAmount = Math.round(subtotal*discPct/100 * 100) / 100;
 
   const items = validItems.map(i => {
     const prod = _bkProductCache.find(p=>p.id==i.productId);

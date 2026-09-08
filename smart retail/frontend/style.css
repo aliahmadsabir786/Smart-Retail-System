@@ -101,6 +101,19 @@ body {
   transition: background .3s ease, color .3s ease;
 }
 
+/* Notification dropdown is positioned inline (see index.html) with
+   position:absolute — forcing it to position:fixed here instead makes it
+   float relative to the actual viewport on every screen size, immune to
+   whatever positioning/stacking context its ancestors happen to have. It
+   also gets a hard cap on both width and height so it can never spill off
+   a narrow or short screen, with its own scrollbar if the list is long. */
+#notif-panel {
+  position: fixed !important;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+
 /* ── Sidebar overlay + hamburger — off by default ── */
 .mobile-menu-btn {
   display: none;
@@ -221,9 +234,12 @@ body {
 /* ── Tablet (768px – 991px) — sidebar becomes slide drawer ── */
 @media (max-width: 991px) {
   html { font-size: 13px; }
-  /* Sidebar drawer */
+  /* Sidebar drawer — min() caps it so it can never be wider than the
+     viewport itself; a hard "264px !important" would overflow off-screen
+     (and could even keep the app content from being reachable at all) on
+     an unusually narrow device/window, however small it gets. */
   .sidebar {
-    width: 264px !important;
+    width: min(264px, 85vw) !important;
     transform: translateX(-100%);
     z-index: 300;
   }
@@ -819,68 +835,78 @@ body.light-mode .theme-toggle { border-color: var(--accent); color: var(--accent
   .sidebar-collapse-btn { display: none !important; }
 }
 
-/* ── SIDEBAR COLLAPSE (icon-only mode, desktop) ──────────────────────
+/* ── SIDEBAR COLLAPSE (icon-only mode, desktop-ONLY) ─────────────────
    Toggled by clicking the button above; state is saved in localStorage
    (see toggleSidebarCollapse() in api.js) so it stays collapsed across
    page reloads. Labels aren't literally removed from the DOM — every nav
    item's text is wrapped in a `.nav-label` span (see index.html) so this
    can just hide that span and leave the icon centered; each nav-item also
-   carries a `title="..."` attribute so hovering still shows its name. */
-.sidebar.collapsed { width: 72px !important; }
-body.sidebar-collapsed .main { margin-left: 72px !important; width: calc(100% - 72px) !important; }
+   carries a `title="..."` attribute so hovering still shows its name.
 
-.sidebar.collapsed .sidebar-brand,
-.sidebar.collapsed .user-info,
-.sidebar.collapsed .nav-section-label,
-.sidebar.collapsed .nav-label { display: none; }
+   IMPORTANT: everything here is wrapped in a min-width:992px query. Without
+   it, a "collapsed" choice made on desktop (saved in localStorage) would
+   still apply its !important rules on mobile/narrow windows too — forcing
+   the 264px mobile drawer down to a squeezed 72px, which overlapped every
+   nav item's clickable area on top of the next one (only the very first
+   item, Dashboard, happened to still be clickable). That was the "nothing
+   works except Dashboard on mobile / narrow window" bug. */
+@media (min-width: 992px) {
+  .sidebar.collapsed { width: 72px !important; }
+  body.sidebar-collapsed .main { margin-left: 72px !important; width: calc(100% - 72px) !important; }
 
-.sidebar.collapsed .sidebar-header,
-.sidebar.collapsed .sidebar-user,
-.sidebar.collapsed .nav-item,
-.sidebar.collapsed .logout-btn,
-.sidebar.collapsed .sidebar-collapse-btn {
-  justify-content: center; padding-left: 0; padding-right: 0; gap: 0;
-}
-.sidebar.collapsed .nav-item.active::before {
-  left: 50%; top: auto; bottom: 0; width: 20px; height: 3px;
-  transform: translateX(-50%); border-radius: 3px 3px 0 0;
-}
-.sidebar.collapsed .sidebar-collapse-btn i { transform: rotate(180deg); }
+  .sidebar.collapsed .sidebar-brand,
+  .sidebar.collapsed .user-info,
+  .sidebar.collapsed .nav-section-label,
+  .sidebar.collapsed .nav-label { display: none; }
 
-/* Hover tooltip (collapsed mode only) — reads straight off each item's
-   existing `title="..."` attribute via CSS attr(), so no JS or extra
-   markup is needed. Only shown when collapsed since the label text is
-   already visible right there when the sidebar is expanded. */
-.sidebar.collapsed .nav-item { overflow: visible; }
-.sidebar.collapsed .nav-item::after,
-.sidebar.collapsed .logout-btn::after,
-.sidebar.collapsed .sidebar-collapse-btn::after {
-  content: attr(title);
-  position: absolute;
-  left: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%) translateX(-6px);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border: 1px solid var(--border-light);
-  padding: 7px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  box-shadow: var(--shadow-lg);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity .15s ease, transform .15s ease;
-  z-index: 500;
-}
-.sidebar.collapsed .nav-item:hover::after,
-.sidebar.collapsed .logout-btn:hover::after,
-.sidebar.collapsed .sidebar-collapse-btn:hover::after {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(-50%) translateX(0);
+  .sidebar.collapsed .sidebar-header,
+  .sidebar.collapsed .sidebar-user,
+  .sidebar.collapsed .nav-item,
+  .sidebar.collapsed .logout-btn,
+  .sidebar.collapsed .sidebar-collapse-btn {
+    justify-content: center; padding-left: 0; padding-right: 0; gap: 0;
+  }
+  .sidebar.collapsed .nav-item.active::before {
+    left: 50%; top: auto; bottom: 0; width: 20px; height: 3px;
+    transform: translateX(-50%); border-radius: 3px 3px 0 0;
+  }
+  .sidebar.collapsed .sidebar-collapse-btn i { transform: rotate(180deg); }
+
+  /* Hover tooltip (collapsed mode only) — reads straight off each item's
+     existing `title="..."` attribute via CSS attr(), so no JS or extra
+     markup is needed. Only shown when collapsed since the label text is
+     already visible right there when the sidebar is expanded. */
+  .sidebar.collapsed .nav-item { overflow: visible; }
+  .sidebar.collapsed .nav-item::after,
+  .sidebar.collapsed .logout-btn::after,
+  .sidebar.collapsed .sidebar-collapse-btn::after {
+    content: attr(title);
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 50%;
+    transform: translateY(-50%) translateX(-6px);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-light);
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+    z-index: 500;
+  }
+  .sidebar.collapsed .nav-item:hover::after,
+  .sidebar.collapsed .logout-btn:hover::after,
+  .sidebar.collapsed .sidebar-collapse-btn:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(-50%) translateX(0);
+  }
 }
 
 /* ── MAIN ─────────────────────────────────── */

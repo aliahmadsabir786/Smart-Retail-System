@@ -1110,7 +1110,7 @@ async function renderProducts(page) {
     _prodPage = data.current_page ?? _prodPage;
   } catch (err) {
     toast('Failed to load products: ' + (err.message||'unknown error'), 'error');
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--red)">Could not load products — ${err.message||'server error'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--red)">Could not load products — ${err.message||'server error'}</td></tr>`;
     return;
   }
   renderPaginationBar('products-pagination', _prodPage, totalPages, totalCount, _prodPageSize, (p) => renderProducts(p));
@@ -1119,6 +1119,12 @@ async function renderProducts(page) {
       : ['badge-green', 'Active'];
     const stock = Number(p.current_stock) || 0;
     const stockBadge = stock <= 0 ? 'badge-red' : stock <= (p.reorder_level ?? 10) ? 'badge-yellow' : 'badge-green';
+    // Tax Inclusive column: a small tick when the product has a tax/GST
+    // rate set on it, a cross when it doesn't.
+    const hasTax = (Number(p.tax_rate) || 0) > 0;
+    const taxIcon = hasTax
+      ? '<i class="fa fa-check-circle" style="color:var(--green)" title="Tax inclusive"></i>'
+      : '<i class="fa fa-times-circle" style="color:var(--red)" title="No tax"></i>';
     return `<tr>
       <td><div class="flex-gap"><span style="font-size:20px">📦</span><div><div style="font-weight:600">${p.name}</div><div style="font-size:11px;color:var(--text-muted)">${p.brand_name||''}</div></div></div></td>
       <td class="td-mono">${p.sku}</td>
@@ -1127,6 +1133,7 @@ async function renderProducts(page) {
       <td class="fw-700 text-green">Rs.${Number(p.selling_price).toFixed(2)}</td>
       <td><span class="badge ${stockBadge}">${stock}</span></td>
       <td style="font-size:11px;color:var(--text-muted)">—</td>
+      <td style="text-align:center">${taxIcon}</td>
       <td><span class="badge ${status[0]}">${status[1]}</span></td>
       <td>
         <div class="flex-gap">
@@ -1238,7 +1245,11 @@ async function saveProduct() {
       }
     }
     closeModal('product-modal');
-    renderProducts();
+    // Editing an existing product should keep the user on whichever page
+    // they were on (that's where the product still lives after the price
+    // update) — only a brand-new product jumps back to page 1, since we
+    // don't know where it lands alphabetically.
+    renderProducts(editId ? _prodPage : undefined);
   } catch (err) {
     toast(err.message || 'Failed to save product', 'error');
   }

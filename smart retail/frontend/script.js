@@ -3606,19 +3606,19 @@ function buildSlipA4Html(rawSale) {
   const footerNote = s.invoice_footer_note || '';
 
   const logoBlock = logoDataUrl
-    ? `<img src="${logoDataUrl}" style="max-width:85px;max-height:70px;object-fit:contain">`
-    : `<span style="font-size:40px;line-height:1">🏪</span>`;
+    ? `<img src="${logoDataUrl}" style="max-width:56px;max-height:46px;object-fit:contain">`
+    : `<span style="font-size:28px;line-height:1">🏪</span>`;
 
-  return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:14mm 15mm;box-sizing:border-box">
+  return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px">
 
     <!-- ═══ MAIN HEADER ═══ -->
-    <div style="display:flex;align-items:flex-start;gap:14px;border-bottom:2.5px solid #000;padding-bottom:6mm;margin-bottom:5mm">
-      ${ssSettings.showCompanyLogo ? `<div style="width:88px;height:72px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid #ddd;border-radius:6px;overflow:hidden;background:#f9f9f9;padding:4px">
+    <div style="display:flex;align-items:flex-start;gap:10px;border-bottom:2px solid #000;padding-bottom:4mm;margin-bottom:3mm">
+      ${ssSettings.showCompanyLogo ? `<div style="width:60px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid #ddd;border-radius:5px;overflow:hidden;background:#f9f9f9;padding:3px">
         ${logoBlock}
       </div>` : ''}
       <div>
-        <div style="font-size:19px;font-weight:900;color:#000;letter-spacing:-0.3px;line-height:1.1;margin-bottom:6px">${storeName}</div>
-        <div style="font-size:10.5px;color:#000;line-height:2">
+        <div style="font-size:15px;font-weight:900;color:#000;letter-spacing:-0.3px;line-height:1.1;margin-bottom:4px">${storeName}</div>
+        <div style="font-size:9px;color:#000;line-height:1.7">
           ${distName    ? `<div><span style="color:#555">Distributor Name:</span> <strong>${distName}</strong></div>` : ''}
           ${(storePhone||distPhone) ? `<div><span style="color:#555">Phone No:</span> <strong>${storePhone||distPhone}</strong></div>` : ''}
           ${(storeAddress||distAddress) ? `<div><span style="color:#555">Address:</span> <strong>${storeAddress||distAddress}</strong></div>` : ''}
@@ -3628,53 +3628,53 @@ function buildSlipA4Html(rawSale) {
     </div>
 
     <!-- ═══ BILL TO + INVOICE DETAILS ═══ -->
-    <div class="slip-atomic-block" style="display:flex;gap:0;margin-bottom:5mm;border:1.5px solid #000;border-radius:5px;overflow:hidden">
+    <div class="slip-atomic-block" style="display:flex;gap:0;margin-bottom:3mm;border:1px solid #000;border-radius:4px;overflow:hidden">
       <!-- BILL TO -->
-      <div style="flex:1.3;padding:4mm 5mm;border-right:1.5px solid #000">
-        <div style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:3px 6px;margin:-4mm -5mm 3mm;display:block">BILL TO</div>
-        <div style="font-size:14px;font-weight:900;color:#000;margin-bottom:3px">${b.customerName}</div>
-        ${(ssSettings.showCustomerDetails && b.customerCnic) ? `<div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
-          <span style="min-width:82px;font-size:10px;color:#444">CNIC:</span>
+      <div style="flex:1.3;padding:3mm 4mm;border-right:1px solid #000">
+        <div style="font-size:8px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:2px 5px;margin:-3mm -4mm 2mm;display:block">BILL TO</div>
+        <div style="font-size:12px;font-weight:900;color:#000;margin-bottom:2px">${b.customerName}</div>
+        ${(ssSettings.showCustomerDetails && b.customerCnic) ? `<div style="display:flex;gap:6px;margin-bottom:2px;font-size:9.5px;color:#000">
+          <span style="min-width:68px;font-size:8.5px;color:#444">CNIC:</span>
           <strong style="color:#000;font-family:monospace">${b.customerCnic}</strong>
         </div>` : ''}
-        ${(ssSettings.showCustomerDetails && b.customerAddress) ? `<div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
-          <span style="min-width:82px;font-size:10px;color:#444">Address:</span>
+        ${(ssSettings.showCustomerDetails && b.customerAddress) ? `<div style="display:flex;gap:6px;margin-bottom:2px;font-size:9.5px;color:#000">
+          <span style="min-width:68px;font-size:8.5px;color:#444">Address:</span>
           <strong style="color:#000;font-weight:600">${b.customerAddress}</strong>
         </div>` : ''}
-        <div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
-          <span style="min-width:82px;font-size:10px;color:#444">Account No:</span>
+        <div style="display:flex;gap:6px;margin-bottom:2px;font-size:9.5px;color:#000">
+          <span style="min-width:68px;font-size:8.5px;color:#444">Account No:</span>
           <strong style="color:#000;font-family:monospace">${b.accountNo||'—'}</strong>
         </div>
-        <div style="display:flex;gap:6px;margin-bottom:3px;font-size:11px;color:#000">
-          <span style="min-width:82px;font-size:10px;color:#444">Date:</span>
+        <div style="display:flex;gap:6px;margin-bottom:2px;font-size:9.5px;color:#000">
+          <span style="min-width:68px;font-size:8.5px;color:#444">Date:</span>
           <strong style="color:#000">${b.date}</strong>
         </div>
-        ${ssSettings.showPaymentMethod ? `<div style="display:flex;gap:6px;font-size:11px;color:#000">
-          <span style="min-width:82px;font-size:10px;color:#444">Payment:</span>
+        ${ssSettings.showPaymentMethod ? `<div style="display:flex;gap:6px;font-size:9.5px;color:#000">
+          <span style="min-width:68px;font-size:8.5px;color:#444">Payment:</span>
           <strong style="color:#000">${b.paymentMethod||'—'}</strong>
         </div>` : ''}
       </div>
       <!-- INVOICE INFO -->
-      <div style="min-width:52mm;padding:4mm 5mm">
-        <div style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:3px 6px;margin:-4mm -5mm 3mm;display:block;text-align:right">INVOICE DETAILS</div>
-        <div style="font-size:17px;font-weight:900;color:#000;letter-spacing:0.5px;text-align:right">${b.invoice}</div>
+      <div style="min-width:42mm;padding:3mm 4mm">
+        <div style="font-size:8px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:2px 5px;margin:-3mm -4mm 2mm;display:block;text-align:right">INVOICE DETAILS</div>
+        <div style="font-size:14px;font-weight:900;color:#000;letter-spacing:0.3px;text-align:right">${b.invoice}</div>
       </div>
     </div>
 
     <!-- ═══ ITEMS TABLE ═══ -->
-    <div style="font-size:11px;font-weight:800;color:#000;text-transform:uppercase;letter-spacing:0.08em;border-left:4px solid #000;padding-left:6px;margin-bottom:3mm">Purchased Items</div>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
+    <div style="font-size:9.5px;font-weight:800;color:#000;text-transform:uppercase;letter-spacing:0.08em;border-left:3px solid #000;padding-left:5px;margin-bottom:2mm">Purchased Items</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:3mm">
       <thead>
         <tr>
-          <th style="padding:7px 6px;text-align:left;background:#000;color:#fff;font-size:10px;font-weight:700">#</th>
-          <th style="padding:7px 6px;text-align:left;background:#000;color:#fff;font-size:10px;font-weight:700">PRODUCT NAME</th>
-          <th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">PIECES</th>
-          <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">UNIT PRICE</th>
-          ${ssSettings.showSubtotal ? `<th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">BASE AMOUNT</th>` : ''}
-          ${ssSettings.showTax ? `<th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">TAX%</th>` : ''}
-          ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TAX AMT</th>` : ''}
-          ${ssSettings.showDiscount ? `<th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">DISC%</th>` : ''}
-          <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TOTAL</th>
+          <th style="padding:5px 5px;text-align:left;background:#000;color:#fff;font-size:8.5px;font-weight:700">#</th>
+          <th style="padding:5px 5px;text-align:left;background:#000;color:#fff;font-size:8.5px;font-weight:700">PRODUCT NAME</th>
+          <th style="padding:5px 5px;text-align:center;background:#000;color:#fff;font-size:8.5px;font-weight:700">PIECES</th>
+          <th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">UNIT PRICE</th>
+          ${ssSettings.showSubtotal ? `<th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">BASE AMOUNT</th>` : ''}
+          ${ssSettings.showTax ? `<th style="padding:5px 5px;text-align:center;background:#000;color:#fff;font-size:8.5px;font-weight:700">TAX%</th>` : ''}
+          ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">TAX AMT</th>` : ''}
+          ${ssSettings.showDiscount ? `<th style="padding:5px 5px;text-align:center;background:#000;color:#fff;font-size:8.5px;font-weight:700">DISC%</th>` : ''}
+          <th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">TOTAL</th>
         </tr>
       </thead>
       <tbody>
@@ -3688,23 +3688,23 @@ function buildSlipA4Html(rawSale) {
           const totalAmt = baseAmt + taxAmt - lineDiscAmt;
           const bg = i%2===1?'#f4f4f4':'#fff';
           return `<tr>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;font-weight:700;color:#000;background:${bg}">${i+1}</td>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;font-weight:700;color:#000;background:${bg}">${it.icon||''} ${it.name||'—'}</td>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:center;background:${bg}">${tp}</td>
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;font-weight:600;color:#000;text-align:right;background:${bg}">Rs. ${(it.rate||0).toFixed(2)}</td>
-            ${ssSettings.showSubtotal ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:right;background:${bg}">Rs. ${baseAmt.toFixed(2)}</td>` : ''}
-            ${ssSettings.showTax ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemTaxPct>0?'#8b0000':'#999'}">${itemTaxPct>0?itemTaxPct+'%':'—'}</td>` : ''}
-            ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:${taxAmt>0?'#8b0000':'#999'};text-align:right;background:${bg}">${taxAmt>0?'Rs. '+taxAmt.toFixed(2):'—'}</td>` : ''}
-            ${ssSettings.showDiscount ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemDiscPct>0?'#16a34a':'#999'}">${itemDiscPct>0?itemDiscPct+'%':'—'}</td>` : ''}
-            <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:800;color:#000;text-align:right;background:${bg}">Rs. ${totalAmt.toFixed(2)}</td>
+            <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;font-weight:700;color:#000;background:${bg}">${i+1}</td>
+            <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;font-weight:700;color:#000;background:${bg}">${it.icon||''} ${it.name||'—'}</td>
+            <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:10px;font-weight:700;color:#000;text-align:center;background:${bg}">${tp}</td>
+            <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;font-weight:600;color:#000;text-align:right;background:${bg}">Rs. ${(it.rate||0).toFixed(2)}</td>
+            ${ssSettings.showSubtotal ? `<td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:10px;font-weight:700;color:#000;text-align:right;background:${bg}">Rs. ${baseAmt.toFixed(2)}</td>` : ''}
+            ${ssSettings.showTax ? `<td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;text-align:center;background:${bg};color:${itemTaxPct>0?'#8b0000':'#999'}">${itemTaxPct>0?itemTaxPct+'%':'—'}</td>` : ''}
+            ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:10px;font-weight:700;color:${taxAmt>0?'#8b0000':'#999'};text-align:right;background:${bg}">${taxAmt>0?'Rs. '+taxAmt.toFixed(2):'—'}</td>` : ''}
+            ${ssSettings.showDiscount ? `<td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;text-align:center;background:${bg};color:${itemDiscPct>0?'#16a34a':'#999'}">${itemDiscPct>0?itemDiscPct+'%':'—'}</td>` : ''}
+            <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:10px;font-weight:800;color:#000;text-align:right;background:${bg}">Rs. ${totalAmt.toFixed(2)}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
 
     <!-- ═══ TOTALS ═══ -->
-    <div class="slip-atomic-block" style="display:flex;justify-content:flex-end;margin-bottom:5mm">
-      <div style="width:90mm;border:1.5px solid #000;border-radius:5px;overflow:hidden;font-size:12px">
+    <div class="slip-atomic-block" style="display:flex;justify-content:flex-end;margin-bottom:3mm">
+      <div style="width:66mm;border:1px solid #000;border-radius:4px;overflow:hidden;font-size:10.5px">
         ${(()=>{
           // Recalculate from items for print accuracy
           const subtotalBase = b.items.reduce((s,it)=>{ const tp=(it.qty||0)+(it.cartons||0)*(it.ppc||1); return s+tp*(it.rate||0); },0);
@@ -3714,34 +3714,42 @@ function buildSlipA4Html(rawSale) {
           // the overall Bill Discount %, exactly as the backend sums them)
           // back into its two parts, so each shows as its own line — same
           // breakdown as the Order Booking screen.
-          const itemDiscAmt  = b.items.reduce((s,it)=>{
+          const itemDiscAmt  = Math.round(b.items.reduce((s,it)=>{
             const tp=(it.qty||0)+(it.cartons||0)*(it.ppc||1);
             const lineBase = tp*(it.rate||0);
             const lineTax  = lineBase*(it.taxPct||0)/100;
-            return s + (lineBase+lineTax)*(it.discPct||0)/100;
-          },0);
-          const billDiscAmt  = Math.max(0, (b.discAmt||0) - itemDiscAmt);
+            // Round each line's own discount to the cent here too — this is
+            // exactly how the backend rounds every SaleItem.line_discount
+            // individually before summing, so this total lines up with the
+            // real stored figure to the cent instead of drifting off it.
+            return s + Math.round((lineBase+lineTax)*(it.discPct||0)/100 * 100) / 100;
+          },0) * 100) / 100;
+          // Rounded to the cent, then compared with a half-cent margin —
+          // between float drift on the client and the backend's stored
+          // Decimal, "> 0" alone could let a sub-cent sliver through and
+          // print a ghost "Bill Discount (0.0%) -Rs.0.00" line.
+          const billDiscAmt  = Math.round(Math.max(0, (b.discAmt||0) - itemDiscAmt) * 100) / 100;
           const billDiscBase = subtotalBase + totalTaxAmt - itemDiscAmt;
           const billDiscPct  = billDiscBase > 0 ? (billDiscAmt / billDiscBase * 100) : 0;
           const grandTotal   = subtotalBase + totalTaxAmt - itemDiscAmt - billDiscAmt;
           return `
-        ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
-        ${hasTax ? `<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>` : ''}
-        ${(ssSettings.showDiscount && itemDiscAmt>0)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
-        ${(ssSettings.showDiscount && billDiscAmt>0)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${billDiscPct.toFixed(1)}%)</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
-        <div style="display:flex;justify-content:space-between;padding:8px 10px;background:#1a1a1a;color:#fff;font-size:14px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>Previous Balance</span><span>Rs. ${(b.prevBal||0).toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:9px 10px;background:#f59e0b;color:#000;font-size:16px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
+        ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
+        ${hasTax ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>` : ''}
+        ${(ssSettings.showDiscount && itemDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
+        ${(ssSettings.showDiscount && billDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${billDiscPct.toFixed(1)}%)</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
+        <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#1a1a1a;color:#fff;font-size:12px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>Previous Balance</span><span>Rs. ${(b.prevBal||0).toFixed(2)}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#f59e0b;color:#000;font-size:13px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
         })()}
       </div>
     </div>
 
-    ${b.notes?`<div class="slip-atomic-block" style="margin-bottom:5mm;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:11px;color:#000"><strong>Notes:</strong> ${b.notes}</div>`:''}
+    ${b.notes?`<div class="slip-atomic-block" style="margin-bottom:3mm;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:9.5px;color:#000"><strong>Notes:</strong> ${b.notes}</div>`:''}
 
     
     <!-- ═══ FOOTER ═══ -->
-    ${(ssSettings.showFooterNotes && footerNote) ? `<div class="slip-atomic-block" style="margin-top:8mm;text-align:center;font-size:11px;color:#333;font-style:italic">${footerNote}</div>` : ''}
-    <div class="slip-footer" style="margin-top:6mm;display:flex;justify-content:space-between;font-size:10px;color:#555;border-top:1px solid #ccc;padding-top:4mm">
+    ${(ssSettings.showFooterNotes && footerNote) ? `<div class="slip-atomic-block" style="margin-top:5mm;text-align:center;font-size:9.5px;color:#333;font-style:italic">${footerNote}</div>` : ''}
+    <div class="slip-footer" style="margin-top:4mm;display:flex;justify-content:space-between;font-size:8.5px;color:#555;border-top:1px solid #ccc;padding-top:3mm">
       <span>SmartRetail ERP — Order Booking System</span>
       <span>${b.invoice} · Printed: ${new Date().toLocaleString()}</span>
     </div>

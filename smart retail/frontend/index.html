@@ -504,6 +504,7 @@
                         <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Unit</th>
                         <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Cartons</th>
                         <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)">Total Pcs</th>
+                        <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary)" title="Extra discount on this line only — does not change the product's saved price">Disc%</th>
                         <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--yellow);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);text-align:center" title="Auto-applied from product configuration">Tax%</th>
                         <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);text-align:right">Total (inc. tax)</th>
                         <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);width:40px"></th>
@@ -547,6 +548,15 @@
                         Sale Tax/GST <span id="bk-tax-pct-label" style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">(auto, included above)</span>
                       </span>
                       <span id="bk-gst-val" style="color:var(--yellow);font-family:var(--mono)">Rs.0.00</span>
+                    </div>
+
+                    <!-- Per-item line discounts (from the Disc% column above) -->
+                    <div id="bk-item-disc-row" style="display:none;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;color:var(--text-secondary)">
+                      <span style="display:flex;align-items:center;gap:5px">
+                        <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0"></span>
+                        Item Discounts
+                      </span>
+                      <span id="bk-item-disc-val" class="text-green" style="font-family:var(--mono)">-Rs.0.00</span>
                     </div>
 
                     <!-- Bill Discount -->

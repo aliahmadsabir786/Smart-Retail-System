@@ -2718,8 +2718,9 @@ async function newBookingForm(editId, editCompletedInPlace) {
       .map(it => ({
         productId: it.product, name: it.product_name, rate: Number(it.unit_price),
         qty: it.quantity - it.quantity_returned, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent)||0,
+        discPct: Number(it.discount_percent)||0,
       }));
-    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 });
+    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 });
   } else if (editId) {
     // Editing a held (draft) invoice — pull its saved items/customer back in.
     let sale;
@@ -2740,8 +2741,9 @@ async function newBookingForm(editId, editCompletedInPlace) {
     _bookingItems = sale.items.map(it => ({
       productId: it.product, name: it.product_name, rate: Number(it.unit_price),
       qty: it.quantity, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent)||0,
+      discPct: Number(it.discount_percent)||0,
     }));
-    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 });
+    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 });
   } else {
     document.getElementById('booking-form-title').textContent = '📝 New Order Booking';
   }
@@ -2958,10 +2960,17 @@ function renderBookingItemRows() {
     } else {
       totalPcs = (item.qty||0) + (item.cartons||0)*ppc;
     }
+    const prod      = _bkProductCache.find(p => p.id == item.productId);
     const baseAmt   = totalPcs*(item.rate||0);
-    const taxPct    = item.taxPct||0;
+    const taxPct    = Number(prod?.tax_rate ?? item.taxPct) || 0;
     const taxAmt    = baseAmt*taxPct/100;
-    const lineTotal = baseAmt+taxAmt;
+    const priceWithTax = baseAmt+taxAmt;
+    const discPct   = item.discPct||0;
+    // Line discount is taken off the tax-inclusive line price, matching how
+    // the backend computes SaleItem.line_discount — this only affects this
+    // one order line and never touches the product's own saved price.
+    const discAmt   = priceWithTax*discPct/100;
+    const lineTotal = priceWithTax-discAmt;
     const prodLabel = item.productId ? (item.icon||'\u{1F4E6}')+' '+item.name : '';
     return `<tr id="bk-row-${i}">
       <td style="padding:5px 8px;position:relative">
@@ -3005,6 +3014,12 @@ function renderBookingItemRows() {
       </td>
       <td style="padding:5px 8px;text-align:center;font-weight:700;color:var(--cyan);font-size:13px">
         ${totalPcs}<span style="font-size:9px;color:var(--text-muted)"> ${unit==='Carton'?'pcs':unit}</span>
+      </td>
+      <td style="padding:5px 8px">
+        <input class="form-input" id="bk-disc-${i}" type="text" inputmode="decimal" value="${discPct||0}"
+          title="Extra discount on this line only — does not change the product's saved price"
+          style="padding:7px 10px;font-size:12px;width:60px;color:var(--green)"
+          onclick="setTimeout(()=>this.select())" oninput="updateBookingItem(${i},'discPct',this.value)">
       </td>
       <td style="padding:5px 8px;text-align:center">
         ${taxPct>0
@@ -3144,8 +3159,8 @@ function bkProdSelect(i, productId) {
   _bookingItems[i].rate      = Number(prod.final_price)||0;
   _bookingItems[i].ppc       = 1;
   _bookingItems[i].icon      = '📦';
-  _bookingItems[i].taxPct    = 0;
-  _bookingItems[i].discount  = 0;
+  _bookingItems[i].taxPct    = Number(prod.tax_rate)||0;
+  _bookingItems[i].discPct   = 0;
   bkProdDropClose();
   renderBookingItemRows();
   calcBookingTotals();
@@ -3157,7 +3172,7 @@ function bkProdSelect(i, productId) {
 }
 
 function bkProdClear(i) {
-  _bookingItems[i] = { productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0 };
+  _bookingItems[i] = { productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 };
   renderBookingItemRows();
   calcBookingTotals();
   setTimeout(()=>{ const el=document.getElementById('bk-prod-input-'+i); if(el){el.focus();el.value='';} },30);
@@ -3196,6 +3211,11 @@ function updateBookingItem(i, field, val) {
   _bookingItems[i][field] = parseFloat(val)||0;
   const item = _bookingItems[i];
 
+  if (field === 'discPct') {
+    if (item.discPct < 0) item.discPct = 0;
+    if (item.discPct > 100) item.discPct = 100;
+  }
+
   // Defensive re-check: stock can shift between opening the form and typing
   // the quantity (another sale, another booking). Cap to what's actually
   // available rather than letting the order go through with more than we have.
@@ -3215,38 +3235,47 @@ function updateBookingItem(i, field, val) {
   // entered right away — no need to click "Add Item" every time.
   const isLastRow = i === _bookingItems.length - 1;
   if (field === 'qty' && isLastRow && item.productId && item.qty > 0) {
-    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0 });
+    _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 });
   }
 
   renderBookingItemRows();
   calcBookingTotals();
 }
 
-function calcBookingTotals() {
-  // ── Step 1: Base amount per item (pieces × rate) ──────
-  const baseAmount = _bookingItems.reduce((sum, item) => {
-    const tp = (item.qty||0) + (item.cartons||0)*(item.ppc||1);
-    return sum + tp*(item.rate||0);
-  }, 0);
-
-  // ── Step 2: Auto-calculate product-level tax ───────────
-  // Each item carries its own taxPct from the product; we compute
-  // a weighted average tax amount across all items.
-  const autoTaxAmt = _bookingItems.reduce((sum, item) => {
-    const prod = _bkProductCache.find(p => p.id == item.productId);
-    const taxPct = (prod?.tax_rate) || (item.taxPct) || 0;
-    if (!taxPct) return sum;
+// Single source of truth for booking totals — used both to update the on-screen
+// summary (calcBookingTotals) and to build the exact payload sent to the API
+// (saveBooking), so what the user sees is always what actually gets saved.
+function computeBookingTotals() {
+  let baseAmount = 0, autoTaxAmt = 0, itemDiscAmt = 0;
+  _bookingItems.forEach(item => {
     const tp = (item.qty||0) + (item.cartons||0)*(item.ppc||1);
     const itemBase = tp*(item.rate||0);
-    return sum + itemBase*taxPct/100;
-  }, 0);
+    const prod = _bkProductCache.find(p => p.id == item.productId);
+    const taxPct = Number(prod?.tax_rate ?? item.taxPct) || 0;
+    const itemTax = itemBase*taxPct/100;
+    const discPct = item.discPct||0;
+    // Per-line discount, taken off this line's tax-inclusive price — mirrors
+    // SaleItem.line_discount on the backend and only affects this order,
+    // never the product's own saved price/rate.
+    const itemDisc = (itemBase+itemTax)*discPct/100;
+    baseAmount  += itemBase;
+    autoTaxAmt  += itemTax;
+    itemDiscAmt += itemDisc;
+  });
 
-  // ── Step 3: Discount on (base + tax) ──────────────────
-  const discPct  = parseFloat(document.getElementById('bk-discount')?.value)||0;
-  const discAmt  = (baseAmount + autoTaxAmt) * discPct / 100;
+  const billDiscPct = parseFloat(document.getElementById('bk-discount')?.value)||0;
+  // Bill-level discount applies on top of what's left after line discounts,
+  // so the two don't double-dip on the same amount.
+  const billDiscAmt = Math.round((baseAmount+autoTaxAmt-itemDiscAmt) * billDiscPct / 100 * 100) / 100;
 
-  // ── Step 4: Final total ───────────────────────────────
-  const total    = baseAmount + autoTaxAmt - discAmt;
+  const totalDiscount = Math.round((itemDiscAmt + billDiscAmt) * 100) / 100;
+  const total = baseAmount + autoTaxAmt - totalDiscount;
+
+  return { baseAmount, autoTaxAmt, itemDiscAmt, billDiscPct, billDiscAmt, totalDiscount, total };
+}
+
+function calcBookingTotals() {
+  const { baseAmount, autoTaxAmt, itemDiscAmt, billDiscAmt, total } = computeBookingTotals();
 
   const custId   = parseInt(document.getElementById('bk-customer')?.value)||0;
   const cust     = _bkCustomerCache.find(c => c.id === custId);
@@ -3262,12 +3291,16 @@ function calcBookingTotals() {
   // Show/hide auto tax row
   const autoTaxRow = document.getElementById('bk-auto-tax-row');
   if (autoTaxRow) autoTaxRow.style.display = autoTaxAmt > 0 ? '' : 'none';
+  // Show/hide the per-item discount row — only relevant once a line has one
+  const itemDiscRow = document.getElementById('bk-item-disc-row');
+  if (itemDiscRow) itemDiscRow.style.display = itemDiscAmt > 0 ? 'flex' : 'none';
 
   const s   = v => 'Rs.' + v.toFixed(2);
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   set('bk-subtotal',      s(baseAmount));
   set('bk-gst-val',       '+' + s(autoTaxAmt));
-  set('bk-disc-val',      '-' + s(discAmt));
+  set('bk-item-disc-val', '-' + s(itemDiscAmt));
+  set('bk-disc-val',      '-' + s(billDiscAmt));
   set('bk-total',          s(total));
   set('bk-prev-bal-mini',  s(prevBal));
   set('bk-net-payable',    s(netPayable));
@@ -3279,21 +3312,22 @@ async function saveBooking(status) {
   const validItems = _bookingItems.filter(i=>i.productId);
   if (!validItems.length) { toast('Add at least one product!','error'); return; }
 
-  const discPct   = parseFloat(document.getElementById('bk-discount').value)||0;
   const bookDate  = document.getElementById('bk-date').value;
   const payMethod = document.getElementById('bk-payment').value;
   const notes     = document.getElementById('bk-notes').value;
 
-  const subtotal = validItems.reduce((s,i)=>{
-    const tp=(i.qty||0)+(i.cartons||0)*(i.ppc||1);
-    return s+tp*(i.rate||0);
-  },0);
-  const discountAmount = Math.round(subtotal*discPct/100 * 100) / 100;
+  // Bill-level discount only — per-line discounts travel on each item's own
+  // discount_percent below and the backend sums those in automatically.
+  const { billDiscAmt: discountAmount } = computeBookingTotals();
 
   const items = validItems.map(i => {
     const prod = _bkProductCache.find(p=>p.id==i.productId);
     const tp = (i.qty||0)+(i.cartons||0)*(i.ppc||1);
-    return { product: i.productId, quantity: tp, unit_price: i.rate, tax_percent: Number(prod?.tax_rate ?? i.taxPct) || 0 };
+    return {
+      product: i.productId, quantity: tp, unit_price: i.rate,
+      tax_percent: Number(prod?.tax_rate ?? i.taxPct) || 0,
+      discount_percent: Number(i.discPct) || 0,
+    };
   });
 
   try {

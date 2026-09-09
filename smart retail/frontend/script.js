@@ -750,7 +750,7 @@ function addToCart(pid) {
     if (existing.qty >= stock) { toast('Insufficient stock!', 'warning'); return; }
     existing.qty++;
   } else {
-    cart.push({ id: pid, name: prod.name, price: Number(prod.final_price), qty: 1, icon: '📦', taxRate: Number(prod.tax_rate)||0 });
+    cart.push({ id: pid, name: prod.name, price: Number(prod.selling_price)||0, qty: 1, icon: '📦', taxRate: Number(prod.tax_rate)||0 });
   }
   updateCartUI();
 }
@@ -3156,11 +3156,11 @@ function bkProdSelect(i, productId) {
   }
   _bookingItems[i].productId = prod.id;
   _bookingItems[i].name      = prod.name;
-  _bookingItems[i].rate      = Number(prod.final_price)||0;
+  _bookingItems[i].rate      = Number(prod.selling_price)||0;
   _bookingItems[i].ppc       = 1;
   _bookingItems[i].icon      = '📦';
   _bookingItems[i].taxPct    = Number(prod.tax_rate)||0;
-  _bookingItems[i].discPct   = 0;
+  _bookingItems[i].discPct   = Number(prod.discount_percent)||0;
   bkProdDropClose();
   renderBookingItemRows();
   calcBookingTotals();

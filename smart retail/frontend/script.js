@@ -3580,6 +3580,7 @@ function _adaptSaleForSlipPrint(sale) {
     items: (sale.items||[]).map(it => ({
       icon: '📦', name: it.product_name, qty: it.quantity, cartons: 0, ppc: 1,
       rate: Number(it.unit_price), taxPct: Number(it.tax_percent),
+      discPct: Number(it.discount_percent)||0,
     })),
     discAmt: Number(sale.discount_amount),
     discountPct: 0,
@@ -3672,6 +3673,7 @@ function buildSlipA4Html(rawSale) {
           ${ssSettings.showSubtotal ? `<th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">BASE AMOUNT</th>` : ''}
           ${ssSettings.showTax ? `<th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">TAX%</th>` : ''}
           ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TAX AMT</th>` : ''}
+          ${ssSettings.showDiscount ? `<th style="padding:7px 6px;text-align:center;background:#000;color:#fff;font-size:10px;font-weight:700">DISC%</th>` : ''}
           <th style="padding:7px 6px;text-align:right;background:#000;color:#fff;font-size:10px;font-weight:700">TOTAL</th>
         </tr>
       </thead>
@@ -3679,9 +3681,11 @@ function buildSlipA4Html(rawSale) {
         ${b.items.map((it,i)=>{
           const tp=(it.qty||0)+(it.cartons||0)*(it.ppc||1);
           const itemTaxPct = it.taxPct || 0;
+          const itemDiscPct = it.discPct || 0;
           const baseAmt = tp*(it.rate||0);
           const taxAmt  = baseAmt * itemTaxPct / 100;
-          const totalAmt = baseAmt + taxAmt;
+          const lineDiscAmt = (baseAmt+taxAmt) * itemDiscPct / 100;
+          const totalAmt = baseAmt + taxAmt - lineDiscAmt;
           const bg = i%2===1?'#f4f4f4':'#fff';
           return `<tr>
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;font-weight:700;color:#000;background:${bg}">${i+1}</td>
@@ -3691,6 +3695,7 @@ function buildSlipA4Html(rawSale) {
             ${ssSettings.showSubtotal ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:#000;text-align:right;background:${bg}">Rs. ${baseAmt.toFixed(2)}</td>` : ''}
             ${ssSettings.showTax ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemTaxPct>0?'#8b0000':'#999'}">${itemTaxPct>0?itemTaxPct+'%':'—'}</td>` : ''}
             ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:700;color:${taxAmt>0?'#8b0000':'#999'};text-align:right;background:${bg}">${taxAmt>0?'Rs. '+taxAmt.toFixed(2):'—'}</td>` : ''}
+            ${ssSettings.showDiscount ? `<td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:11px;text-align:center;background:${bg};color:${itemDiscPct>0?'#16a34a':'#999'}">${itemDiscPct>0?itemDiscPct+'%':'—'}</td>` : ''}
             <td style="padding:7px 6px;border-bottom:1px solid #ddd;font-size:12px;font-weight:800;color:#000;text-align:right;background:${bg}">Rs. ${totalAmt.toFixed(2)}</td>
           </tr>`;
         }).join('')}
@@ -3705,12 +3710,25 @@ function buildSlipA4Html(rawSale) {
           const subtotalBase = b.items.reduce((s,it)=>{ const tp=(it.qty||0)+(it.cartons||0)*(it.ppc||1); return s+tp*(it.rate||0); },0);
           const totalTaxAmt  = b.items.reduce((s,it)=>{ const tp=(it.qty||0)+(it.cartons||0)*(it.ppc||1); const taxPct=it.taxPct||0; return s+tp*(it.rate||0)*taxPct/100; },0);
           const hasTax       = totalTaxAmt > 0;
-          const discAmt      = b.discAmt||0;
-          const grandTotal   = subtotalBase + totalTaxAmt - discAmt;
+          // Split the combined discount (b.discAmt = every line's own Disc% +
+          // the overall Bill Discount %, exactly as the backend sums them)
+          // back into its two parts, so each shows as its own line — same
+          // breakdown as the Order Booking screen.
+          const itemDiscAmt  = b.items.reduce((s,it)=>{
+            const tp=(it.qty||0)+(it.cartons||0)*(it.ppc||1);
+            const lineBase = tp*(it.rate||0);
+            const lineTax  = lineBase*(it.taxPct||0)/100;
+            return s + (lineBase+lineTax)*(it.discPct||0)/100;
+          },0);
+          const billDiscAmt  = Math.max(0, (b.discAmt||0) - itemDiscAmt);
+          const billDiscBase = subtotalBase + totalTaxAmt - itemDiscAmt;
+          const billDiscPct  = billDiscBase > 0 ? (billDiscAmt / billDiscBase * 100) : 0;
+          const grandTotal   = subtotalBase + totalTaxAmt - itemDiscAmt - billDiscAmt;
           return `
         ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
-        ${(ssSettings.showTax && ssSettings.showTaxAmount && hasTax)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>`:''}
-        ${(ssSettings.showDiscount && discAmt>0)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${b.discountPct||0}%)</span><span style="font-weight:600">- Rs. ${discAmt.toFixed(2)}</span></div>`:''}
+        ${hasTax ? `<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>` : ''}
+        ${(ssSettings.showDiscount && itemDiscAmt>0)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
+        ${(ssSettings.showDiscount && billDiscAmt>0)?`<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${billDiscPct.toFixed(1)}%)</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;padding:8px 10px;background:#1a1a1a;color:#fff;font-size:14px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>Previous Balance</span><span>Rs. ${(b.prevBal||0).toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:9px 10px;background:#f59e0b;color:#000;font-size:16px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;

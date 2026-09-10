@@ -33,6 +33,17 @@ def create_sale(customer, warehouse, items, user, discount_amount=Decimal("0"),
         status=Sale.Status.COMPLETED, notes=notes, created_by=user,
     )
 
+    # Snapshot what the customer already owed BEFORE this sale, computed the
+    # same way the Ledger Accounts screen does (live from real Sale/Payment
+    # rows) rather than from the customer.outstanding_balance cache field,
+    # which only gets bumped for credit sales and can drift out of sync.
+    # Safe to read now: this sale row exists but total_amount is still 0,
+    # so it contributes nothing to the ledger's numbers yet.
+    if customer:
+        from apps.customers.services import get_customer_ledger
+        sale.previous_balance = Decimal(get_customer_ledger(customer)["remaining"])
+        sale.save(update_fields=["previous_balance"])
+
     subtotal = Decimal("0")
     total_discount = Decimal("0")
     total_tax = Decimal("0")
@@ -117,6 +128,14 @@ def create_draft_sale(customer, warehouse, items, user, discount_amount=Decimal(
         customer=customer, warehouse=warehouse, served_by=user,
         status=Sale.Status.DRAFT, notes=notes, created_by=user,
     )
+    # Snapshot the customer's already-owed balance at the moment of booking
+    # (see create_sale's identical comment) — this is what the booking
+    # screen's "Previous Balance" preview shows, and it's what should still
+    # print on the invoice later, frozen as of right now.
+    if customer:
+        from apps.customers.services import get_customer_ledger
+        sale.previous_balance = Decimal(get_customer_ledger(customer)["remaining"])
+        sale.save(update_fields=["previous_balance"])
     _set_draft_items(sale, items, discount_amount)
     return sale
 
@@ -131,6 +150,18 @@ def update_draft_sale(sale, customer, warehouse, items, discount_amount=Decimal(
         raise InvalidTransitionException("Only a held invoice can be edited — this one is already finalized.")
     if not items:
         raise ServiceException("A sale must contain at least one item.")
+
+    if customer != sale.customer:
+        # The booking's previous-balance snapshot was taken for whoever the
+        # customer was at hold time — if they've since switched who this
+        # booking is for, that snapshot belongs to the wrong person and
+        # needs retaking against the new customer's own balance.
+        if customer:
+            from apps.customers.services import get_customer_ledger
+            sale.previous_balance = Decimal(get_customer_ledger(customer)["remaining"])
+        else:
+            sale.previous_balance = Decimal("0")
+        sale.save(update_fields=["previous_balance"])
 
     sale.customer = customer
     sale.warehouse = warehouse
@@ -256,11 +287,13 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
     update_draft_sale/finalize_draft_sale for those instead).
 
     NOTE on payments: any cash/card payments already recorded against the
-    old total are left in the Payment history for audit purposes, but
-    paid_amount is reset to 0 and payment_status back to UNPAID/credit —
-    since the item list (and therefore what's actually owed) has changed,
-    the till needs to re-collect against the new total. Adjust here if your
-    business instead wants old payments carried forward onto the new total.
+    old total are removed along with paid_amount being reset to 0 and
+    payment_status going back to UNPAID/credit — since the item list (and
+    therefore what's actually owed) has changed, the till needs to
+    re-collect against the new total, and the customer's Ledger must not
+    keep counting money that was received against the invoice's old
+    version. Adjust here if your business instead wants old payments
+    carried forward onto the new total.
     """
     if sale.status == Sale.Status.CANCELLED:
         raise InvalidTransitionException("A cancelled invoice cannot be edited.")
@@ -277,6 +310,19 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
         is_credit_sale = was_credit_sale
 
     old_items = list(sale.items.select_related("product", "variant"))
+
+    # Fixed: when this edit changes the sale (e.g. Cash → Credit), paid_amount
+    # is reset to 0 below and the sale goes back to UNPAID — but the old Cash/
+    # Card Payment row(s) recorded against this invoice used to be left in
+    # place "for audit purposes". The customer Ledger (get_customer_ledger)
+    # sums real Payment rows, not sale.paid_amount, so that stale payment kept
+    # counting as money already received — the invoice still showed as paid/
+    # cash in the ledger even though it had just been switched to Credit (On
+    # Account) and should now show as an outstanding due amount. Since
+    # paid_amount is being zeroed out for this invoice anyway, its old
+    # payments are removed here too so the ledger and the sale's own fields
+    # stay consistent.
+    sale.payments.all().delete()
 
     # --- 1. Reverse the OLD items' stock + credit + loyalty side effects ---
     for old_item in old_items:
@@ -395,6 +441,150 @@ def add_payment(sale, amount, method, user, reference=""):
         sale.customer.save(update_fields=["outstanding_balance"])
 
     return payment
+
+
+@transaction.atomic
+def collect_customer_payment(customer, amount, method, user, reference=""):
+    """
+    Records a general cash collection against a customer's overall running
+    balance — e.g. the daily round collecting whatever credit customers pay
+    off, where the money isn't earmarked for one specific invoice. Not
+    linked to any Sale: it shows up in the customer's ledger as its own
+    dated "General Collection" row, and counts toward paying down whatever
+    is oldest, exactly like any other payment — including reducing the
+    previous_balance snapshot on the customer's NEXT invoice.
+    """
+    if amount <= 0:
+        raise ValueError("Amount must be positive.")
+    payment = Payment.objects.create(
+        sale=None, customer=customer, amount=amount, method=method,
+        reference=reference, received_by=user,
+    )
+    customer.outstanding_balance = max(Decimal("0"), customer.outstanding_balance - amount)
+    customer.save(update_fields=["outstanding_balance"])
+
+    # Fixed: this used to stop here, only touching the customer's overall
+    # balance. That left every individual invoice's own paid_amount /
+    # payment_status untouched, so a customer could be fully cleared here
+    # (outstanding_balance = 0) while their invoices still showed "unpaid"
+    # on the Order Bookings list. Now the collection is also applied to the
+    # customer's own unpaid/partial invoices, oldest first -- same
+    # allocation the Collection page already does via SalesAPI.pay() -- so
+    # each invoice's status stays in sync with the account being cleared.
+    # No extra Payment rows are created and outstanding_balance is not
+    # touched again here; only each Sale's own bookkeeping fields update.
+    remaining = amount
+    unpaid_sales = (
+        Sale.objects.filter(customer=customer)
+        .exclude(status__in=[Sale.Status.CANCELLED, Sale.Status.RETURNED])
+        .exclude(payment_status=Sale.PaymentStatus.PAID)
+        .order_by("created_at")
+    )
+    for sale in unpaid_sales:
+        if remaining <= 0:
+            break
+        due = sale.total_amount - sale.paid_amount
+        if due <= 0:
+            continue
+        applied = min(due, remaining)
+        sale.paid_amount += applied
+        sale.payment_status = (
+            Sale.PaymentStatus.PAID if sale.paid_amount >= sale.total_amount
+            else Sale.PaymentStatus.PARTIAL
+        )
+        sale.save(update_fields=["paid_amount", "payment_status"])
+        remaining -= applied
+
+    return payment
+
+
+def _recompute_sale_payment_status(sale):
+    """Shared helper: derives payment_status from the current paid_amount vs
+    total_amount, used any time paid_amount is corrected after the fact
+    (editing/deleting a payment) rather than added to fresh."""
+    if sale.paid_amount <= 0:
+        sale.payment_status = Sale.PaymentStatus.UNPAID
+    elif sale.paid_amount >= sale.total_amount:
+        sale.payment_status = Sale.PaymentStatus.PAID
+    else:
+        sale.payment_status = Sale.PaymentStatus.PARTIAL
+
+
+@transaction.atomic
+def update_payment(payment, *, amount=None, method=None, reference=None, occurred_on=None, user=None):
+    """
+    Manually corrects an already-recorded payment (e.g. a cashier typo, a
+    duplicate entry, or the wrong date) directly from the Ledger Accounts
+    screen. Rather than treating the new amount as a fresh payment, this
+    applies only the DELTA between the old and new amount to the sale's
+    paid_amount and the customer's outstanding_balance, since the old
+    amount's effect on both is already baked in.
+    """
+    sale = payment.sale
+    old_amount = payment.amount
+
+    if amount is not None:
+        if amount <= 0:
+            raise ValueError("Payment amount must be positive.")
+        payment.amount = amount
+    if method is not None:
+        payment.method = method
+    if reference is not None:
+        payment.reference = reference
+    if user is not None and hasattr(payment, "updated_by_id"):
+        payment.updated_by = user
+    payment.save()
+
+    if occurred_on is not None:
+        # created_at is auto_now_add, so it can't be set through a normal
+        # .save() — bypass it with a queryset update, then refresh the
+        # in-memory instance so the returned/serialized object is correct.
+        Payment.objects.filter(pk=payment.pk).update(created_at=occurred_on)
+        payment.refresh_from_db(fields=["created_at"])
+
+    delta = payment.amount - old_amount
+    if delta != 0:
+        if sale:
+            sale.paid_amount = max(Decimal("0"), sale.paid_amount + delta)
+            _recompute_sale_payment_status(sale)
+            sale.save(update_fields=["paid_amount", "payment_status"])
+            if sale.customer:
+                sale.customer.outstanding_balance = max(
+                    Decimal("0"), sale.customer.outstanding_balance - delta
+                )
+                sale.customer.save(update_fields=["outstanding_balance"])
+        elif payment.customer:
+            # Standalone general-collection payment — no Sale to update,
+            # just the customer's running balance.
+            payment.customer.outstanding_balance = max(
+                Decimal("0"), payment.customer.outstanding_balance - delta
+            )
+            payment.customer.save(update_fields=["outstanding_balance"])
+
+    return payment
+
+
+@transaction.atomic
+def delete_payment(payment):
+    """Removes a wrongly-recorded payment and reverses its effect on the
+    parent sale's paid_amount/payment_status and the customer's
+    outstanding_balance — or, for a standalone general collection, just
+    the customer's outstanding_balance."""
+    sale = payment.sale
+    amount = payment.amount
+
+    if sale:
+        sale.paid_amount = max(Decimal("0"), sale.paid_amount - amount)
+        _recompute_sale_payment_status(sale)
+        sale.save(update_fields=["paid_amount", "payment_status"])
+        if sale.customer:
+            sale.customer.outstanding_balance += amount
+            sale.customer.save(update_fields=["outstanding_balance"])
+    elif payment.customer:
+        payment.customer.outstanding_balance += amount
+        payment.customer.save(update_fields=["outstanding_balance"])
+
+    payment.delete()
 
 
 @transaction.atomic

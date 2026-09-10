@@ -9,11 +9,11 @@ from apps.customers.models import Customer
 from apps.warehouse.models import Warehouse
 from apps.sales.models import SaleItem
 from . import services
-from .models import Sale, Coupon, SaleReturn
+from .models import Sale, Coupon, SaleReturn, Payment
 from .serializers import (
     SaleSerializer, CreateSaleSerializer, AddPaymentSerializer,
     ProcessReturnSerializer, SaleReturnSerializer, PaymentSerializer,
-    CouponSerializer, FinalizeSaleSerializer,
+    PaymentEditSerializer, CouponSerializer, FinalizeSaleSerializer,
 )
 
 
@@ -24,6 +24,40 @@ class CouponViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["is_active"]
     search_fields = ["code"]
+
+
+class PaymentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
+    """
+    PATCH/DELETE /sales/payments/{id}/ — manually correct or remove a
+    payment that was recorded wrong (typo'd amount, wrong date, duplicate
+    entry), straight from the Ledger Accounts screen. Kept as its own
+    endpoint rather than nested under Sale because editing a payment
+    ripples into the parent Sale's paid_amount/payment_status and the
+    customer's outstanding_balance — see apps.sales.services.update_payment.
+    """
+    queryset = Payment.objects.select_related("sale", "sale__customer")
+    serializer_class = PaymentEditSerializer
+    permission_classes = [IsManagerOrAbove]
+
+    def partial_update(self, request, pk=None):
+        payment = self.get_object()
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        v = serializer.validated_data
+        payment = services.update_payment(
+            payment,
+            amount=v.get("amount"),
+            method=v.get("method"),
+            reference=v.get("reference"),
+            occurred_on=v.get("occurred_on"),
+            user=request.user,
+        )
+        return Response(PaymentSerializer(payment).data)
+
+    def destroy(self, request, pk=None):
+        payment = self.get_object()
+        services.delete_payment(payment)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,

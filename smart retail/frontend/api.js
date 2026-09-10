@@ -232,6 +232,9 @@ const CustomersAPI = {
   remove(id) { return apiRequest(`/customers/${id}/`, { method: 'DELETE' }); },
   groups() { return apiRequest('/customers/groups/'); },
   ledger(id) { return apiRequest(`/customers/${id}/ledger/`); },
+  // General cash collection against the customer's running balance — not
+  // tied to a specific invoice (e.g. daily credit-collection rounds).
+  collectPayment(id, data) { return apiRequest(`/customers/${id}/collect-payment/`, { method: 'POST', body: data }); },
   bulkCreate(items) { return apiRequest('/customers/bulk-create/', { method: 'POST', body: { items } }); },
 };
 
@@ -258,6 +261,10 @@ const SalesAPI = {
   updateHold(id, data) { return apiRequest(`/sales/${id}/hold/`, { method: 'PATCH', body: data }); },
   edit(id, data) { return apiRequest(`/sales/${id}/edit/`, { method: 'PATCH', body: data }); },
   finalize(id, data) { return apiRequest(`/sales/${id}/finalize/`, { method: 'POST', body: data }); },
+  // Manual corrections to an already-recorded payment (typo'd amount, wrong
+  // date, duplicate entry) — used from the Ledger Accounts screen.
+  updatePayment(id, data) { return apiRequest(`/sales/payments/${id}/`, { method: 'PATCH', body: data }); },
+  deletePayment(id) { return apiRequest(`/sales/payments/${id}/`, { method: 'DELETE' }); },
 };
 
 // ── PURCHASING ───────────────────────────────────────────────────

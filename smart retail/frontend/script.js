@@ -1,129 +1,3 @@
-// We inject the Customer Collection page into the DOM after load
-document.addEventListener('DOMContentLoaded', function() {
-  const contentDiv = document.querySelector('.content');
-  if (!contentDiv) return;
-  const collectionPage = document.createElement('div');
-  collectionPage.className = 'page';
-  collectionPage.id = 'page-collection';
-  collectionPage.innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left">
-        <h2>Customer Collection</h2>
-        <p>Track payments, outstanding balances & collection activity</p>
-      </div>
-      <div class="page-header-actions">
-        <button class="btn btn-ghost btn-sm" onclick="exportCollectionReport()"><i class="fa fa-file-excel"></i> Export</button>
-        <button class="btn btn-warning btn-sm" onclick="printTodaysCollectionSheet()"><i class="fa fa-hand-holding-usd"></i> Today's Collection Sheet</button>
-        <button class="btn btn-accent btn-sm" onclick="printCollectionReport()"><i class="fa fa-print"></i> Print Report</button>
-      </div>
-    </div>
-
-    <!-- KPI Stats -->
-    <div class="stat-grid" id="col-stats-grid">
-      <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-users"></i></div></div><div class="stat-value" id="col-total-customers">0</div><div class="stat-label">Total Customers</div></div>
-      <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-exclamation-circle"></i></div></div><div class="stat-value" id="col-total-pending">Rs.0</div><div class="stat-label">Total Pending</div></div>
-      <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-check-circle"></i></div></div><div class="stat-value" id="col-total-received">Rs.0</div><div class="stat-label">Received Today</div></div>
-      <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-clock"></i></div></div><div class="stat-value" id="col-overdue-count">0</div><div class="stat-label">Overdue Accounts</div></div>
-    </div>
-
-    <!-- Filters -->
-    <div class="card" style="margin-bottom:16px">
-      <div class="card-body" style="padding:14px 20px">
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-          <div class="form-group-inline" style="margin-bottom:0;flex:1;min-width:180px">
-            <label>Search Customer</label>
-            <div class="search-bar">
-              <i class="fa fa-search"></i>
-              <input type="text" id="col-search" placeholder="Name, phone, account..." oninput="renderCollection()" style="font-size:13px">
-            </div>
-          </div>
-          <div class="form-group-inline" style="margin-bottom:0">
-            <label>Date From</label>
-            <input class="form-input" type="date" id="col-date-from" style="padding:9px 12px" onchange="renderCollection()">
-          </div>
-          <div class="form-group-inline" style="margin-bottom:0">
-            <label>Date To</label>
-            <input class="form-input" type="date" id="col-date-to" style="padding:9px 12px" onchange="renderCollection()">
-          </div>
-          <div class="form-group-inline" style="margin-bottom:0">
-            <label>Balance Filter</label>
-            <select class="form-input" id="col-balance-filter" onchange="renderCollection()" style="padding:9px 12px;width:160px">
-              <option value="">All Customers</option>
-              <option value="pending">Has Pending Balance</option>
-              <option value="clear">Cleared / Zero Balance</option>
-              <option value="overdue">Overdue (> 30 days)</option>
-            </select>
-          </div>
-          <button class="btn btn-ghost btn-sm" onclick="clearCollectionFilters()"><i class="fa fa-times"></i> Clear</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Table -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">Collection Ledger</div>
-        <div style="font-size:12px;color:var(--text-secondary)" id="col-count-label">— accounts</div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Account No.</th>
-              <th>Previous Balance</th>
-              <th>Today's Orders</th>
-              <th>Total Pending</th>
-              <th>Received</th>
-              <th>Remaining</th>
-              <th>Last Payment</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="collection-tbody"></tbody>
-        </table>
-      </div>
-    </div>`;
-  contentDiv.appendChild(collectionPage);
-
-  // Also inject Record Payment modal at end of body
-  const payModal = document.createElement('div');
-  payModal.innerHTML = `
-  <div class="modal-overlay" id="col-payment-modal">
-    <div class="modal" style="max-width:480px">
-      <div class="modal-header">
-        <div class="modal-title">💳 Record Payment</div>
-        <button class="modal-close" onclick="closeModal('col-payment-modal')">✕</button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="col-pay-cust-id">
-        <div class="form-group-inline"><label>Customer</label><input class="form-input" id="col-pay-cust-name" readonly style="background:var(--bg-secondary)"></div>
-        <div class="form-row">
-          <div class="form-group-inline"><label>Outstanding Balance</label><input class="form-input" id="col-pay-outstanding" readonly style="background:var(--bg-secondary);color:var(--red);font-weight:700"></div>
-          <div class="form-group-inline"><label>Payment Amount *</label><input class="form-input" type="number" id="col-pay-amount" placeholder="0.00" step="0.01" min="0" oninput="calcColRemaining()"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group-inline"><label>Payment Date</label><input class="form-input" type="date" id="col-pay-date"></div>
-          <div class="form-group-inline"><label>Payment Method</label>
-            <select class="form-input" id="col-pay-method">
-              <option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_wallet">Mobile Wallet</option><option value="other">Other</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group-inline"><label>Notes</label><input class="form-input" id="col-pay-notes" placeholder="Optional notes..."></div>
-        <div style="background:var(--green-glow);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px;display:flex;justify-content:space-between;font-weight:700">
-          <span>Remaining After Payment:</span>
-          <span id="col-pay-remaining" style="color:var(--green);font-size:16px">Rs.0.00</span>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeModal('col-payment-modal')">Cancel</button>
-        <button class="btn btn-green" onclick="saveCollectionPayment()"><i class="fa fa-check"></i> Record Payment</button>
-      </div>
-    </div>
-  </div>`;
-  document.body.appendChild(payModal.firstElementChild);
-});
 // ── SPLASH SCREEN ──────────────────────────────────────
 (function() {
   // Hide login & app while splash shows
@@ -2816,7 +2690,15 @@ async function _loadBookingLookups() {
   });
 }
 
-function onBookingCustomerChange() {
+// Live "previous balance" for whichever customer is currently selected in
+// the booking form — kept in sync with the backend's own calculation (see
+// calcBookingTotals below) instead of the customer.outstanding_balance cache
+// field, which only gets bumped for credit sales and can drift out of sync
+// with what the invoice will actually show once saved (apps.sales.services
+// snapshots sale.previous_balance from this same live ledger figure).
+let _bkPrevBalanceLive = 0;
+
+async function onBookingCustomerChange() {
   const id = parseInt(document.getElementById('bk-customer').value);
   const cust = _bkCustomerCache.find(c=>c.id===id);
   const searchEl = document.getElementById('bk-customer-search');
@@ -2824,6 +2706,7 @@ function onBookingCustomerChange() {
     document.getElementById('bk-acc-display').value='';
     document.getElementById('bk-customer-info').style.display='none';
     if (searchEl) searchEl.value='';
+    _bkPrevBalanceLive = 0;
     calcBookingTotals();
     return;
   }
@@ -2832,10 +2715,25 @@ function onBookingCustomerChange() {
   document.getElementById('bk-acc-search').value = acc;
   if (searchEl) searchEl.value = `${cust.name} (${acc})`;
   document.getElementById('bk-customer-info').style.display='';
-  document.getElementById('bk-prev-balance').textContent = 'Rs.'+Number(cust.outstanding_balance).toFixed(2);
+  // Show the cached figure immediately (feels instant), then correct it
+  // with the live ledger value — same source the backend will snapshot
+  // onto the invoice when this booking is saved.
+  _bkPrevBalanceLive = Number(cust.outstanding_balance)||0;
+  document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
   document.getElementById('bk-total-purchases').textContent = String(cust.loyalty_points || 0);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
   calcBookingTotals();
+
+  try {
+    const ledger = await CustomersAPI.ledger(cust.id);
+    // Bail out if the customer selection changed while this was in flight.
+    if (parseInt(document.getElementById('bk-customer').value) !== cust.id) return;
+    _bkPrevBalanceLive = Number(ledger.remaining)||0;
+    document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
+    calcBookingTotals();
+  } catch (err) {
+    // Live ledger fetch failed — keep the cached-field estimate shown above.
+  }
 }
 
 // ── Customer search-as-you-type (Order Booking) ───────────────────
@@ -3274,23 +3172,24 @@ function computeBookingTotals() {
     itemDiscAmt += itemDisc;
   });
 
-  const billDiscPct = parseFloat(document.getElementById('bk-discount')?.value)||0;
-  // Bill-level discount applies on top of what's left after line discounts,
-  // so the two don't double-dip on the same amount.
-  const billDiscAmt = Math.round((baseAmount+autoTaxAmt-itemDiscAmt) * billDiscPct / 100 * 100) / 100;
+  // Bill-level discount is now entered as a direct Rs. amount (not a
+  // percentage) — capped so it can never exceed what's left after line
+  // discounts, which would otherwise push the invoice total negative.
+  const billDiscInput = parseFloat(document.getElementById('bk-discount')?.value)||0;
+  const billDiscBase = Math.max(0, baseAmount + autoTaxAmt - itemDiscAmt);
+  const billDiscAmt = Math.round(Math.min(billDiscInput, billDiscBase) * 100) / 100;
 
   const totalDiscount = Math.round((itemDiscAmt + billDiscAmt) * 100) / 100;
   const total = baseAmount + autoTaxAmt - totalDiscount;
 
-  return { baseAmount, autoTaxAmt, itemDiscAmt, billDiscPct, billDiscAmt, totalDiscount, total };
+  return { baseAmount, autoTaxAmt, itemDiscAmt, billDiscAmt, totalDiscount, total };
 }
 
 function calcBookingTotals() {
   const { baseAmount, autoTaxAmt, itemDiscAmt, billDiscAmt, total } = computeBookingTotals();
 
   const custId   = parseInt(document.getElementById('bk-customer')?.value)||0;
-  const cust     = _bkCustomerCache.find(c => c.id === custId);
-  const prevBal  = Number(cust?.outstanding_balance)||0;
+  const prevBal  = custId ? (Number(_bkPrevBalanceLive)||0) : 0;
   const netPayable = total + prevBal;
 
   // ── Update tax label to show effective rate ────────────
@@ -3443,8 +3342,8 @@ async function renderBookingList() {
           <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
           <td>${b.items.length} item(s)</td>
           <td class="fw-700 text-green">Rs.${Number(b.total_amount).toFixed(2)}</td>
-          <td class="text-red">Rs.${Number(b.due_amount).toFixed(2)}</td>
-          <td class="fw-700 text-yellow">Rs.${Number(b.total_amount).toFixed(2)}</td>
+          <td class="text-red">Rs.${Number(b.previous_balance).toFixed(2)}</td>
+          <td class="fw-700 text-yellow">Rs.${(Number(b.total_amount)+Number(b.previous_balance)).toFixed(2)}</td>
           <td><span class="badge badge-blue">${b.payment_status}</span></td>
           <td><span class="badge ${badgeClass}">${label}</span></td>
           <td>
@@ -3595,7 +3494,7 @@ function _adaptSaleForSlipPrint(sale) {
     })),
     discAmt: Number(sale.discount_amount),
     discountPct: 0,
-    prevBal: 0,
+    prevBal: Number(sale.previous_balance) || 0,
     notes: sale.notes || '',
   };
 }
@@ -3740,14 +3639,12 @@ function buildSlipA4Html(rawSale) {
           // Decimal, "> 0" alone could let a sub-cent sliver through and
           // print a ghost "Bill Discount (0.0%) -Rs.0.00" line.
           const billDiscAmt  = Math.round(Math.max(0, (b.discAmt||0) - itemDiscAmt) * 100) / 100;
-          const billDiscBase = subtotalBase + totalTaxAmt - itemDiscAmt;
-          const billDiscPct  = billDiscBase > 0 ? (billDiscAmt / billDiscBase * 100) : 0;
           const grandTotal   = subtotalBase + totalTaxAmt - itemDiscAmt - billDiscAmt;
           return `
         ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
         ${hasTax ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>` : ''}
         ${(ssSettings.showDiscount && itemDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
-        ${(ssSettings.showDiscount && billDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount (${billDiscPct.toFixed(1)}%)</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
+        ${(ssSettings.showDiscount && billDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#1a1a1a;color:#fff;font-size:12px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>Previous Balance</span><span>Rs. ${(b.prevBal||0).toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#f59e0b;color:#000;font-size:13px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
@@ -4221,6 +4118,7 @@ async function loadLedgerAccount() {
   if (!id) {
     document.getElementById('ldg-account-summary').style.display='none';
     document.getElementById('ldg-table-card').style.display='none';
+    document.getElementById('ldg-daily-card').style.display='none';
     document.getElementById('ldg-all-accounts').style.display='';
     return;
   }
@@ -4252,25 +4150,39 @@ async function loadLedgerAccount() {
 
     document.getElementById('ldg-total-debit-label').textContent  = 'Total Billed';
     document.getElementById('ldg-total-credit-label').textContent = 'Total Paid';
-    document.getElementById('ldg-net-balance-label').textContent  = 'Remaining Due';
+    document.getElementById('ldg-net-balance-label').textContent  = remaining>0 ? 'Remaining Due' : 'Advance / Credit';
     document.getElementById('ldg-total-debit').textContent  = 'Rs.'+amountOwed.toFixed(2);
     document.getElementById('ldg-total-credit').textContent = 'Rs.'+totalPaid.toFixed(2);
     document.getElementById('ldg-net-balance').textContent  = 'Rs.'+Math.abs(remaining).toFixed(2);
     document.getElementById('ldg-net-balance').className = 'stat-value '+(remaining>0?'text-red':'text-green');
 
     document.getElementById('ldg-thead-row').innerHTML =
-      '<th>Date</th><th>Description</th><th>Reference</th><th>Amount Received</th><th>Remaining Balance</th>';
+      '<th>Date</th><th>Description</th><th>Reference</th><th>Amount</th><th>Balance</th><th>Actions</th>';
 
     document.getElementById('ldg-tbody').innerHTML = entries.length
-      ? entries.map(r=>`
+      ? entries.map(r=>{
+          const isInvoice = r.type === 'invoice';
+          const amtSign = isInvoice ? '+' : '-';
+          const amtClass = isInvoice ? 'text-red' : 'text-green';
+          const editBtn = r.type === 'payment'
+            ? `<button class="btn btn-ghost btn-xs" title="Edit this payment" onclick="openPaymentEditModal(${JSON.stringify(r).replace(/'/g,"&#39;").replace(/"/g,'&quot;')})"><i class="fa fa-pen"></i></button>`
+            : '';
+          return `
           <tr>
             <td style="font-size:12px">${r.date.slice(0,10)}</td>
             <td>${r.description}</td>
             <td class="td-mono" style="font-size:11px">${r.reference||'—'}</td>
-            <td class="text-green fw-700">Rs.${Number(r.amount).toFixed(2)}</td>
+            <td class="${amtClass} fw-700">${amtSign}Rs.${Number(r.amount).toFixed(2)}</td>
             <td class="fw-700 ${Number(r.remaining)>0?'text-red':'text-green'}">Rs.${Number(r.remaining).toFixed(2)}</td>
-          </tr>`).join('')
-      : `<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--text-muted)">No payments received yet</td></tr>`;
+            <td>${editBtn}</td>
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">No invoices or payments yet</td></tr>`;
+
+    renderDailyRecap(entries, {
+      balanceKey: 'remaining', openingBalance: 0,
+      receivedLabel: 'Net Movement That Day',
+    });
     return;
   }
 
@@ -4301,6 +4213,87 @@ async function loadLedgerAccount() {
           <td class="fw-700 ${Number(r.balance)>0?'text-red':'text-green'}">Rs.${Math.abs(Number(r.balance)).toFixed(2)} ${Number(r.balance)>0?'Dr':'Cr'}</td>
         </tr>`).join('')
     : `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">No transactions found</td></tr>`;
+
+  renderDailyRecap(entries, {
+    receivedKey: null, balanceKey: 'balance', openingBalance: 0,
+    receivedLabel: 'Net Movement That Day', netCreditKey: 'credit', netDebitKey: 'debit',
+  });
+}
+
+// Groups ledger entries by calendar day and shows, per day: the balance
+// carried in from the previous day, how much moved that day, and the
+// balance carried out — so "kitna lena tha, kitna aya, ab kitna lena hai"
+// is readable date-wise at a glance instead of buried in every row.
+// Groups ledger entries by calendar day into { date, opening, received, closing }
+// rows — shared by the on-screen Day-wise Recap card and the printed A4
+// statement, so "kitna lena tha, kitna aya, ab kitna lena hai" reads the
+// same date-wise in both places.
+const LDG_DAILY_RECAP_KEY = 'smartretail_ldg_daily_recap_visible';
+// Whether the Day-wise Recap section shows on-screen AND on the printed
+// ledger statement — persisted so the choice sticks across visits, per
+// the user's own request: default ON, but they can switch it off and it
+// stays off until they turn it back on themselves.
+let _ldgDailyRecapVisible = (() => {
+  const saved = localStorage.getItem(LDG_DAILY_RECAP_KEY);
+  return saved === null ? true : saved === 'true';
+})();
+
+function _applyDailyRecapToggleUI() {
+  const cb   = document.getElementById('ldg-daily-recap-toggle');
+  const bg   = document.querySelector('#ldg-daily-card .drc-toggle-bg');
+  const dot  = document.querySelector('#ldg-daily-card .drc-toggle-dot');
+  const wrap = document.getElementById('ldg-daily-body-wrap');
+  if (cb) cb.checked = _ldgDailyRecapVisible;
+  if (bg) bg.style.background = _ldgDailyRecapVisible ? 'var(--accent)' : 'var(--border)';
+  if (dot) dot.style.left = _ldgDailyRecapVisible ? '18px' : '2px';
+  if (wrap) wrap.style.display = _ldgDailyRecapVisible ? '' : 'none';
+}
+
+function toggleDailyRecapVisible() {
+  _ldgDailyRecapVisible = !_ldgDailyRecapVisible;
+  localStorage.setItem(LDG_DAILY_RECAP_KEY, String(_ldgDailyRecapVisible));
+  _applyDailyRecapToggleUI();
+}
+
+function buildDailyRecapRows(entries, opts) {
+  if (!entries.length) return [];
+  const byDate = {};
+  const order = [];
+  entries.forEach(e => {
+    const d = e.date.slice(0, 10);
+    if (!byDate[d]) { byDate[d] = { lastBalance: null }; order.push(d); }
+    byDate[d].lastBalance = Number(e[opts.balanceKey]);
+  });
+
+  // Derived purely from how the running balance moved that day (opening
+  // minus closing), not by re-summing each entry's own amount — that way
+  // it's correct regardless of whether the day's entries were invoices
+  // (push balance up), payments/returns (bring it down), or a mix of both.
+  let opening = opts.openingBalance;
+  return order.map(d => {
+    const closing = byDate[d].lastBalance;
+    const received = opening - closing;
+    const row = { date: d, opening, received, closing };
+    opening = closing;
+    return row;
+  });
+}
+
+function renderDailyRecap(entries, opts) {
+  const card = document.getElementById('ldg-daily-card');
+  if (!entries.length) { card.style.display = 'none'; return; }
+  const rows = buildDailyRecapRows(entries, opts);
+  const th = document.getElementById('ldg-daily-received-th');
+  if (th && opts.receivedLabel) th.textContent = opts.receivedLabel;
+  card.style.display = '';
+  _applyDailyRecapToggleUI();
+  document.getElementById('ldg-daily-tbody').innerHTML = rows.map(r => `
+    <tr>
+      <td style="font-size:12px">${r.date}</td>
+      <td>Rs.${Math.abs(r.opening).toFixed(2)}</td>
+      <td class="${r.received>=0?'text-green':'text-red'} fw-700">${r.received>=0?'+':''}Rs.${r.received.toFixed(2)}</td>
+      <td class="fw-700 ${r.closing>0?'text-red':'text-green'}">Rs.${Math.abs(r.closing).toFixed(2)}</td>
+    </tr>`).join('');
 }
 
 async function renderAllAccountsSummary() {
@@ -4324,14 +4317,101 @@ async function renderAllAccountsSummary() {
   }).join('');
 }
 
-// Manual ledger entries aren't supported — the ledger is 100% computed from
-// real Sale/Payment/PurchaseOrder records (see apps.customers/suppliers
-// services.py on the backend), so there's nothing to "add" here directly.
+// Manual full ledger entries (arbitrary debit/credit rows) still aren't
+// supported — but a real "Collect Payment" IS: a general cash collection
+// against a customer's running balance for daily credit-collection rounds,
+// not tied to any specific invoice. See collect_customer_payment (backend).
 function openLedgerEntryModal() {
-  toast('Ledger entries are generated automatically from real sales, payments, and purchases — there\'s nothing to add manually.', 'warning');
+  const type = document.getElementById('ldg-type')?.value || 'customer';
+  const id = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
+  if (type !== 'customer') {
+    toast('Manual collection entries are only for customer accounts — supplier ledgers are generated automatically from purchases and payments.', 'warning');
+    return;
+  }
+  if (!id) { toast('Please select a customer account first', 'warning'); return; }
+  const entity = _ledgerAccountCache.find(x => x.id === id);
+  document.getElementById('le-cust-name').textContent = entity ? entity.name + "'s" : "the customer's";
+  document.getElementById('le-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('le-amount').value = '';
+  document.getElementById('le-method').value = 'cash';
+  document.getElementById('le-ref').value = '';
+  openModal('ledger-entry-modal');
 }
 function openLedgerEntryModalFor(id) { openLedgerEntryModal(); }
-function saveLedgerEntry() { openLedgerEntryModal(); }
+
+async function saveLedgerEntry() {
+  const custId = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
+  if (!custId) return;
+  const amount = parseFloat(document.getElementById('le-amount').value);
+  const date = document.getElementById('le-date').value;
+  if (!date) { toast('Please pick a date', 'warning'); return; }
+  if (!amount || amount <= 0) { toast('Amount must be greater than 0', 'warning'); return; }
+
+  try {
+    await CustomersAPI.collectPayment(custId, {
+      amount: amount.toFixed(2),
+      method: document.getElementById('le-method').value,
+      reference: document.getElementById('le-ref').value || '',
+      date: date + 'T12:00:00',
+    });
+    closeModal('ledger-entry-modal');
+    toast('Payment collected and added to ledger', 'success');
+    await loadLedgerAccount();
+  } catch (err) {
+    toast(err.message || 'Could not collect payment', 'error');
+  }
+}
+
+// ── Edit / delete a real payment, straight from its ledger row ──────────
+function openPaymentEditModal(entry) {
+  document.getElementById('pe-payment-id').value = entry.id;
+  document.getElementById('pe-ref-label').textContent = entry.reference || entry.description || ('Payment #' + entry.id);
+  document.getElementById('pe-date').value = entry.date.slice(0, 10);
+  document.getElementById('pe-amount').value = Number(entry.amount).toFixed(2);
+  document.getElementById('pe-method').value = entry.method || 'cash';
+  document.getElementById('pe-reference').value = entry.reference || '';
+  openModal('payment-edit-modal');
+}
+
+async function savePaymentEdit() {
+  const id = parseInt(document.getElementById('pe-payment-id').value) || 0;
+  if (!id) return;
+  const amount = parseFloat(document.getElementById('pe-amount').value);
+  const date = document.getElementById('pe-date').value;
+  if (!date) { toast('Please pick a date', 'warning'); return; }
+  if (!amount || amount <= 0) { toast('Amount must be greater than 0', 'warning'); return; }
+
+  try {
+    await SalesAPI.updatePayment(id, {
+      amount: amount.toFixed(2),
+      method: document.getElementById('pe-method').value,
+      reference: document.getElementById('pe-reference').value || '',
+      // Keep the original time-of-day, just move the calendar date — avoids
+      // every edited payment collapsing to midnight and reshuffling order
+      // among same-day entries.
+      date: date + 'T12:00:00',
+    });
+    closeModal('payment-edit-modal');
+    toast('Payment updated', 'success');
+    await loadLedgerAccount();
+  } catch (err) {
+    toast(err.message || 'Could not update payment', 'error');
+  }
+}
+
+async function deletePaymentEntry() {
+  const id = parseInt(document.getElementById('pe-payment-id').value) || 0;
+  if (!id) return;
+  if (!(await confirmModal('This payment record will be permanently removed and the customer\'s remaining balance will go back up by this amount.', { title: 'Delete Payment?', confirmText: 'Delete Payment' }))) return;
+  try {
+    await SalesAPI.deletePayment(id);
+    closeModal('payment-edit-modal');
+    toast('Payment deleted', 'success');
+    await loadLedgerAccount();
+  } catch (err) {
+    toast(err.message || 'Could not delete payment', 'error');
+  }
+}
 
 async function printLedgerA4() {
   const type = document.getElementById('ldg-type')?.value||'customer';
@@ -4340,25 +4420,76 @@ async function printLedgerA4() {
   const entity = _ledgerAccountCache.find(x=>x.id===id);
   if (!entity) return;
   const ledger = type==='customer' ? await CustomersAPI.ledger(id) : await SuppliersAPI.ledger(id);
-  let totalD=0, totalC=0;
-  const rows = ledger.entries.map(e=>{
-    totalD+=Number(e.debit); totalC+=Number(e.credit);
-    const bal = Number(e.balance);
-    return `<tr>
+
+  const dailyRows = type === 'customer'
+    ? buildDailyRecapRows(ledger.entries, { balanceKey: 'remaining', openingBalance: 0 })
+    : buildDailyRecapRows(ledger.entries, { balanceKey: 'balance', openingBalance: 0 });
+
+  const dailyHtml = (_ldgDailyRecapVisible && dailyRows.length) ? `
+    <div style="margin-bottom:5mm;font-size:12px;font-weight:700">Day-wise Recap</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:6mm">
+      <thead><tr>
+        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:left">Date</th>
+        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:right">Opening Balance</th>
+        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:right">Received That Day</th>
+        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:right">Closing Balance</th>
+      </tr></thead>
+      <tbody style="font-size:10px">
+        ${dailyRows.map(r=>`<tr>
+          <td style="padding:5px 8px">${r.date}</td>
+          <td style="padding:5px 8px;text-align:right">Rs.${Math.abs(r.opening).toFixed(2)}</td>
+          <td style="padding:5px 8px;text-align:right;color:${r.received>=0?'#16a34a':'#dc2626'}">${r.received>=0?'+':''}Rs.${r.received.toFixed(2)}</td>
+          <td style="padding:5px 8px;text-align:right;font-weight:700;color:${r.closing>0?'#dc2626':'#16a34a'}">Rs.${Math.abs(r.closing).toFixed(2)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : '';
+
+  let mainTableHtml, totalsHtml;
+  if (type === 'customer') {
+    const amountOwed = Number(ledger.amount_owed||0), totalPaid = Number(ledger.total_paid||0), remaining = Number(ledger.remaining||0);
+    const rows = ledger.entries.map(e=>{
+      const isInvoice = e.type === 'invoice';
+      return `<tr>
       <td>${e.date.slice(0,10)}</td><td>${e.description}</td><td style="font-family:monospace">${e.reference||'—'}</td>
-      <td style="text-align:right;color:#dc2626">${Number(e.debit)>0?'Rs.'+Number(e.debit).toFixed(2):'—'}</td>
-      <td style="text-align:right;color:#16a34a">${Number(e.credit)>0?'Rs.'+Number(e.credit).toFixed(2):'—'}</td>
-      <td style="text-align:right;font-weight:700;color:${bal>0?'#dc2626':'#16a34a'}">Rs.${Math.abs(bal).toFixed(2)} ${bal>0?'Dr':'Cr'}</td>
+      <td style="text-align:right;color:${isInvoice?'#dc2626':'#16a34a'};font-weight:700">${isInvoice?'+':'-'}Rs.${Number(e.amount).toFixed(2)}</td>
+      <td style="text-align:right;font-weight:700;color:${Number(e.remaining)>0?'#dc2626':'#16a34a'}">Rs.${Number(e.remaining).toFixed(2)}</td>
     </tr>`;
-  }).join('');
-  const html = `<div class="a4-doc">
-    ${getInvoiceHeaderHtml('ACCOUNT STATEMENT', entity.accountNo||String(id), new Date().toLocaleDateString())}
-    <div style="margin-bottom:5mm;font-size:12px">
-      <strong>Account:</strong> ${entity.name} &nbsp;|&nbsp;
-      <strong>Type:</strong> ${type==='customer'?'Customer':'Supplier'} &nbsp;|&nbsp;
-      <strong>Phone:</strong> ${entity.phone||'—'}
-    </div>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
+    }).join('');
+    mainTableHtml = `<table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
+      <thead><tr>
+        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Date</th>
+        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Description</th>
+        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Reference</th>
+        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Amount</th>
+        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Balance</th>
+      </tr></thead>
+      <tbody style="font-size:11px">${rows || `<tr><td colspan="5" style="text-align:center;padding:14px;color:#999">No invoices or payments yet</td></tr>`}</tbody>
+      <tfoot>
+        <tr style="background:#f3f4f6;font-weight:700;font-size:12px">
+          <td colspan="3" style="padding:7px 8px">TOTALS — Billed Rs.${amountOwed.toFixed(2)} / Paid Rs.${totalPaid.toFixed(2)}</td>
+          <td></td>
+          <td style="padding:7px 8px;text-align:right;color:${remaining>0?'#dc2626':'#16a34a'}">Rs.${Math.abs(remaining).toFixed(2)}</td>
+        </tr>
+      </tfoot>
+    </table>`;
+    totalsHtml = `<div style="margin-bottom:5mm;font-size:12px">
+      <strong>Total Billed:</strong> Rs.${amountOwed.toFixed(2)} &nbsp;|&nbsp;
+      <strong>Total Paid:</strong> Rs.${totalPaid.toFixed(2)} &nbsp;|&nbsp;
+      <strong>${remaining>0?'Remaining Due':'Advance / Credit'}:</strong> Rs.${Math.abs(remaining).toFixed(2)}
+    </div>`;
+  } else {
+    let totalD=0, totalC=0;
+    const rows = ledger.entries.map(e=>{
+      totalD+=Number(e.debit); totalC+=Number(e.credit);
+      const bal = Number(e.balance);
+      return `<tr>
+        <td>${e.date.slice(0,10)}</td><td>${e.description}</td><td style="font-family:monospace">${e.reference||'—'}</td>
+        <td style="text-align:right;color:#dc2626">${Number(e.debit)>0?'Rs.'+Number(e.debit).toFixed(2):'—'}</td>
+        <td style="text-align:right;color:#16a34a">${Number(e.credit)>0?'Rs.'+Number(e.credit).toFixed(2):'—'}</td>
+        <td style="text-align:right;font-weight:700;color:${bal>0?'#dc2626':'#16a34a'}">Rs.${Math.abs(bal).toFixed(2)} ${bal>0?'Dr':'Cr'}</td>
+      </tr>`;
+    }).join('');
+    mainTableHtml = `<table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
       <thead><tr>
         <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Date</th>
         <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Description</th>
@@ -4367,7 +4498,7 @@ async function printLedgerA4() {
         <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Credit</th>
         <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Balance</th>
       </tr></thead>
-      <tbody style="font-size:11px">${rows}</tbody>
+      <tbody style="font-size:11px">${rows || `<tr><td colspan="6" style="text-align:center;padding:14px;color:#999">No transactions found</td></tr>`}</tbody>
       <tfoot>
         <tr style="background:#f3f4f6;font-weight:700;font-size:12px">
           <td colspan="3" style="padding:7px 8px">TOTALS</td>
@@ -4376,7 +4507,20 @@ async function printLedgerA4() {
           <td style="padding:7px 8px;text-align:right;color:${(totalD-totalC)>0?'#dc2626':'#16a34a'}">Rs.${Math.abs(totalD-totalC).toFixed(2)} ${(totalD-totalC)>0?'Dr':'Cr'}</td>
         </tr>
       </tfoot>
-    </table>
+    </table>`;
+    totalsHtml = '';
+  }
+
+  const html = `<div class="a4-doc">
+    ${getInvoiceHeaderHtml('ACCOUNT STATEMENT', entity.accountNo||String(id), new Date().toLocaleDateString())}
+    <div style="margin-bottom:5mm;font-size:12px">
+      <strong>Account:</strong> ${entity.name} &nbsp;|&nbsp;
+      <strong>Type:</strong> ${type==='customer'?'Customer':'Supplier'} &nbsp;|&nbsp;
+      <strong>Phone:</strong> ${entity.phone||'—'}
+    </div>
+    ${totalsHtml}
+    ${mainTableHtml}
+    ${dailyHtml}
     <div style="margin-top:8mm;display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:11px">
       <div style="border-top:1px solid #000;padding-top:5px;text-align:center;color:#555">Authorized Signature</div>
       <div style="border-top:1px solid #000;padding-top:5px;text-align:center;color:#555">Customer Signature</div>
@@ -5154,59 +5298,40 @@ function printA4(contentId) {
 }
 
 // ── A4 INVOICE PRINT (override receipt print button)
+//
+// Fixed: this used to build its own HTML from a legacy `order` shape
+// (order.total, order.invoice, order.items[i].price/qty, etc.) that never
+// matched the real Sale object the backend returns (total_amount,
+// invoice_number, previous_balance, items[i].unit_price/quantity, ...).
+// Because the field names didn't line up, this always rendered a broken
+// invoice — and since it was written before `previous_balance` existed on
+// Sale at all, it never had a "Previous Balance" line, even though the
+// backend was (correctly) saving/adding it to the sale and the customer's
+// ledger the whole time. That's why Save/Booking and the Ledger screen
+// always looked right, but the printed A4 invoice from this button never
+// showed the customer's previous balance.
+//
+// Now it reuses buildSlipA4Html() — the same, already-correct template used
+// by Sale Slips printing — which reads the real Sale fields and always
+// includes the Previous Balance / Net Payable lines.
 function printA4Invoice(order) {
-  const storeSettings = {
-    name: document.querySelector('[value="SmartRetail Store"]')?.value || 'SmartRetail Store',
-    address: document.querySelector('[value="123 Market Street, City"]')?.value || '123 Market Street, City',
-    phone: document.querySelector('[value="+1 555-000-1234"]')?.value || '+1 555-000-1234',
-    taxRate: 8
-  };
-  const cashReceived = parseFloat(document.getElementById('cash-received')?.value) || order.total;
-  const change = Math.max(0, cashReceived - order.total);
+  if (!order) { toast('Nothing to print', 'error'); return; }
 
-  const html = `<div class="a4-doc">
-    <div class="a4-header">
-      <div>
-        <div class="a4-logo-name">🏪 ${storeSettings.name}</div>
-        <div style="font-size:11px;color:#555;margin-top:4px">${storeSettings.address}</div>
-        <div style="font-size:11px;color:#555">Tel: ${storeSettings.phone}</div>
+  const cashReceived = parseFloat(document.getElementById('cash-received')?.value) || Number(order.total_amount) || 0;
+  const change = Math.max(0, cashReceived - (Number(order.total_amount) || 0));
+  const isCash = (order.payments && order.payments[0]?.method) === 'cash';
+
+  let html = buildSlipA4Html(order);
+  if (isCash) {
+    html += `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px">
+      <div style="display:flex;justify-content:flex-end">
+        <div style="width:66mm;border:1px solid #000;border-radius:4px;overflow:hidden;font-size:10.5px">
+          <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000"><span>Cash Received</span><span>Rs. ${cashReceived.toFixed(2)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:4px 8px;color:#16a34a;font-weight:700"><span>Change</span><span>Rs. ${change.toFixed(2)}</span></div>
+        </div>
       </div>
-      <div class="a4-store-info">
-        <strong style="font-size:14px">INVOICE</strong><br>
-        #${order.invoice}<br>
-        ${order.date}<br>
-        Cashier: ${currentUser?.full_name || 'Admin'}
-      </div>
-    </div>
-    <div class="a4-doc-title">Sales Invoice</div>
-    <div class="a4-meta">
-      <div class="a4-meta-row"><span class="a4-meta-label">Customer:</span><span class="a4-meta-val">${(document.getElementById('bill-customer-name')?.value?.trim()) || order.customer}</span></div>
-      ${(document.getElementById('bill-customer-contact')?.value?.trim()) ? `<div class="a4-meta-row"><span class="a4-meta-label">Contact:</span><span class="a4-meta-val">${document.getElementById('bill-customer-contact').value.trim()}</span></div>` : ''}
-      <div class="a4-meta-row"><span class="a4-meta-label">Invoice No:</span><span class="a4-meta-val">${order.invoice}</span></div>
-      <div class="a4-meta-row"><span class="a4-meta-label">Date:</span><span class="a4-meta-val">${order.date}</span></div>
-      <div class="a4-meta-row"><span class="a4-meta-label">Payment:</span><span class="a4-meta-val">${order.paymentMethod?.toUpperCase()}</span></div>
-    </div>
-    <table>
-      <thead><tr><th>#</th><th>Item</th><th>Unit Price</th><th>Qty</th><th>Amount</th></tr></thead>
-      <tbody>
-        ${order.items.map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>Rs.${it.price.toFixed(2)}</td><td>${it.qty}</td><td><strong>Rs.${(it.price*it.qty).toFixed(2)}</strong></td></tr>`).join('')}
-      </tbody>
-    </table>
-    <div style="display:flex;justify-content:flex-end">
-      <div class="a4-totals">
-        <div class="a4-total-row"><span>Subtotal</span><span>Rs.${(order.subtotal||order.total).toFixed(2)}</span></div>
-        ${(order.discountAmt||0)>0?`<div class="a4-total-row" style="color:#dc2626"><span>Discount</span><span>-Rs.${order.discountAmt.toFixed(2)}</span></div>`:''}
-        <div class="a4-total-row" style="color:#b45309"><span>Tax</span><span>+Rs.${(order.taxAmt||0).toFixed(2)}</span></div>
-        <div class="a4-grand-row"><span>TOTAL</span><span>Rs.${order.total.toFixed(2)}</span></div>
-        ${order.paymentMethod==='cash'?`<div class="a4-total-row" style="color:#555"><span>Cash Received</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="a4-total-row" style="color:#16a34a"><span>Change</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
-      </div>
-    </div>
-    <div class="a4-footer">
-      <span>Thank you for your business!</span>
-      <span>All sales are final • Visit us again!</span>
-      <span>${order.invoice}</span>
-    </div>
-  </div>`;
+    </div>`;
+  }
 
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;

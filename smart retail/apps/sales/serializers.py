@@ -31,8 +31,8 @@ class SaleItemSerializer(serializers.ModelSerializer):
 class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
-        fields = ["id", "sale", "amount", "method", "reference", "received_by", "created_at"]
-        read_only_fields = ["id", "sale", "received_by", "created_at"]
+        fields = ["id", "sale", "customer", "amount", "method", "reference", "received_by", "created_at"]
+        read_only_fields = ["id", "sale", "customer", "received_by", "created_at"]
 
 
 class SaleSerializer(serializers.ModelSerializer):
@@ -51,7 +51,7 @@ class SaleSerializer(serializers.ModelSerializer):
             "id", "invoice_number", "customer", "customer_name", "customer_cnic", "customer_address",
             "warehouse", "warehouse_name",
             "served_by", "served_by_name", "coupon", "subtotal", "discount_amount", "tax_amount",
-            "total_amount", "paid_amount", "due_amount", "status", "payment_status", "notes",
+            "total_amount", "paid_amount", "due_amount", "previous_balance", "status", "payment_status", "notes",
             "items", "payments", "created_at",
         ]
         read_only_fields = fields
@@ -90,6 +90,15 @@ class AddPaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
     method = serializers.ChoiceField(choices=Payment.Method.choices, default=Payment.Method.CASH)
     reference = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class PaymentEditSerializer(serializers.Serializer):
+    """Used to manually correct an already-recorded payment from the Ledger
+    Accounts screen — every field is optional since this backs a PATCH."""
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), required=False)
+    method = serializers.ChoiceField(choices=Payment.Method.choices, required=False)
+    reference = serializers.CharField(required=False, allow_blank=True)
+    date = serializers.DateTimeField(required=False, source="occurred_on")
 
 
 class FinalizeSaleSerializer(serializers.Serializer):

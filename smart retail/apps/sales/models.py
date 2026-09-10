@@ -69,6 +69,13 @@ class Sale(BaseModel):
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    # Snapshot of what the customer already owed (across all their OTHER
+    # active sales, minus payments against them) at the moment this sale was
+    # created — frozen here on purpose. Recomputing it live every time the
+    # invoice is reprinted would make an old invoice's "Previous Balance"
+    # silently drift if the customer paid something off (or booked another
+    # sale) in the meantime, which isn't how a real invoice works.
+    previous_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.COMPLETED)
     payment_status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID)
@@ -173,7 +180,14 @@ class Payment(BaseModel):
         MOBILE_WALLET = "mobile_wallet", "Mobile Wallet"
         OTHER = "other", "Other"
 
-    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="payments")
+    # sale is nullable so a Payment can also represent a general cash
+    # collection against a customer's overall running balance (e.g. a daily
+    # credit-collection round) rather than always being tied to one invoice
+    # — see collect_customer_payment(). When sale is set, customer is left
+    # blank; when it's a standalone collection, customer is set instead.
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="payments", null=True, blank=True)
+    customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, related_name="direct_payments",
+                                  null=True, blank=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
     method = models.CharField(max_length=20, choices=Method.choices, default=Method.CASH)
     reference = models.CharField(max_length=100, blank=True)
@@ -184,7 +198,9 @@ class Payment(BaseModel):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.sale.invoice_number} — {self.amount} ({self.method})"
+        if self.sale_id:
+            return f"{self.sale.invoice_number} — {self.amount} ({self.method})"
+        return f"General collection — {self.amount} ({self.method})"
 
 
 class SaleReturn(BaseModel):

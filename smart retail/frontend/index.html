@@ -564,9 +564,9 @@
                       <span style="display:flex;align-items:center;gap:4px">
                         <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0"></span>
                         Bill Discount
-                        <input type="number" id="bk-discount" value="0" min="0" max="100" step="0.1"
-                          style="width:46px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 5px;font-size:11px;margin-left:4px;font-family:var(--mono)"
-                          onclick="this.select()" oninput="calcBookingTotals()">%
+                        <span style="font-size:11px">Rs.</span><input type="number" id="bk-discount" value="0" min="0" step="0.01"
+                          style="width:64px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 5px;font-size:11px;margin-left:2px;font-family:var(--mono)"
+                          onclick="this.select()" oninput="calcBookingTotals()">
                       </span>
                       <span id="bk-disc-val" class="text-green" style="font-family:var(--mono)">-Rs.0.00</span>
                     </div>
@@ -1412,7 +1412,7 @@
                 </div>
               </div>
               <div style="display:flex;gap:8px">
-                <button class="btn btn-accent btn-sm" onclick="openLedgerEntryModal()"><i class="fa fa-plus"></i> Add Entry</button>
+                <button class="btn btn-accent btn-sm" onclick="openLedgerEntryModal()"><i class="fa fa-hand-holding-dollar"></i> Collect Payment</button>
                 <button class="btn btn-ghost btn-sm" onclick="printLedgerA4()"><i class="fa fa-print"></i> Print A4</button>
               </div>
             </div>
@@ -1426,6 +1426,27 @@
             <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-arrow-up"></i></div></div><div class="stat-value" id="ldg-total-debit">$0.00</div><div class="stat-label" id="ldg-total-debit-label">Total Debit (Receivable)</div></div>
             <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-arrow-down"></i></div></div><div class="stat-value" id="ldg-total-credit">$0.00</div><div class="stat-label" id="ldg-total-credit-label">Total Credit (Paid)</div></div>
             <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-balance-scale"></i></div></div><div class="stat-value" id="ldg-net-balance">$0.00</div><div class="stat-label" id="ldg-net-balance-label">Net Balance</div></div>
+          </div>
+        </div>
+
+        <!-- Day-wise Recap: how much was owed / received / still due, per date -->
+        <div class="card" id="ldg-daily-card" style="display:none;margin-bottom:16px">
+          <div class="card-header">
+            <div class="card-title"><i class="fa fa-calendar-days"></i> Day-wise Recap</div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-muted)">
+              <span>Show</span>
+              <div style="position:relative;width:38px;height:22px;flex-shrink:0" onclick="event.preventDefault();toggleDailyRecapVisible()">
+                <div class="drc-toggle-bg" style="position:absolute;inset:0;border-radius:11px;background:var(--accent);transition:background .2s;cursor:pointer"></div>
+                <div class="drc-toggle-dot" style="position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none"></div>
+                <input type="checkbox" id="ldg-daily-recap-toggle" checked style="opacity:0;width:0;height:0;position:absolute;pointer-events:none">
+              </div>
+            </label>
+          </div>
+          <div class="table-wrap" id="ldg-daily-body-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Opening Balance</th><th id="ldg-daily-received-th">Received That Day</th><th>Closing Balance</th></tr></thead>
+              <tbody id="ldg-daily-tbody"></tbody>
+            </table>
           </div>
         </div>
 
@@ -2821,30 +2842,78 @@
   </div>
 </div>
 
-<!-- Ledger Entry Modal -->
+<!-- Collect Payment Modal — daily credit-collection round, not tied to one invoice -->
 <div class="modal-overlay" id="ledger-entry-modal">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">➕ Add Ledger Entry</div>
+      <div class="modal-title">💵 Collect Payment</div>
       <button class="modal-close" onclick="closeModal('ledger-entry-modal')">✕</button>
     </div>
     <div class="modal-body">
-      <div class="form-row">
-        <div class="form-group-inline"><label>Date *</label><input class="form-input" type="date" id="le-date" style="padding:9px 12px"></div>
-        <div class="form-group-inline"><label>Reference</label><input class="form-input" id="le-ref" placeholder="e.g. INV-001, PAY-001"></div>
+      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+        For daily credit collection rounds — this reduces <strong id="le-cust-name" style="color:var(--text-primary)">the customer's</strong> overall balance and isn't tied to one specific invoice. It shows up in the ledger as its own dated row, and any leftover balance carries forward automatically into their next bill.
       </div>
-      <div class="form-group-inline"><label>Description *</label><input class="form-input" id="le-desc" placeholder="e.g. Payment received, Invoice issued..."></div>
       <div class="form-row">
-        <div class="form-group-inline"><label>Debit Amount (Receivable / Charge)</label><input class="form-input" type="number" id="le-debit" value="0" step="0.01" min="0"></div>
-        <div class="form-group-inline"><label>Credit Amount (Payment / Discount)</label><input class="form-input" type="number" id="le-credit" value="0" step="0.01" min="0"></div>
+        <div class="form-group-inline"><label>Date Received *</label><input class="form-input" type="date" id="le-date" style="padding:9px 12px"></div>
+        <div class="form-group-inline"><label>Amount Received *</label><input class="form-input" type="number" id="le-amount" step="0.01" min="0.01" style="padding:9px 12px"></div>
       </div>
-      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Note:</strong> Debit = amount owed by customer / owed to supplier. Credit = payment received / discount given.
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Method</label>
+          <select class="form-input" id="le-method" style="padding:9px 12px">
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="mobile_wallet">Mobile Wallet</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group-inline"><label>Reference / Note</label><input class="form-input" id="le-ref" placeholder="e.g. collector name, area"></div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('ledger-entry-modal')">Cancel</button>
-      <button class="btn btn-accent" onclick="saveLedgerEntry()"><i class="fa fa-save"></i> Add Entry</button>
+      <button class="btn btn-accent" onclick="saveLedgerEntry()"><i class="fa fa-save"></i> Collect Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Payment Modal (manual correction of a real payment received) -->
+<div class="modal-overlay" id="payment-edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">✏️ Edit Payment</div>
+      <button class="modal-close" onclick="closeModal('payment-edit-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pe-payment-id">
+      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+        Editing <strong id="pe-ref-label" style="color:var(--text-primary)">—</strong>. This corrects the real payment record — the customer's balance and remaining-due figures recalculate automatically.
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Date Received *</label><input class="form-input" type="date" id="pe-date" style="padding:9px 12px"></div>
+        <div class="form-group-inline"><label>Amount Received *</label><input class="form-input" type="number" id="pe-amount" step="0.01" min="0.01" style="padding:9px 12px"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Method</label>
+          <select class="form-input" id="pe-method" style="padding:9px 12px">
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="mobile_wallet">Mobile Wallet</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group-inline"><label>Reference</label><input class="form-input" id="pe-reference" placeholder="optional note"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-ghost" style="color:var(--red)" onclick="deletePaymentEntry()"><i class="fa fa-trash"></i> Delete Payment</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="closeModal('payment-edit-modal')">Cancel</button>
+        <button class="btn btn-accent" onclick="savePaymentEdit()"><i class="fa fa-save"></i> Save Changes</button>
+      </div>
     </div>
   </div>
 </div>

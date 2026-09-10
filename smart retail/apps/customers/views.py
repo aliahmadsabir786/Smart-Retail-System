@@ -7,7 +7,7 @@ from django.db import transaction as db_transaction
 from apps.core.permissions import IsManagerOrAbove
 from . import services
 from .models import Customer, CustomerGroup
-from .serializers import CustomerSerializer, CustomerGroupSerializer
+from .serializers import CustomerSerializer, CustomerGroupSerializer, CollectPaymentSerializer
 
 
 class CustomerGroupViewSet(viewsets.ModelViewSet):
@@ -60,11 +60,37 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def ledger(self, request, pk=None):
-        """GET /customers/{id}/ledger/ — payment-receipt statement: what's
-        owed in total, what's been paid so far, and a dated line for each
-        actual payment received, each with the balance remaining after it."""
+        """GET /customers/{id}/ledger/ — full statement of account: what's
+        owed in total, what's been paid so far, and a dated line for every
+        invoice, return, and payment, each with the balance remaining
+        right after it."""
         customer = self.get_object()
         ledger = services.get_customer_ledger(customer)
         return Response({"success": True, "customer": customer.name,
                           "amount_owed": ledger["amount_owed"], "total_paid": ledger["total_paid"],
                           "remaining": ledger["remaining"], "entries": ledger["entries"]})
+
+    @action(detail=True, methods=["post"], url_path="collect-payment")
+    def collect_payment(self, request, pk=None):
+        """POST /customers/{id}/collect-payment/ — record a general cash
+        collection against this customer's running balance, for daily
+        credit-collection rounds that aren't tied to one specific invoice.
+        Shows up as its own dated row in the Ledger Accounts screen."""
+        from apps.sales import services as sales_services
+        from apps.sales.models import Payment
+        from apps.sales.serializers import PaymentSerializer
+
+        customer = self.get_object()
+        serializer = CollectPaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        v = serializer.validated_data
+
+        payment = sales_services.collect_customer_payment(
+            customer, amount=v["amount"], method=v.get("method", Payment.Method.CASH),
+            user=request.user, reference=v.get("reference", ""),
+        )
+        if v.get("occurred_on"):
+            Payment.objects.filter(pk=payment.pk).update(created_at=v["occurred_on"])
+            payment.refresh_from_db(fields=["created_at"])
+
+        return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)

@@ -154,7 +154,75 @@ document.addEventListener('DOMContentLoaded', async () => {
       TokenStore.clear();
     }
   }
+  loadLoginBranding();
+  initLoginCursor();
 });
+
+// Populates the login screen's brand panel with the real uploaded company
+// logo/name (Settings → Company) instead of the hardcoded placeholder —
+// falls back to the default SmartRetail branding if nothing's uploaded yet
+// or the request fails (this runs before anyone is signed in).
+async function loadLoginBranding() {
+  const yearEl = document.getElementById('login-year');
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
+  try {
+    const branding = await SettingsAPI.getPublicBranding();
+    if (branding.logo) {
+      const logoEl = document.getElementById('login-brand-logo');
+      if (logoEl) logoEl.innerHTML = `<img src="${branding.logo}" alt="Company logo">`;
+    }
+    if (branding.name) {
+      const nameEl = document.getElementById('login-brand-name');
+      if (nameEl) nameEl.textContent = branding.name;
+    }
+  } catch (_) {
+    // No branding uploaded yet, or the request failed — the default
+    // "SmartRetail ERP" text/icon already in the HTML stays as-is.
+  }
+}
+
+// Trailing cursor on the login screen: the dot snaps straight to the real
+// cursor position every frame, while the ring around it eases toward that
+// same position a little slower — that lag between the two is what makes
+// it read as "following" rather than just a redrawn cursor. Skipped
+// entirely on touch devices (no mouse to trail) and stops itself once the
+// login screen is gone (no point still moving invisible elements).
+function initLoginCursor() {
+  const screen = document.getElementById('login-screen');
+  const dot = document.getElementById('login-cursor-dot');
+  const circle = document.getElementById('login-cursor-circle');
+  if (!screen || !dot || !circle) return;
+  if (window.matchMedia('(hover: none), (pointer: coarse)').matches) return;
+
+  let mouseX = 0, mouseY = 0;
+  let circleX = 0, circleY = 0;
+  let started = false;
+
+  screen.addEventListener('mousemove', e => {
+    mouseX = e.clientX; mouseY = e.clientY;
+    if (!started) { circleX = mouseX; circleY = mouseY; started = true; }
+    dot.style.transform = `translate(${mouseX}px, ${mouseY}px) translate(-50%, -50%)`;
+    dot.classList.add('is-visible');
+    circle.classList.add('is-visible');
+  });
+  screen.addEventListener('mouseleave', () => {
+    dot.classList.remove('is-visible');
+    circle.classList.remove('is-visible');
+  });
+  screen.addEventListener('mousedown', () => circle.classList.add('is-active'));
+  screen.addEventListener('mouseup', () => circle.classList.remove('is-active'));
+
+  function tick() {
+    // getComputedStyle here (not screen.style.display) because the app
+    // hides the login screen by toggling a class, not an inline style.
+    if (getComputedStyle(screen).display === 'none') return;
+    circleX += (mouseX - circleX) * 0.15;
+    circleY += (mouseY - circleY) * 0.15;
+    circle.style.transform = `translate(${circleX}px, ${circleY}px) translate(-50%, -50%)`;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
 let _lastOrder = null;
 let _editingBookingId = null;
 // Set instead of _editingBookingId when re-opening the booking form to edit

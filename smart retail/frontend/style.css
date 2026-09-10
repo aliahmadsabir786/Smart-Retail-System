@@ -76,7 +76,6 @@ body.light-mode .nav-item.active::before { background: #93c5fd; }
 body.light-mode .sidebar-footer { border-top-color: #2d3a5e; }
 body.light-mode .logout-btn { color: #b0bdcf; }
 body.light-mode .logout-btn:hover { background: var(--red-glow); color: var(--red); }
-body.light-mode .login-box { background: #ffffff; border-color: var(--border-light); }
 body.light-mode .form-input { background: #f8fafc; border-color: var(--border); color: var(--text-primary); }
 body.light-mode .demo-btn { background: #f8fafc; border-color: var(--border); color: var(--text-secondary); }
 body.light-mode .modal { background: var(--bg-card); }
@@ -300,6 +299,9 @@ body {
   .modal-body { padding: 18px; }
   .modal-footer { padding: 14px 18px; gap: 8px; }
   /* Login */
+  .login-brand-panel { display: none; }
+  .login-split { max-width: 460px; min-height: auto; border-radius: 0; box-shadow: none; }
+  .login-form-panel { background: transparent; padding: 0; }
   .login-box { width: 92vw; max-width: 460px; padding: 36px 28px; }
   /* Chart */
   .chart-container { height: 190px; }
@@ -671,31 +673,90 @@ body.light-mode .theme-toggle { border-color: var(--accent); color: var(--accent
 #login-screen {
   position: fixed; inset: 0; z-index: 9999;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg-primary);
-  background-image: radial-gradient(ellipse 80% 80% at 50% -20%, rgba(59,130,246,0.12) 0%, transparent 60%);
+  background: radial-gradient(ellipse 120% 90% at 15% 0%, #3b5bdb 0%, #2a2f7a 48%, #12142e 100%);
+  overflow: hidden;
 }
-.login-box {
-  width: 420px; padding: 48px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 20px;
+.login-split {
+  width: 100%; max-width: 1080px; min-height: 620px;
+  display: flex; align-items: stretch;
+  border-radius: 24px; overflow: hidden;
   box-shadow: var(--shadow-lg);
   animation: fadeUp .5s ease;
 }
-.login-logo {
-  display: flex; align-items: center; gap: 12px;
-  margin-bottom: 36px;
+.login-brand-panel {
+  flex: 1.15; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 44px 44px 28px;
 }
-.login-logo-icon {
-  width: 44px; height: 44px; border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent), var(--purple));
+.login-brand-blob { position: absolute; border-radius: 50%; opacity: .9; pointer-events: none; }
+.login-brand-blob-1 { width: 380px; height: 380px; top: -160px; left: -140px; background: radial-gradient(circle at 35% 35%, var(--cyan), transparent 70%); }
+.login-brand-blob-2 { width: 260px; height: 260px; top: -20px; left: 60px; background: radial-gradient(circle at 40% 40%, var(--purple), transparent 70%); }
+.login-brand-blob-3 { width: 200px; height: 200px; bottom: -90px; left: -60px; background: radial-gradient(circle at 40% 40%, var(--accent), transparent 70%); opacity: .6; }
+.login-brand-content { margin: auto 0; position: relative; z-index: 1; }
+.login-brand-logo {
+  width: 68px; height: 68px; border-radius: 16px;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.18);
   display: flex; align-items: center; justify-content: center;
-  font-size: 20px;
+  font-size: 30px; margin-bottom: 22px; overflow: hidden;
 }
-.login-logo-text { font-size: 18px; font-weight: 700; line-height: 1.2; }
-.login-logo-text span { display: block; font-size: 11px; font-weight: 400; color: var(--text-secondary); }
+.login-brand-logo img { width: 100%; height: 100%; object-fit: contain; }
+.login-brand-name { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+.login-brand-name span { color: var(--cyan); }
+.login-brand-version { font-size: 12px; font-family: var(--mono); color: rgba(255,255,255,.6); letter-spacing: .04em; }
+.login-brand-footer { font-size: 11px; color: rgba(255,255,255,.55); position: relative; z-index: 1; line-height: 1.6; }
+.login-form-panel {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 40px; background: rgba(10,12,20,.25);
+}
+.login-box {
+  width: 380px; padding: 44px 36px;
+  background: rgba(255,255,255,.08);
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 18px;
+}
+.login-box .login-title,
+.login-box .login-sub,
+.login-box .form-group label { color: #fff; }
 .login-title { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
-.login-sub { color: var(--text-secondary); margin-bottom: 32px; font-size: 13px; }
+.login-sub { margin-bottom: 32px; font-size: 13px; }
+.login-box .login-sub { color: rgba(255,255,255,.65); }
+.login-box .form-group label { color: rgba(255,255,255,.8); }
+#login-screen .form-input {
+  background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.2); color: #fff;
+}
+#login-screen .form-input::placeholder { color: rgba(255,255,255,.4); }
+#login-screen .form-input:focus { border-color: var(--cyan); }
+
+/* Custom trailing cursor: a dot that follows the mouse exactly, inside a
+   medium circle that eases behind it — only on the login screen, and only
+   for pointer devices (a phone/tablet has no mouse to trail). */
+.login-cursor-circle {
+  position: fixed; top: 0; left: 0; width: 36px; height: 36px;
+  border: 1.5px solid rgba(255,255,255,.55); border-radius: 50%;
+  pointer-events: none; z-index: 10000;
+  transform: translate(-50%, -50%);
+  opacity: 0; transition: opacity .2s ease, width .2s ease, height .2s ease, background .2s ease;
+}
+.login-cursor-circle.is-visible { opacity: 1; }
+.login-cursor-circle.is-active {
+  width: 48px; height: 48px;
+  background: rgba(255,255,255,.08);
+  border-color: var(--cyan);
+}
+.login-cursor-dot {
+  position: fixed; top: 0; left: 0; width: 6px; height: 6px; border-radius: 50%;
+  background: #fff; pointer-events: none; z-index: 10001;
+  transform: translate(-50%, -50%);
+  opacity: 0; transition: opacity .2s ease;
+}
+.login-cursor-dot.is-visible { opacity: 1; }
+@media (hover: none), (pointer: coarse) {
+  .login-cursor-circle, .login-cursor-dot { display: none; }
+}
+@media (hover: hover) and (pointer: fine) {
+  #login-screen, #login-screen * { cursor: none; }
+}
 .form-group { margin-bottom: 20px; }
 .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
 .form-input {

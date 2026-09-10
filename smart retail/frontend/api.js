@@ -337,6 +337,8 @@ const AuditAPI = {
 
 const SettingsAPI = {
   getCompany() { return apiRequest('/settings/company/'); },
+  // Unauthenticated — used on the Login screen before anyone has signed in.
+  getPublicBranding() { return apiRequest('/settings/company/public/'); },
   updateCompany(data) { return apiRequest('/settings/company/', { method: 'PATCH', body: data }); },
   updateCompanyLogo(file) {
     const form = new FormData();

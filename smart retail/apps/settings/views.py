@@ -1,6 +1,7 @@
 from django.db import connection, transaction
 from django.db.models.deletion import ProtectedError
 from rest_framework import generics, status
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.permissions import IsAdminOrAbove, IsSuperAdmin
@@ -15,6 +16,27 @@ class CompanySettingsView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return CompanySettings.load()
+
+
+class PublicCompanyBrandingView(APIView):
+    """
+    GET /settings/company/public/ — the ONLY unauthenticated settings
+    endpoint: just the company name and logo, so the login screen can show
+    the real uploaded branding before anyone has signed in. Deliberately
+    returns nothing else from CompanySettings (address, tax numbers, etc.
+    stay behind IsAdminOrAbove on the view above).
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        s = CompanySettings.load()
+        logo_url = None
+        if s.logo:
+            try:
+                logo_url = request.build_absolute_uri(s.logo.url)
+            except ValueError:
+                logo_url = None
+        return Response({"name": s.company_name or "", "logo": logo_url})
 
 
 def _require_confirmation(request):

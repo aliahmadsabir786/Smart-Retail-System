@@ -1,5 +1,5 @@
 from decimal import Decimal
-from django.db.models import Sum, F, DecimalField
+from django.db.models import Sum, F, DecimalField, Count
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from datetime import timedelta
@@ -107,7 +107,8 @@ def get_dashboard_summary():
 
 
 def get_sales_chart_data(days=30):
-    """Daily sales totals for the last N days — feeds a line/bar chart on the frontend."""
+    """Daily sales totals (and order count) for the last N days — feeds the
+    dashboard's Sales Overview chart on the frontend."""
     now = timezone.now()
     start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -116,7 +117,7 @@ def get_sales_chart_data(days=30):
         .exclude(status=Sale.Status.CANCELLED)
         .annotate(day=TruncDate("created_at"))
         .values("day")
-        .annotate(total=Sum("total_amount"))
+        .annotate(total=Sum("total_amount"), orders=Count("id"))
         .order_by("day")
     )
     return list(sales)

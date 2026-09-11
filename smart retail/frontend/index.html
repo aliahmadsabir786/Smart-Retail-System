@@ -6,8 +6,9 @@
 <title>SmartRetail ERP – Inventory & POS Management System</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%AA%3C/text%3E%3C/svg%3E">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="style.css">
   <script src="api.js"></script>
@@ -36,6 +37,14 @@
 <div id="login-screen">
   <div class="login-cursor-dot" id="login-cursor-dot"></div>
   <div class="login-cursor-circle" id="login-cursor-circle"></div>
+  <!-- Fixed software identity — deliberately NOT wired to Settings → Company
+       branding (that only affects .login-brand-panel below). This always
+       shows the original SmartRetail ERP mark, regardless of what logo/name
+       a client uploads for their own store. -->
+  <div class="login-top-brand">
+    <div class="login-top-brand-logo">🏪</div>
+    <div class="login-top-brand-name">Smart<span>Retail</span> ERP</div>
+  </div>
   <div class="login-split">
     <div class="login-brand-panel">
       <div class="login-brand-blob login-brand-blob-1"></div>
@@ -294,7 +303,7 @@
               </div>
             </div>
             <div class="card-body">
-              <div class="chart-container"><canvas id="salesChart"></canvas></div>
+              <div class="chart-container" id="salesChart" style="height:340px"></div>
             </div>
           </div>
           <div class="card">
@@ -305,7 +314,7 @@
               </div>
             </div>
             <div class="card-body">
-              <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+              <div class="chart-container" id="categoryChart" style="height:340px"></div>
             </div>
           </div>
         </div>
@@ -1204,6 +1213,17 @@
             <div class="card-body" id="pl-summary"></div>
           </div>
         </div>
+        <div class="card mb-16">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Product Performance</div>
+              <div class="card-subtitle">Price vs Stock — bubble size shows revenue earned</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="productBubbleChart" style="height: 340px; width: 100%;"></div>
+          </div>
+        </div>
         <div class="card">
           <div class="card-header"><div class="card-title" id="report-table-title">Sales Report</div></div>
           <div class="table-wrap">
@@ -1868,7 +1888,7 @@
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px">
       
           <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#60a5fa)"></div>
+            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#6fe0da)"></div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
               <span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Cartons Out</span>
               <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:16px"><i class="fa fa-boxes"></i></div>

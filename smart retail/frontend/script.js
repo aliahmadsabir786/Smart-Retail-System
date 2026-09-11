@@ -143,6 +143,37 @@ let selectedPayment = 'cash';
 let invoiceCounter = 100;
 let bookingCounter = 1;
 let charts = {};
+// Shared categorical palette for all charts — from the app's coolors.co
+// palette (092327-0b5351-00a9a5), so every chart in the app feels like one
+// consistent, deliberate design rather than a grab-bag of default colors.
+const CHART_PALETTE = ['#00a9a5', '#0b5351', '#6fe0da', '#d9a441', '#4caf7d', '#e2665c', '#5f8f8c', '#1fcac5'];
+// A separate, more varied palette for the category pie chart — CHART_PALETTE
+// stays teal-toned throughout (matches the rest of the dashboard's bars/
+// bubbles), but a pie chart needs each slice to read as visually distinct
+// at a glance, so this spreads across different hues instead.
+const PIE_PALETTE = ['#00a9a5', '#e2665c', '#d9a441', '#6a5acd', '#4caf7d', '#e0679b', '#3d8fd6', '#f2994a', '#1fcac5', '#8e6bb5'];
+
+// Shared CanvasJS color set for the current theme — previously the pie and
+// bubble charts always used dark-theme colors (theme:'dark2', near-white
+// font colors), which read fine on the dark-mode card but became almost
+// invisible once the app was switched to light mode, since the chart's own
+// card background flips to white while its text stayed the same pale color
+// meant to sit on a dark background. Both charts now pull their colors from
+// here based on the theme actually active on the page.
+function _ckTheme() {
+  const light = document.body.classList.contains('light-mode');
+  return light ? {
+    theme: 'light2',
+    text: '#1c2b2a', grid: '#e3e9e8',
+    indexLabel: '#1c2b2a', indexLabelLine: '#7c8f8d',
+    tooltipBg: '#ffffff', tooltipTitle: '#1c2b2a', tooltipBody: '#4b5c5a',
+  } : {
+    theme: 'dark2',
+    text: '#9fc9c6', grid: '#14434a',
+    indexLabel: '#eafbfa', indexLabelLine: '#5f8f8c',
+    tooltipBg: '#0d2b30', tooltipTitle: '#eafbfa', tooltipBody: '#9fc9c6',
+  };
+}
 
 // Restore session on page refresh if a valid JWT is already stored.
 document.addEventListener('DOMContentLoaded', async () => {
@@ -575,56 +606,110 @@ async function renderDashboard() {
 }
 
 async function renderCharts(summary) {
-  // Sales chart — real daily totals for the last 7 days
+  // Sales chart — real daily totals for the last 7 days, as a bubble chart:
+  // x = day, y = revenue, bubble size = number of orders that day, so a
+  // day with fewer but bigger orders looks different from a day with lots
+  // of small ones, instead of both just being "a bar this tall".
   if (charts.sales) charts.sales.destroy();
   const sc = document.getElementById('salesChart');
-  if (sc) {
+  if (sc && typeof CanvasJS !== 'undefined') {
     const chartData = await DashboardAPI.salesChart(7);
     const series = chartData.series || [];
-    charts.sales = new Chart(sc, {
-      type: 'bar',
-      data: {
-        labels: series.map(s => s.day),
-        datasets: [{
-          label: 'Revenue (Rs.)',
-          data: series.map(s => Number(s.total)),
-          backgroundColor: 'rgba(59,130,246,0.5)',
-          borderColor: 'rgba(59,130,246,1)',
-          borderWidth: 2, borderRadius: 6,
-        }]
+    const ck = _ckTheme();
+    const palette = CHART_PALETTE;
+
+    const dayLabels = series.map(s => new Date(s.day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    const dataPoints = series.map((s, i) => ({
+      x: i,
+      y: Number(s.total),
+      z: Math.max(Number(s.orders) || 1, 1),
+      name: new Date(s.day + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+      color: palette[i % palette.length],
+    }));
+
+    charts.sales = new CanvasJS.Chart('salesChart', {
+      backgroundColor: 'transparent',
+      animationEnabled: true,
+      theme: ck.theme,
+      axisX: {
+        // Fixed: valueType 'dateTime' with a day interval was rounding each
+        // point's exact timestamp to the nearest tick independently, so two
+        // different days could both land on the same rendered tick (the
+        // screenshot showed "Sep 10" printed twice). Each point now sits at
+        // a plain integer index (0, 1, 2…) and dayLabels supplies its real
+        // date text, so every tick is guaranteed to be its own unique day.
+        interval: 1, minimum: -0.5, maximum: dataPoints.length - 0.5,
+        labelFormatter: (e) => dayLabels[Math.round(e.value)] || '',
+        titleFontColor: ck.text, labelFontColor: ck.text,
+        gridColor: ck.grid, lineColor: ck.grid, tickColor: ck.grid,
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#8892a4', font: { size: 11 } } } },
-        scales: {
-          x: { grid: { color: '#1e2535' }, ticks: { color: '#8892a4' } },
-          y: { grid: { color: '#1e2535' }, ticks: { color: '#8892a4' } },
-        }
-      }
+      axisY: {
+        title: 'Revenue (Rs.)', includeZero: true, titleFontColor: ck.text, labelFontColor: ck.text,
+        gridColor: ck.grid, lineColor: ck.grid, tickColor: ck.grid,
+        labelFormatter: (e) => e.value >= 1000 ? 'Rs. ' + (e.value / 1000) + 'k' : 'Rs. ' + e.value,
+      },
+      legend: { fontColor: ck.text, fontFamily: "'Plus Jakarta Sans', sans-serif" },
+      data: [{
+        type: 'bubble',
+        showInLegend: true,
+        legendText: 'Bubble size = orders that day',
+        legendMarkerType: 'circle', legendMarkerColor: '#00a9a5',
+        toolTipContent: '<b>{name}</b><br/>Revenue: Rs. {y}<br/>Orders: {z}',
+        dataPoints,
+      }]
     });
+    charts.sales.render();
   }
 
   // Category donut — product count per category (catalog composition, not sales)
-  if (charts.cat) charts.cat.destroy();
+  // Rebuilt as a CanvasJS pie chart (per the requested "State Operating
+  // Funds" style): click any legend item to pop that slice out.
   const cc = document.getElementById('categoryChart');
-  if (cc) {
+  if (cc && typeof CanvasJS !== 'undefined') {
     const prodData = await ProductsAPI.list({ page_size: 500 });
     const products = prodData.results || prodData;
     const catCounts = {};
     products.forEach(p => { catCounts[p.category_name||'Uncategorized'] = (catCounts[p.category_name||'Uncategorized']||0)+1; });
-    charts.cat = new Chart(cc, {
-      type: 'doughnut',
-      data: {
-        labels: Object.keys(catCounts),
-        datasets: [{ data: Object.values(catCounts), backgroundColor: ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ef4444','#ec4899','#84cc16'], borderWidth: 0, hoverOffset: 6 }]
+    const catTotal = Object.values(catCounts).reduce((a, b) => a + b, 0);
+    const palette = PIE_PALETTE;
+
+    const dataPoints = Object.entries(catCounts).map(([name, count], i) => ({
+      name, y: catTotal ? Number(((count / catTotal) * 100).toFixed(1)) : 0,
+      count, color: palette[i % palette.length],
+    }));
+    // Largest slice starts exploded, exactly like the reference chart.
+    if (dataPoints.length) {
+      dataPoints.reduce((a, b) => a.y >= b.y ? a : b).exploded = true;
+    }
+    const ck = _ckTheme();
+
+    charts.cat = new CanvasJS.Chart('categoryChart', {
+      backgroundColor: 'transparent',
+      animationEnabled: true,
+      theme: ck.theme,
+      legend: {
+        cursor: 'pointer', itemclick: explodeCategoryPie,
+        fontColor: ck.text, fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12,
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'right', labels: { color: '#8892a4', font: { size: 11 }, padding: 12 } } },
-        cutout: '65%',
-      }
+      data: [{
+        type: 'pie',
+        showInLegend: true,
+        toolTipContent: '<b>{name}</b>: {count} products ({y}%)',
+        indexLabel: '{name} - {y}%',
+        indexLabelFontColor: ck.indexLabel, indexLabelFontSize: 11,
+        indexLabelFontFamily: "'Plus Jakarta Sans', sans-serif",
+        indexLabelLineColor: ck.indexLabelLine,
+        dataPoints,
+      }]
     });
+    charts.cat.render();
   }
+}
+
+function explodeCategoryPie(e) {
+  const dp = e.dataSeries.dataPoints[e.dataPointIndex];
+  dp.exploded = !dp.exploded;
+  e.chart.render();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1995,8 +2080,8 @@ async function renderExpenses() {
   const ec = document.getElementById('expenseChart');
   if (ec) charts.expCat = new Chart(ec, {
     type: 'doughnut',
-    data: { labels: Object.keys(catTotals), datasets: [{ data: Object.values(catTotals), backgroundColor: ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ef4444','#ec4899'], borderWidth:0 }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ color:'#8892a4', font:{size:11} } } }, cutout:'60%' }
+    data: { labels: Object.keys(catTotals), datasets: [{ data: Object.values(catTotals), backgroundColor: CHART_PALETTE, borderColor: '#061518', borderWidth: 2, spacing: 2 }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ color:'#9fc9c6', font:{size:11}, usePointStyle:true, pointStyle:'circle' } } }, cutout:'60%' }
   });
 
   if (charts.expMonth) charts.expMonth.destroy();
@@ -2010,8 +2095,8 @@ async function renderExpenses() {
     const labels = Object.keys(monthTotals).sort();
     charts.expMonth = new Chart(emc, {
       type: 'bar',
-      data: { labels, datasets:[{ label:'Expenses (Rs.)', data:labels.map(l=>monthTotals[l]), backgroundColor:'rgba(239,68,68,.5)', borderColor:'rgba(239,68,68,1)', borderWidth:2, borderRadius:6 }] },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8892a4',font:{size:11}}}}, scales:{ x:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}}, y:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}} } }
+      data: { labels, datasets:[{ label:'Expenses (Rs.)', data:labels.map(l=>monthTotals[l]), backgroundColor:'rgba(204,107,100,.55)', borderColor:'rgba(204,107,100,1)', borderWidth:2, borderRadius:6 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#9fc9c6',font:{size:11}}}}, scales:{ x:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}}, y:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}} } }
     });
   }
 }
@@ -2152,11 +2237,11 @@ async function renderReports() {
         labels,
         datasets: [{
           label: 'Revenue (Rs.)', data: labels.map(l => monthlyTotals[l]),
-          borderColor: 'rgba(59,130,246,1)', backgroundColor: 'rgba(59,130,246,0.1)',
-          borderWidth: 2.5, tension: 0.4, fill: true, pointBackgroundColor: '#3b82f6', pointRadius: 4,
+          borderColor: 'rgba(0,169,165,1)', backgroundColor: 'rgba(0,169,165,0.12)',
+          borderWidth: 2.5, tension: 0.4, fill: true, pointBackgroundColor: '#00a9a5', pointRadius: 4,
         }]
       },
-      options: { responsive:true,maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8892a4',font:{size:11}}}}, scales:{ x:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}}, y:{grid:{color:'#1e2535'},ticks:{color:'#8892a4'}} } }
+      options: { responsive:true,maintainAspectRatio:false, plugins:{legend:{labels:{color:'#9fc9c6',font:{size:11}}}}, scales:{ x:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}}, y:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}} } }
     });
   }
 
@@ -2189,6 +2274,62 @@ async function renderReports() {
   }
 
   await generateReport();
+  await renderProductBubbleChart();
+}
+
+// Product Performance bubble chart — Price (x) vs Stock Quantity (y), with
+// bubble size showing Stock Value (price × quantity), so slow-moving
+// expensive stock and fast-moving cheap stock are both visible at a glance
+// rather than buried in a table.
+async function renderProductBubbleChart() {
+  const bc = document.getElementById('productBubbleChart');
+  if (!bc || typeof CanvasJS === 'undefined') return;
+
+  const [prodData, stockData] = await Promise.all([
+    ProductsAPI.list({ page_size: 500 }),
+    InventoryAPI.stockItems({ page_size: 1000 }),
+  ]);
+  const products = prodData.results || prodData;
+  const stockByProduct = {};
+  (stockData.results || stockData).forEach(si => {
+    stockByProduct[si.product] = (stockByProduct[si.product] || 0) + Number(si.quantity);
+  });
+
+  const palette = CHART_PALETTE;
+  const dataPoints = products
+    .map((p, i) => {
+      const qty = stockByProduct[p.id] || 0;
+      const price = Number(p.selling_price ?? p.price ?? 0);
+      return { x: price, y: qty, z: Math.max(price * qty, 1), name: p.name, color: palette[i % palette.length] };
+    })
+    .filter(dp => dp.x > 0 || dp.y > 0)
+    .sort((a, b) => b.z - a.z)
+    .slice(0, 20); // top 20 by stock value — keeps the chart readable
+
+  const ck = _ckTheme();
+  charts.prodBubble = new CanvasJS.Chart('productBubbleChart', {
+    backgroundColor: 'transparent',
+    animationEnabled: true,
+    theme: ck.theme,
+    axisX: {
+      title: 'Unit Price (Rs.)', titleFontColor: ck.text, labelFontColor: ck.text,
+      gridColor: ck.grid, lineColor: ck.grid, tickColor: ck.grid,
+    },
+    axisY: {
+      title: 'Stock Quantity', includeZero: true, titleFontColor: ck.text, labelFontColor: ck.text,
+      gridColor: ck.grid, lineColor: ck.grid, tickColor: ck.grid,
+    },
+    legend: { horizontalAlign: 'left', fontColor: ck.text, fontFamily: "'Plus Jakarta Sans', sans-serif" },
+    data: [{
+      type: 'bubble',
+      showInLegend: true,
+      legendText: 'Bubble size = Stock Value (Rs.)',
+      legendMarkerType: 'circle', legendMarkerColor: '#00a9a5',
+      toolTipContent: '<b>{name}</b><br/>Price: Rs. {x}<br/>Stock: {y} units<br/>Stock Value: Rs. {z}',
+      dataPoints,
+    }]
+  });
+  charts.prodBubble.render();
 }
 
 let _currentReportSlug = 'sales';
@@ -2564,7 +2705,7 @@ async function printReportA4() {
           </tr>
           <tr style="border-bottom:1px solid #e5e7eb">
             <td style="padding:12px 10px;font-weight:700">📊 Cost of Goods Sold</td>
-            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#2563eb">Rs.${fmt(pl.cost_of_goods_sold)}</td>
+            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#00a9a5">Rs.${fmt(pl.cost_of_goods_sold)}</td>
           </tr>
           <tr style="background:#f8fafc">
             <td style="padding:16px 10px;font-weight:900;font-size:15px">🏆 Net Profit</td>
@@ -5571,7 +5712,7 @@ DB.routes = DB.routes || [
 ];
 let _routeWeekOffset = 0;
 const DAYS_OF_WEEK = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-const ROUTE_PALETTE = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ef4444','#f97316','#ec4899'];
+const ROUTE_PALETTE = CHART_PALETTE;
 
 function getWeekDates(offset) {
   const now = new Date();
@@ -6166,9 +6307,16 @@ document.addEventListener('DOMContentLoaded', () => {
 function toggleTheme() {
   const isLight = document.body.classList.toggle('light-mode');
   localStorage.setItem('smartretail_theme', isLight ? 'light' : 'dark');
-  // Update charts for new theme
+  // Update charts for new theme.
+  // Fixed: this used to call a renderDashboardCharts() function that
+  // doesn't exist anywhere in the app — the call always threw and was
+  // silently swallowed by the catch below, so switching theme never
+  // actually redrew any chart's colors; they'd only pick up the new theme
+  // the next time you happened to navigate away and back. Now it redraws
+  // whichever chart-bearing page is actually open.
   setTimeout(() => {
-    try { renderDashboardCharts(); } catch(e) {}
+    try { if (document.getElementById('categoryChart')) renderDashboard(); } catch (e) {}
+    try { if (document.getElementById('productBubbleChart')) renderProductBubbleChart(); } catch (e) {}
   }, 50);
 }
 

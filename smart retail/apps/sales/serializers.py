@@ -51,7 +51,8 @@ class SaleSerializer(serializers.ModelSerializer):
             "id", "invoice_number", "customer", "customer_name", "customer_cnic", "customer_address",
             "warehouse", "warehouse_name",
             "served_by", "served_by_name", "coupon", "subtotal", "discount_amount", "tax_amount",
-            "total_amount", "paid_amount", "due_amount", "previous_balance", "status", "payment_status", "notes",
+            "total_amount", "paid_amount", "due_amount", "previous_balance", "status", "payment_status",
+            "is_credit", "notes",
             "items", "payments", "created_at",
         ]
         read_only_fields = fields

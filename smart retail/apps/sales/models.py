@@ -79,6 +79,15 @@ class Sale(BaseModel):
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.COMPLETED)
     payment_status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID)
+    # How this bill was booked — Cash or Credit — recorded independently of
+    # payment_status. Cash bills are no longer auto-settled at booking time
+    # (see apps.sales.services.create_sale): a cash booking stays UNPAID,
+    # exactly like a credit one, until it's actually collected via Customer
+    # Collection. Without this field there would be no way to tell a
+    # not-yet-collected cash bill apart from a credit one once both sit at
+    # payment_status=UNPAID — this is purely a label for that distinction
+    # and plays no part in the paid/due arithmetic.
+    is_credit = models.BooleanField(default=False)
 
     notes = models.TextField(blank=True)
 

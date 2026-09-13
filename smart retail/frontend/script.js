@@ -2990,19 +2990,6 @@ async function newBookingForm(editId, editCompletedInPlace) {
         qty: it.quantity - it.quantity_returned, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent)||0,
         discPct: Number(it.discount_percent)||0,
       }));
-    // This invoice already deducted its items' quantities from stock when it
-    // was first completed — _bkStockByProduct (loaded above) reflects TODAY'S
-    // live stock, which does NOT include those units back yet (the backend
-    // only returns them to stock at save time, via edit_completed_sale's
-    // reverse-then-reapply). Without this, reducing an item from 8 to 3 would
-    // validate the "3" against stock that's still short those 8 units and
-    // wrongly report "out of stock" even though the save would return more
-    // than enough. Adding this invoice's own quantities back to the frontend's
-    // stock cache makes the qty field validate against what will actually be
-    // available once this invoice's old reservation is released.
-    _bookingItems.forEach(it => {
-      if (it.productId) _bkStockByProduct[it.productId] = (_bkStockByProduct[it.productId] || 0) + it.qty;
-    });
     _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 });
   } else if (editId) {
     // Editing a held (draft) invoice — pull its saved items/customer back in.
@@ -3606,7 +3593,7 @@ function computeBookingTotals() {
     const prod = _bkProductCache.find(p => p.id == item.productId);
     const taxPct = Number(prod?.tax_rate ?? item.taxPct) || 0;
     const itemTax = itemBase*taxPct/100;
-    const discPct = item.discPct || 0;
+    const discPct = discPctNum;
     // Per-line discount, taken off this line's tax-inclusive price — mirrors
     // SaleItem.line_discount on the backend and only affects this order,
     // never the product's own saved price/rate.
@@ -3717,9 +3704,13 @@ async function saveBooking(status) {
     } else {
       sale = await SalesAPI.create({ ...payload, is_credit_sale: payMethod === 'credit' });
     }
-    if (payMethod !== 'credit') {
-      await SalesAPI.pay(sale.id, { amount: sale.total_amount, method: payMethod === 'cash' ? 'cash' : 'other' });
-    }
+    // A "Cash" booking is no longer auto-settled here — like a credit
+    // booking, it stays pending (UNPAID) until it's actually collected via
+    // Customer Collection in the evening. is_credit_sale above still records
+    // which one this was meant to be (drives the Cash/Credit label on the
+    // Collection sheet); it no longer controls whether a payment gets
+    // created automatically. This does NOT apply to the POS register
+    // checkout (processPayment) — a counter sale really is paid on the spot.
     _slipsLoaded = false; // new/updated sale — Sale Slips list must refetch next time it's opened
     toast(_editingCompletedSaleId ? `Invoice updated — ${sale.invoice_number}` : `Booking saved! Invoice: ${sale.invoice_number}`, 'success');
     closeBookingForm();
@@ -3786,7 +3777,7 @@ async function renderBookingList() {
           <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
           <td>${b.items.length} item(s)</td>
           <td class="fw-700 text-green">Rs.${Number(b.total_amount).toFixed(2)}</td>
-          <td class="text-red">Rs.${Number(b.previous_balance).toFixed(2)}</td>
+          <td class="${Number(b.previous_balance) < 0 ? 'text-green' : 'text-red'}">${Number(b.previous_balance) < 0 ? '(Advance) ' : ''}Rs.${Math.abs(Number(b.previous_balance)).toFixed(2)}</td>
           <td class="fw-700 text-yellow">Rs.${(Number(b.total_amount)+Number(b.previous_balance)).toFixed(2)}</td>
           <td><span class="badge badge-blue">${b.payment_status}</span></td>
           <td><span class="badge ${badgeClass}">${label}</span></td>
@@ -3985,7 +3976,7 @@ function buildSlipA4Html(rawSale) {
     <div class="slip-atomic-block" style="display:flex;gap:0;margin-bottom:3mm;border:1px solid #000;border-radius:4px;overflow:hidden">
       <!-- BILL TO -->
       <div style="flex:1.3;padding:3mm 4mm;border-right:1px solid #000">
-        <div style="font-size:8px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:2px 5px;margin:-3mm -4mm 2mm;display:block">BILL TO</div>
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#000;background:#d9d9d9;padding:2px 5px;margin:-3mm -4mm 2mm;display:block">BILL TO</div>
         <div style="font-size:12px;font-weight:900;color:#000;margin-bottom:2px">${b.customerName}</div>
         ${(ssSettings.showCustomerDetails && b.customerCnic) ? `<div style="display:flex;gap:6px;margin-bottom:2px;font-size:9.5px;color:#000">
           <span style="min-width:68px;font-size:8.5px;color:#444">CNIC:</span>
@@ -4010,7 +4001,7 @@ function buildSlipA4Html(rawSale) {
       </div>
       <!-- INVOICE INFO -->
       <div style="min-width:42mm;padding:3mm 4mm">
-        <div style="font-size:8px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:#000;padding:2px 5px;margin:-3mm -4mm 2mm;display:block;text-align:right">INVOICE DETAILS</div>
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#000;background:#d9d9d9;padding:2px 5px;margin:-3mm -4mm 2mm;display:block;text-align:right">INVOICE DETAILS</div>
         <div style="font-size:14px;font-weight:900;color:#000;letter-spacing:0.3px;text-align:right">${b.invoice}</div>
       </div>
     </div>
@@ -4020,15 +4011,15 @@ function buildSlipA4Html(rawSale) {
     <table style="width:100%;border-collapse:collapse;margin-bottom:3mm">
       <thead>
         <tr>
-          <th style="padding:5px 5px;text-align:left;background:#000;color:#fff;font-size:8.5px;font-weight:700">#</th>
-          <th style="padding:5px 5px;text-align:left;background:#000;color:#fff;font-size:8.5px;font-weight:700">PRODUCT NAME</th>
-          <th style="padding:5px 5px;text-align:center;background:#000;color:#fff;font-size:8.5px;font-weight:700">PIECES</th>
-          <th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">UNIT PRICE</th>
-          ${ssSettings.showSubtotal ? `<th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">BASE AMOUNT</th>` : ''}
-          ${ssSettings.showTax ? `<th style="padding:5px 5px;text-align:center;background:#000;color:#fff;font-size:8.5px;font-weight:700">TAX%</th>` : ''}
-          ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">TAX AMT</th>` : ''}
-          ${ssSettings.showDiscount ? `<th style="padding:5px 5px;text-align:center;background:#000;color:#fff;font-size:8.5px;font-weight:700">DISC%</th>` : ''}
-          <th style="padding:5px 5px;text-align:right;background:#000;color:#fff;font-size:8.5px;font-weight:700">TOTAL</th>
+          <th style="padding:5px 5px;text-align:left;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">#</th>
+          <th style="padding:5px 5px;text-align:left;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">PRODUCT NAME</th>
+          <th style="padding:5px 5px;text-align:center;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">PIECES</th>
+          <th style="padding:5px 5px;text-align:right;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">UNIT PRICE</th>
+          ${ssSettings.showSubtotal ? `<th style="padding:5px 5px;text-align:right;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">BASE AMOUNT</th>` : ''}
+          ${ssSettings.showTax ? `<th style="padding:5px 5px;text-align:center;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">TAX%</th>` : ''}
+          ${(ssSettings.showTax && ssSettings.showTaxAmount) ? `<th style="padding:5px 5px;text-align:right;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">TAX AMT</th>` : ''}
+          ${ssSettings.showDiscount ? `<th style="padding:5px 5px;text-align:center;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">DISC%</th>` : ''}
+          <th style="padding:5px 5px;text-align:right;background:#d9d9d9 !important;color:#000 !important;font-size:10px;font-weight:700">TOTAL</th>
         </tr>
       </thead>
       <tbody>
@@ -4086,11 +4077,11 @@ function buildSlipA4Html(rawSale) {
           const grandTotal   = subtotalBase + totalTaxAmt - itemDiscAmt - billDiscAmt;
           return `
         ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
-        ${hasTax ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>` : ''}
+        ${(ssSettings.showTax && hasTax) ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>` : ''}
         ${(ssSettings.showDiscount && itemDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
         ${(ssSettings.showDiscount && billDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
-        <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#1a1a1a;color:#fff;font-size:12px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>Previous Balance</span><span>Rs. ${(b.prevBal||0).toFixed(2)}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#d9d9d9;color:#000;font-size:13px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>${(b.prevBal||0)<0?'Previous Advance / Credit':'Previous Balance'}</span><span>Rs. ${Math.abs(b.prevBal||0).toFixed(2)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#f59e0b;color:#000;font-size:13px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
         })()}
       </div>
@@ -7547,10 +7538,28 @@ async function renderCollection() {
   }).join('');
 }
 
-function openCollectionPayment(custId) {
+async function openCollectionPayment(custId) {
   const c = _colCustomerCache.find(x => x.id===custId); if (!c) return;
-  const bal = getCustomerBalance(custId);
-  const remaining = Math.max(0, bal.totalOrders-bal.payments);
+
+  // getCustomerBalance() only sums each booking's own total/paid amount,
+  // so it has no idea a customer already has an advance sitting from a
+  // General Collection payment made on the Ledger Accounts screen (that
+  // money lives on a standalone Payment row, not on any one invoice). It
+  // used to show the invoice's full total as still outstanding here even
+  // after that advance had already covered part (or all) of it, so staff
+  // paying "the full cash bill" from this screen were quietly asked to
+  // collect money a second time. The ledger endpoint is the one place
+  // that nets every payment — invoice-specific and general — against
+  // everything billed, so pull the real figure from there instead.
+  let remaining;
+  try {
+    const ledger = await CustomersAPI.ledger(custId);
+    remaining = Math.max(0, Number(ledger.remaining) || 0);
+  } catch (err) {
+    const bal = getCustomerBalance(custId);
+    remaining = Math.max(0, bal.totalOrders - bal.payments);
+  }
+
   document.getElementById('col-pay-cust-id').value       = custId;
   document.getElementById('col-pay-cust-name').value     = c.name;
   document.getElementById('col-pay-outstanding').value   = 'Rs.'+remaining.toFixed(2);
@@ -7576,6 +7585,20 @@ async function saveCollectionPayment() {
   if (!amount || amount<=0) { toast('Enter a valid payment amount!','error'); return; }
   const method = document.getElementById('col-pay-method').value;
   const c = _colCustomerCache.find(x => x.id===custId);
+
+  // col-pay-outstanding was just set from the ledger's real "remaining"
+  // (see openCollectionPayment), which already nets out any advance the
+  // customer has from an earlier General Collection payment. Capping to
+  // it here — instead of trusting whatever the cashier typed — is what
+  // actually stops the same money from being collected twice: even if
+  // someone types the invoice's full printed total, only what's truly
+  // still owed gets applied to it.
+  const trueOutstanding = parseFloat((document.getElementById('col-pay-outstanding')?.value||'Rs.0').replace('Rs.','')) || 0;
+  if (amount > trueOutstanding + 0.01) {
+    toast(`Only Rs.${trueOutstanding.toFixed(2)} is actually due — part of this was already collected earlier (advance/credit). Collecting Rs.${trueOutstanding.toFixed(2)} instead.`, 'warning');
+    amount = trueOutstanding;
+  }
+  if (amount <= 0) { toast('This customer has nothing left to pay.', 'success'); closeModal('col-payment-modal'); return; }
 
   // A "collection payment" is applied across this customer's unpaid sales,
   // oldest first, via the real SalesAPI.pay() endpoint (there's no separate
@@ -7657,7 +7680,10 @@ function printTodaysCollectionSheet() {
     const username = b.served_by_name || 'Unassigned';
     if (!groups[username]) groups[username] = [];
     const total = Number(b.total_amount) || 0;
-    const isCredit = b.payment_status !== 'paid';
+    // Cash bookings are no longer auto-paid, so payment_status alone can't
+    // tell a not-yet-collected cash bill apart from a credit one anymore —
+    // both sit at UNPAID. Read the actual booked mode from is_credit instead.
+    const isCredit = !!b.is_credit;
     groups[username].push({
       invoice: b.invoice_number,
       customer: b.customer_name || 'Walk-in',

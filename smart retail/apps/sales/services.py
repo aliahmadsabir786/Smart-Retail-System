@@ -88,19 +88,22 @@ def create_sale(customer, warehouse, items, user, discount_amount=Decimal("0"),
     sale.total_amount = total_amount
     sale.save(update_fields=["subtotal", "discount_amount", "tax_amount", "total_amount"])
 
-    if is_credit_sale:
-        # Per-customer credit limit is no longer enforced — a credit sale is
-        # always allowed regardless of the customer's outstanding balance.
-        # We still track outstanding_balance itself, since Customer Collection
-        # (previous balance / total-to-collect) depends on it.
+    # Per-customer credit limit is no longer enforced — a credit sale is
+    # always allowed regardless of the customer's outstanding balance.
+    #
+    # outstanding_balance tracks the customer's TOTAL currently-uncollected
+    # amount — cash and credit alike — not just credit. A cash bill is no
+    # longer assumed paid at booking time: it's booked exactly like a credit
+    # one (payment_status stays UNPAID) and only actually clears once a real
+    # Payment is recorded against it, whether that happens instantly (see
+    # add_payment, e.g. POS register checkout) or later via Customer
+    # Collection. is_credit is stored purely as a label for which one this
+    # was meant to be — it plays no part in this balance arithmetic.
+    if customer:
         customer.outstanding_balance += total_amount
         customer.save(update_fields=["outstanding_balance"])
-        sale.payment_status = Sale.PaymentStatus.UNPAID
-        sale.save(update_fields=["payment_status"])
-    else:
-        # Cash/card sale is assumed paid in full via a Payment record created by the caller
-        # (see add_payment) — payment_status stays UNPAID until that payment is recorded.
-        pass
+    sale.is_credit = is_credit_sale
+    sale.save(update_fields=["is_credit"])
 
     if customer:
         points_earned = int(total_amount)  # simple default: 1 point per currency unit
@@ -252,16 +255,19 @@ def finalize_draft_sale(sale, user, coupon=None, is_credit_sale=False):
     sale.total_amount = total_amount
     sale.status = Sale.Status.COMPLETED
 
-    if is_credit_sale:
-        if not sale.customer:
-            raise ServiceException("Credit sales require a registered customer.")
-        # Per-customer credit limit is no longer enforced — see create_sale() above.
+    if is_credit_sale and not sale.customer:
+        raise ServiceException("Credit sales require a registered customer.")
+
+    # See create_sale() — outstanding_balance tracks total uncollected amount
+    # (cash and credit alike), not just credit; is_credit is just a label.
+    if sale.customer:
         sale.customer.outstanding_balance += total_amount
         sale.customer.save(update_fields=["outstanding_balance"])
-        sale.payment_status = Sale.PaymentStatus.UNPAID
+    sale.is_credit = is_credit_sale
 
     sale.save(update_fields=[
-        "subtotal", "discount_amount", "tax_amount", "total_amount", "status", "payment_status", "coupon",
+        "subtotal", "discount_amount", "tax_amount", "total_amount", "status",
+        "payment_status", "coupon", "is_credit",
     ])
 
     if sale.customer:
@@ -302,12 +308,13 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
     if not items:
         raise ServiceException("A sale must contain at least one item.")
 
-    # Was the ORIGINAL sale a credit sale? Best available signal: it was
-    # left UNPAID/PARTIAL rather than PAID (see create_sale — a cash/card
-    # sale is paid in full right away via add_payment).
-    was_credit_sale = sale.customer_id is not None and sale.payment_status != Sale.PaymentStatus.PAID
+    # Was the ORIGINAL sale booked as credit? Read straight from the stored
+    # label rather than guessing from payment_status — a not-yet-collected
+    # cash bill and an uncollected credit bill both sit at UNPAID now, so
+    # payment_status alone can no longer tell them apart (see create_sale).
+    previous_is_credit = sale.is_credit
     if is_credit_sale is None:
-        is_credit_sale = was_credit_sale
+        is_credit_sale = previous_is_credit
 
     old_items = list(sale.items.select_related("product", "variant"))
 
@@ -336,13 +343,15 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
             )
 
     if sale.customer:
-        if was_credit_sale:
-            # due_amount (not total_amount) is what's still actually sitting
-            # on the customer's balance from this sale — any payments already
-            # made against it were already subtracted by add_payment.
-            sale.customer.outstanding_balance = max(
-                Decimal("0"), sale.customer.outstanding_balance - sale.due_amount
-            )
+        # due_amount (not total_amount) is what's still actually sitting on
+        # the customer's balance from this sale — any payments already made
+        # against it were already subtracted by add_payment. This now runs
+        # for cash and credit bills alike, since outstanding_balance tracks
+        # total uncollected amount either way (see create_sale) — a fully
+        # collected sale simply has due_amount 0 here, so this is a no-op.
+        sale.customer.outstanding_balance = max(
+            Decimal("0"), sale.customer.outstanding_balance - sale.due_amount
+        )
         sale.customer.loyalty_points = max(0, sale.customer.loyalty_points - int(sale.total_amount))
         sale.customer.save(update_fields=["outstanding_balance", "loyalty_points"])
 
@@ -397,15 +406,17 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
     sale.status = Sale.Status.EDITED
     sale.payment_status = Sale.PaymentStatus.UNPAID
 
-    if is_credit_sale:
-        if not customer:
-            raise ServiceException("Credit sales require a registered customer.")
+    if is_credit_sale and not customer:
+        raise ServiceException("Credit sales require a registered customer.")
+
+    if customer:
         customer.outstanding_balance += total_amount
         customer.save(update_fields=["outstanding_balance"])
+    sale.is_credit = is_credit_sale
 
     sale.save(update_fields=[
         "customer", "warehouse", "notes", "coupon", "subtotal", "discount_amount",
-        "tax_amount", "total_amount", "paid_amount", "status", "payment_status",
+        "tax_amount", "total_amount", "paid_amount", "status", "payment_status", "is_credit",
     ])
 
     if customer:

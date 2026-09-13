@@ -1714,14 +1714,20 @@ function updateAdjPreview() {
   if (negWarn) negWarn.style.display  = (decreases.includes(type) && qty > stock) ? '' : 'none';
 }
 
-async function openStockModal(pid) {
-  if (!_invProductCache.length) await _loadInventoryData();
-  // Reset form
+// Shared reset used both when the modal is first opened and after a
+// successful save (so the form is ready for the next adjustment without
+// closing/reopening the modal).
+function _resetStockAdjForm() {
   clearAdjProduct();
   selectAdjType('increase');
   document.getElementById('adj-qty').value   = '';
   document.getElementById('adj-notes').value = '';
   document.getElementById('adj-reason').value = 'Stock Count';
+}
+
+async function openStockModal(pid) {
+  if (!_invProductCache.length) await _loadInventoryData();
+  _resetStockAdjForm();
   // Pre-select product if pid passed
   if (pid) selectAdjProductById(pid);
   openModal('stock-modal');
@@ -1748,10 +1754,14 @@ async function saveStockAdj() {
     } else {
       await InventoryAPI.stockOut({ product: pid, warehouse: warehouseId, quantity: qty, reference: 'ADJ-'+Date.now(), notes: fullNotes });
     }
-    closeModal('stock-modal');
+    // Stay open instead of closing — refresh the background data (so the
+    // adjust-search dropdown shows the just-updated stock number), reset
+    // the form back to a blank slate, and let the toast confirm the save.
+    // The modal now only closes when the user explicitly clicks Cancel/✕.
     await renderInventory();
     if (typeof renderProducts === 'function') renderProducts();
     toast(`Stock ${increases.includes(type) ? 'increased' : 'decreased'} by ${qty} — ${prod.name}`, increases.includes(type) ? 'success' : 'warning');
+    _resetStockAdjForm();
   } catch (err) {
     toast(err.message || 'Failed to adjust stock', 'error');
   }
@@ -1984,7 +1994,11 @@ async function deleteCustomer(id) {
   if (!(await confirmModal('This customer record will be permanently removed.', { title: 'Delete Customer?', confirmText: 'Delete Customer' }))) return;
   try {
     await CustomersAPI.remove(id);
-    renderCustomers();
+    // Stay on whichever page the user was browsing instead of jumping back
+    // to page 1 — deleting an entry doesn't change where they were looking.
+    // renderPaginationBar/renderCustomers will clamp automatically if this
+    // was the last item on the last page.
+    renderCustomers(_custPage);
     toast('Customer deleted','success');
   } catch (err) {
     toast(err.message || 'Failed to delete customer', 'error');

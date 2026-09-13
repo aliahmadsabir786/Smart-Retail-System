@@ -4197,10 +4197,10 @@ function printAllSlipsA4(mode) {
       <table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
         <thead>
           <tr>
-            <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">#</th>
-            <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">Invoice</th>
-            <th style="padding:7px 9px;text-align:left;background:#1a1a1a;color:#fff;font-size:11px">Customer</th>
-            ${cols.map(c=>`<th style="padding:7px 9px;text-align:${c.align};background:#1a1a1a;color:#fff;font-size:11px">${c.label}</th>`).join('')}
+            <th style="padding:7px 9px;text-align:left;background:#d9d9d9 !important;color:#000 !important;font-size:11px">#</th>
+            <th style="padding:7px 9px;text-align:left;background:#d9d9d9 !important;color:#000 !important;font-size:11px">Invoice</th>
+            <th style="padding:7px 9px;text-align:left;background:#d9d9d9 !important;color:#000 !important;font-size:11px">Customer</th>
+            ${cols.map(c=>`<th style="padding:7px 9px;text-align:${c.align};background:#d9d9d9 !important;color:#000 !important;font-size:11px">${c.label}</th>`).join('')}
           </tr>
         </thead>
         <tbody style="font-size:11px">
@@ -4212,7 +4212,7 @@ function printAllSlipsA4(mode) {
           </tr>`).join('')}
         </tbody>
         <tfoot>
-          <tr style="background:#1a1a1a;color:#fff;font-weight:700;font-size:12px">
+          <tr style="background:#d9d9d9 !important;color:#000 !important;font-weight:700;font-size:12px">
             <td colspan="3" style="padding:8px 9px">TOTALS — ${slips.length} order${slips.length!==1?'s':''}</td>
             ${totalsRow()}
           </tr>
@@ -4864,10 +4864,10 @@ async function printLedgerA4() {
     <div style="margin-bottom:5mm;font-size:12px;font-weight:700">Day-wise Recap</div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:6mm">
       <thead><tr>
-        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:left">Date</th>
-        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:right">Opening Balance</th>
-        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:right">Received That Day</th>
-        <th style="padding:6px 8px;background:#374151;color:#fff;font-size:10px;text-align:right">Closing Balance</th>
+        <th style="padding:6px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:10px;text-align:left">Date</th>
+        <th style="padding:6px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:10px;text-align:right">Opening Balance</th>
+        <th style="padding:6px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:10px;text-align:right">Received That Day</th>
+        <th style="padding:6px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:10px;text-align:right">Closing Balance</th>
       </tr></thead>
       <tbody style="font-size:10px">
         ${dailyRows.map(r=>`<tr>
@@ -4892,11 +4892,11 @@ async function printLedgerA4() {
     }).join('');
     mainTableHtml = `<table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
       <thead><tr>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Date</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Description</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Reference</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Amount</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Balance</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:left">Date</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:left">Description</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:left">Reference</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:right">Amount</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:right">Balance</th>
       </tr></thead>
       <tbody style="font-size:11px">${rows || `<tr><td colspan="5" style="text-align:center;padding:14px;color:#999">No invoices or payments yet</td></tr>`}</tbody>
       <tfoot>
@@ -4926,12 +4926,12 @@ async function printLedgerA4() {
     }).join('');
     mainTableHtml = `<table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
       <thead><tr>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Date</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Description</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:left">Reference</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Debit</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Credit</th>
-        <th style="padding:7px 8px;background:#1a1a1a;color:#fff;font-size:11px;text-align:right">Balance</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:left">Date</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:left">Description</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:left">Reference</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:right">Debit</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:right">Credit</th>
+        <th style="padding:7px 8px;background:#d9d9d9 !important;color:#000 !important;font-size:11px;text-align:right">Balance</th>
       </tr></thead>
       <tbody style="font-size:11px">${rows || `<tr><td colspan="6" style="text-align:center;padding:14px;color:#999">No transactions found</td></tr>`}</tbody>
       <tfoot>
@@ -5507,22 +5507,22 @@ function printStockReportA4() {
     <table style="width:100%;border-collapse:collapse;margin-bottom:5mm;font-size:10px">
       <thead>
         <tr>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff">#</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:left">Product</th>
-          ${prefs.sku ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff">SKU</th>' : ''}
-          ${prefs.category ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff">Category</th>' : ''}
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Opening</th>
-          ${prefs.sold ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Sold</th>' : ''}
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Remaining</th>
-          ${prefs.cartons ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Cartons</th>' : ''}
-          ${prefs.loose ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Loose</th>' : ''}
-          ${prefs.value ? '<th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:right">Value</th>' : ''}
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Status</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important">#</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">Product</th>
+          ${prefs.sku ? '<th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important">SKU</th>' : ''}
+          ${prefs.category ? '<th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important">Category</th>' : ''}
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Opening</th>
+          ${prefs.sold ? '<th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Sold</th>' : ''}
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Remaining</th>
+          ${prefs.cartons ? '<th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Cartons</th>' : ''}
+          ${prefs.loose ? '<th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Loose</th>' : ''}
+          ${prefs.value ? '<th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:right">Value</th>' : ''}
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Status</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
       <tfoot>
-        <tr style="background:#1a1a1a;color:#fff;font-weight:700;font-size:11px">
+        <tr style="background:#d9d9d9 !important;color:#000 !important;font-weight:700;font-size:11px">
           <td colspan="${colCount-2}" style="padding:7px 8px">TOTALS — ${prods.length} products</td>
           ${prefs.value ? `<td style="padding:7px 8px;text-align:right">Rs. ${totalValue.toFixed(2)}</td>` : '<td></td>'}
           <td style="padding:7px 8px"></td>
@@ -5627,14 +5627,14 @@ async function printSingleProductA4(prodId, reportDate) {
     <table style="width:100%;border-collapse:collapse;margin-bottom:5mm;font-size:10px">
       <thead>
         <tr>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:left">Date</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:left">Invoice</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:left">Customer</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Qty</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Cartons</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Loose</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:right">Rate</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:right">Amount</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">Date</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">Invoice</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">Customer</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Qty</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Cartons</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Loose</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:right">Rate</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:right">Amount</th>
         </tr>
       </thead>
       <tbody>
@@ -5649,7 +5649,7 @@ async function printSingleProductA4(prodId, reportDate) {
           <td style="padding:5px 7px;text-align:right;font-weight:700">Rs. ${r.amt.toFixed(2)}</td>
         </tr>`).join('') : '<tr><td colspan="8" style="text-align:center;padding:16px;color:#999">No sales records found</td></tr>'}
       </tbody>
-      ${salesRows.length?`<tfoot><tr style="background:#1a1a1a;color:#fff;font-weight:700;font-size:11px">
+      ${salesRows.length?`<tfoot><tr style="background:#d9d9d9 !important;color:#000 !important;font-weight:700;font-size:11px">
         <td colspan="3" style="padding:6px 7px">TOTAL</td>
         <td style="padding:6px 7px;text-align:center">${totalSold} pcs</td>
         <td colspan="2"></td>
@@ -5663,12 +5663,12 @@ async function printSingleProductA4(prodId, reportDate) {
     <table style="width:100%;border-collapse:collapse;font-size:10px">
       <thead>
         <tr>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:left">Date/Time</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff">Type</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Qty Change</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">Before</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff;text-align:center">After</th>
-          <th style="padding:6px 7px;background:#1a1a1a;color:#fff">Reference</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">Date/Time</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important">Type</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Qty Change</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">Before</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important;text-align:center">After</th>
+          <th style="padding:6px 7px;background:#d9d9d9 !important;color:#000 !important">Reference</th>
         </tr>
       </thead>
       <tbody>
@@ -7706,7 +7706,7 @@ function printTodaysCollectionSheet() {
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
-          <tr style="background:#1a1a1a;color:#fff">
+          <tr style="background:#d9d9d9 !important;color:#000 !important">
             <th style="padding:7px 10px;text-align:left">#</th>
             <th style="padding:7px 10px;text-align:left">Invoice</th>
             <th style="padding:7px 10px;text-align:left">Customer</th>
@@ -7756,7 +7756,7 @@ function printTodaysCollectionSheet() {
 
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px">
       <tfoot>
-        <tr style="background:#1a1a1a;color:#fff">
+        <tr style="background:#d9d9d9 !important;color:#000 !important">
           <td style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL COLLECTION EXPECTED TODAY — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'}</td>
           <td style="padding:11px 10px;text-align:right;font-size:18px;font-weight:900;color:#f87171">Rs.${grandTotal.toFixed(2)}</td>
         </tr>
@@ -7848,7 +7848,7 @@ function printCollectionReport() {
     <!-- Customer Table -->
     <table style="width:100%;border-collapse:collapse;font-size:11.5px">
       <thead>
-        <tr style="background:#1a1a1a;color:#fff">
+        <tr style="background:#d9d9d9 !important;color:#000 !important">
           <th style="padding:8px 10px;text-align:left">#</th>
           <th style="padding:8px 10px;text-align:left">Customer</th>
           <th style="padding:8px 10px;text-align:left">Phone</th>
@@ -7888,7 +7888,7 @@ function printCollectionReport() {
           <td style="padding:9px 10px;text-align:right;font-weight:800;color:#dc2626">Rs.${grandTotalPending.toFixed(2)}</td>
           <td colspan="2"></td>
         </tr>
-        <tr style="background:#1a1a1a;color:#fff">
+        <tr style="background:#d9d9d9 !important;color:#000 !important">
           <td colspan="4" style="padding:11px 10px;font-size:13px;font-weight:900;letter-spacing:.03em">
             💰 TOTAL TO RECEIVE (Pending Collection)
           </td>
@@ -7929,7 +7929,7 @@ function printUsernameCollection(username) {
       <div style="font-size:11px;color:#888">${new Date().toLocaleDateString()}</div></div>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr>${['Customer','Account','Invoices','Total Bill','Tax','Disc.','Received','Pending'].map(h=>`<th style="padding:8px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
+      <thead><tr>${['Customer','Account','Invoices','Total Bill','Tax','Disc.','Received','Pending'].map(h=>`<th style="padding:8px;background:#d9d9d9 !important;color:#000 !important;text-align:left">${h}</th>`).join('')}</tr></thead>
       <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'}">
         <td style="padding:7px 8px;font-weight:700">${r.customerName}</td>
         <td style="padding:7px 8px;font-family:monospace">${r.accountNo}</td>
@@ -7940,7 +7940,7 @@ function printUsernameCollection(username) {
         <td style="padding:7px 8px;color:#16a34a;font-weight:700">Rs.${(r.received||0).toFixed(2)}</td>
         <td style="padding:7px 8px;color:${r.pending>0?'#dc2626':'#16a34a'};font-weight:800">Rs.${r.pending.toFixed(2)}</td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr style="background:#1a1a1a;color:#fff">
+      <tfoot><tr style="background:#d9d9d9 !important;color:#000 !important">
         <td colspan="3" style="padding:8px;font-weight:700">TOTALS</td>
         <td style="padding:8px;font-weight:900">Rs.${grandTotal.toFixed(2)}</td>
         <td colspan="2" style="padding:8px"></td>
@@ -8580,7 +8580,7 @@ function printSaleReturnReport() {
     <div><div style="font-size:20px;font-weight:900">🏪 SmartRetail ERP</div><div style="font-size:12px;color:#555">Sale Return Report — ${new Date().toLocaleDateString()}</div></div>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr>${['Return ID','Date','Invoice','Items','Refund','Reason'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
+    <thead><tr>${['Return ID','Date','Invoice','Items','Refund','Reason'].map(h=>`<th style="padding:7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">${h}</th>`).join('')}</tr></thead>
     <tbody>${returns.map((r,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'}">
       <td style="padding:6px 8px;font-weight:700;color:#dc2626">SR-${String(r.id).padStart(4,'0')}</td>
       <td style="padding:6px 8px">${(r.created_at||'').slice(0,10)}</td>
@@ -8589,7 +8589,7 @@ function printSaleReturnReport() {
       <td style="padding:6px 8px;font-weight:800;color:#dc2626">Rs.${Number(r.refund_amount).toFixed(2)}</td>
       <td style="padding:6px 8px">${r.reason||''}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="4" style="padding:8px;font-weight:700">TOTAL REFUNDS</td><td colspan="2" style="padding:8px;font-weight:900;font-size:14px">Rs.${totalVal.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr style="background:#d9d9d9 !important;color:#000 !important"><td colspan="4" style="padding:8px;font-weight:700">TOTAL REFUNDS</td><td colspan="2" style="padding:8px;font-weight:900;font-size:14px">Rs.${totalVal.toFixed(2)}</td></tr></tfoot>
   </table></div>`;
   const pa=document.getElementById('print-area'); pa.innerHTML=html; pa.style.display='block';
   window.print(); setTimeout(()=>{pa.style.display='none';},1200);
@@ -8777,13 +8777,13 @@ function printPurchaseReturnSlip(id) {
     <div style="font-size:11px;color:#555">Date: ${dateStr} | Supplier: ${r.supplier_name} | PO: ${r.po_number}</div>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">
-    <thead><tr>${['Item','Qty','Refund'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
+    <thead><tr>${['Item','Qty','Refund'].map(h=>`<th style="padding:7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">${h}</th>`).join('')}</tr></thead>
     <tbody>${r.items.map((it,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'}">
       <td style="padding:6px 8px;font-weight:700">Item #${it.purchase_order_item}</td>
       <td style="padding:6px 8px;text-align:center">${it.quantity}</td>
       <td style="padding:6px 8px;font-weight:800">Rs.${Number(it.refund_amount).toFixed(2)}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="2" style="padding:8px;font-weight:700">TOTAL RETURN VALUE</td><td style="padding:8px;font-weight:900;font-size:14px">Rs.${Number(r.refund_amount).toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr style="background:#d9d9d9 !important;color:#000 !important"><td colspan="2" style="padding:8px;font-weight:700">TOTAL RETURN VALUE</td><td style="padding:8px;font-weight:900;font-size:14px">Rs.${Number(r.refund_amount).toFixed(2)}</td></tr></tfoot>
   </table>
   <div style="font-size:12px;color:#555">Reason: ${r.reason||'—'}</div>
   <div style="font-size:11px;color:#888;margin-top:8px">Processed on ${dateStr}</div></div>`;
@@ -8799,7 +8799,7 @@ function printPurchaseReturnReport() {
     <div style="font-size:12px;color:#555">Purchase Return Report — ${new Date().toLocaleDateString()}</div>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr>${['Return ID','Date','PO Ref','Supplier','Items','Total','Reason'].map(h=>`<th style="padding:7px;background:#1a1a1a;color:#fff;text-align:left">${h}</th>`).join('')}</tr></thead>
+    <thead><tr>${['Return ID','Date','PO Ref','Supplier','Items','Total','Reason'].map(h=>`<th style="padding:7px;background:#d9d9d9 !important;color:#000 !important;text-align:left">${h}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'}">
       <td style="padding:6px 8px;font-weight:700;color:#d97706">PR-${String(r.id).padStart(4,'0')}</td>
       <td style="padding:6px 8px">${(r.created_at||'').slice(0,10)}</td>
@@ -8809,7 +8809,7 @@ function printPurchaseReturnReport() {
       <td style="padding:6px 8px;font-weight:800;color:#d97706">Rs.${Number(r.refund_amount).toFixed(2)}</td>
       <td style="padding:6px 8px">${r.reason||''}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr style="background:#1a1a1a;color:#fff"><td colspan="5" style="padding:8px;font-weight:700">TOTAL</td><td colspan="2" style="padding:8px;font-weight:900;font-size:14px">Rs.${total.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr style="background:#d9d9d9 !important;color:#000 !important"><td colspan="5" style="padding:8px;font-weight:700">TOTAL</td><td colspan="2" style="padding:8px;font-weight:900;font-size:14px">Rs.${total.toFixed(2)}</td></tr></tfoot>
   </table></div>`;
   const pa=document.getElementById('print-area'); pa.innerHTML=html; pa.style.display='block';
   window.print(); setTimeout(()=>{pa.style.display='none';},1200);

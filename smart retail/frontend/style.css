@@ -1489,7 +1489,9 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     page-break-after: avoid;
     break-after: avoid;
   }
-  /* ── FIX: Remove black backgrounds from table headers & total rows on print ── */
+  /* ── FIX: Table headers & total rows print as light grey with black text,
+     not black-with-white — matches the on-screen light grey styling instead
+     of reverting to dark on print. ── */
   .a4-doc thead th,
   .a4-doc .a4-grand-row,
   #print-area thead th,
@@ -1497,8 +1499,8 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   #print-area [style*="background: #000"],
   #print-area [style*="background:#1a1a1a"],
   #print-area [style*="background: #1a1a1a"] {
-    background: #222 !important;
-    color: #fff !important;
+    background: #d9d9d9 !important;
+    color: #000 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -1538,13 +1540,13 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .a4-doc .a4-meta-label { color: #777; min-width: 90px; }
 .a4-doc .a4-meta-val { color: #000; font-weight: 600; }
 .a4-doc table { width: 100%; border-collapse: collapse; margin-bottom: 5mm; }
-.a4-doc thead th { background: #2d2d2d; color: #fff; padding: 7px 9px; text-align: left; font-size: 11px; font-weight: 700; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.a4-doc thead th { background: #d9d9d9; color: #000; padding: 7px 9px; text-align: left; font-size: 11px; font-weight: 700; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 .a4-doc tbody td { padding: 7px 9px; border-bottom: 1px solid #e0e0e0; font-size: 11px; }
 .a4-doc tbody tr:nth-child(even) td { background: #f8f8f8; }
 .a4-doc .a4-totals { margin-left: auto; width: 65mm; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
 .a4-doc .a4-total-row { display: flex; justify-content: space-between; padding: 5px 10px; font-size: 12px; }
 .a4-doc .a4-total-row:not(:last-child) { border-bottom: 1px solid #e8e8e8; }
-.a4-doc .a4-grand-row { background: #1a1a1a; color: #fff; font-size: 14px; font-weight: 800; padding: 7px 10px; display: flex; justify-content: space-between; }
+.a4-doc .a4-grand-row { background: #d9d9d9; color: #000; font-size: 14px; font-weight: 800; padding: 7px 10px; display: flex; justify-content: space-between; }
 .a4-doc .a4-footer { margin-top: 8mm; padding-top: 5mm; border-top: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 10px; color: #888; }
 .a4-doc .carton-cell { font-size: 10px; }
 .a4-doc .carton-cell .ctn { display: inline-block; background: #e8f0fe; color: #1a56db; border-radius: 3px; padding: 1px 5px; font-weight: 700; margin-right: 4px; }

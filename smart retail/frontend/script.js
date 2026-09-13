@@ -953,7 +953,7 @@ function addToCart(pid) {
     if (existing.qty >= stock) { toast('Insufficient stock!', 'warning'); return; }
     existing.qty++;
   } else {
-    cart.push({ id: pid, name: prod.name, price: Number(prod.selling_price)||0, qty: 1, icon: '📦', taxRate: Number(prod.tax_rate)||0 });
+    cart.push({ id: pid, name: prod.name, price: Number(prod.selling_price)||0, qty: 1, icon: '📦', taxRate: Number(prod.tax_rate)||0, barcode: prod.barcode || '' });
   }
   updateCartUI();
 }
@@ -980,21 +980,45 @@ function updateCartUI() {
   if (cart.length === 0) {
     container.innerHTML = `<div class="cart-empty"><i class="fa fa-shopping-cart"></i><div style="font-size:13px;font-weight:600">Cart is empty</div><div style="font-size:12px">Click products to add</div></div>`;
   } else {
-    container.innerHTML = cart.map(item => `
-      <div class="cart-item">
-        <span style="font-size:20px">${item.icon}</span>
-        <div class="cart-item-info">
-          <div class="cart-item-name">${item.name}</div>
-          <div class="cart-item-price">Rs.${item.price.toFixed(2)} each${item.taxRate>0?` · ${item.taxRate}% tax`:''}</div>
+    // Receipt-style table: SI + Product name (with its Barcode on the line
+    // below, matching a real thermal invoice), Qty, Rate, Disc, Amount.
+    // This is a display-only layout change — the actual subtotal/discount/
+    // tax/total math below is untouched. Disc always shows 0.00 here since
+    // POS doesn't apply a per-line discount (only the single Discount %
+    // field for the whole cart, in the totals panel below).
+    const rows = cart.map((item, idx) => `
+      <div class="cart-table-row">
+        <div class="ctc-si">${idx + 1}</div>
+        <div class="ctc-product">
+          <div class="ctc-product-name">${item.name}</div>
+          <div class="ctc-barcode">${item.barcode || '—'}</div>
         </div>
-        <div class="cart-qty">
-          <button class="qty-btn" onclick="changeQty(${item.id},-1)">−</button>
-          <div class="qty-val">${item.qty}</div>
-          <button class="qty-btn" onclick="changeQty(${item.id},1)">+</button>
+        <div class="ctc-qty">
+          <div class="cart-qty-mini">
+            <button class="qty-btn-mini" onclick="changeQty(${item.id},-1)">−</button>
+            <span class="qty-val-mini">${item.qty}</span>
+            <button class="qty-btn-mini" onclick="changeQty(${item.id},1)">+</button>
+          </div>
         </div>
-        <div class="cart-item-total">Rs.${(item.price*item.qty).toFixed(2)}</div>
-        <div class="cart-remove" onclick="removeFromCart(${item.id})">✕</div>
+        <div class="ctc-rate">${item.price.toFixed(2)}</div>
+        <div class="ctc-disc">0.00</div>
+        <div class="ctc-amount">${(item.price*item.qty).toFixed(2)}</div>
+        <div class="ctc-action"><span class="cart-remove-mini" onclick="removeFromCart(${item.id})" title="Remove">✕</span></div>
       </div>`).join('');
+
+    container.innerHTML = `
+      <div class="cart-table">
+        <div class="cart-table-header">
+          <div class="ctc-si">SI</div>
+          <div class="ctc-product">Product</div>
+          <div class="ctc-qty">Qty</div>
+          <div class="ctc-rate">Rate</div>
+          <div class="ctc-disc">Disc.</div>
+          <div class="ctc-amount">Amount</div>
+          <div class="ctc-action"></div>
+        </div>
+        ${rows}
+      </div>`;
   }
 
   const subtotal = cart.reduce((a,i) => a + i.price*i.qty, 0);
@@ -1108,8 +1132,15 @@ async function processPayment() {
   }
 }
 
-function showReceipt(sale) {
-  const cashReceived = parseFloat(document.getElementById('cash-received').value)||Number(sale.total_amount);
+// Builds the receipt's inner content (header, items, totals, foot note) as
+// a plain HTML string — shared by the on-screen preview (showReceipt) and
+// the actual thermal print (printPosReceipt), so both always show the same
+// invoice. Each item's name gets its own line and wraps naturally if long
+// (see .rcp-item-name in CSS) instead of squeezing into one row and
+// overlapping the price — that's what was making long product names look
+// messy on the thermal printout.
+function _buildReceiptContentHtml(sale) {
+  const cashReceived = parseFloat(document.getElementById('cash-received')?.value) || Number(sale.total_amount);
   const change = Math.max(0, cashReceived - Number(sale.total_amount));
   const paymentMethod = (sale.payments && sale.payments[0]) ? sale.payments[0].method : selectedPayment;
   const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
@@ -1119,40 +1150,65 @@ function showReceipt(sale) {
   const storeEmail = s.email || '';
   const headerNote = s.invoice_header_note || 'Thank you for shopping with us!';
   const footerNote = s.invoice_footer_note || 'All sales are final. Visit us again!';
-  document.getElementById('receipt-body').innerHTML = `
-    <div class="receipt-preview">
-      <div class="rcp-center" style="font-size:16px;font-weight:700">🏪 ${storeName}</div>
-      ${storeAddress ? `<div class="rcp-center" style="font-size:11px">${storeAddress}</div>` : ''}
-      ${storePhone   ? `<div class="rcp-center" style="font-size:11px">Tel: ${storePhone}</div>` : ''}
-      ${storeEmail   ? `<div class="rcp-center" style="font-size:11px">${storeEmail}</div>` : ''}
-      <div class="rcp-line"></div>
-      <div class="rcp-row"><span>Invoice:</span><span>${sale.invoice_number}</span></div>
-      <div class="rcp-row"><span>Date:</span><span>${(sale.created_at||'').replace('T',' ').slice(0,19)}</span></div>
-      <div class="rcp-row"><span>Customer:</span><span>${(document.getElementById('bill-customer-name')?.value?.trim()) || sale.customer_name || 'Walk-in'}</span></div>
-      ${(document.getElementById('bill-customer-contact')?.value?.trim()) ? `<div class="rcp-row"><span>Contact:</span><span>${document.getElementById('bill-customer-contact').value.trim()}</span></div>` : ''}
-      <div class="rcp-row"><span>Cashier:</span><span>${currentUser.full_name||currentUser.email}</span></div>
-      <div class="rcp-line"></div>
-      <div style="font-weight:700;margin-bottom:4px">ITEMS</div>
-      ${sale.items.map(i=>`<div class="rcp-row"><span>${i.product_name} x${i.quantity}</span><span>Rs.${Number(i.line_total).toFixed(2)}</span></div>`).join('')}
-      <div class="rcp-line"></div>
-      <div class="rcp-row"><span>Subtotal:</span><span>Rs.${Number(sale.subtotal).toFixed(2)}</span></div>
-      ${Number(sale.discount_amount)>0?`<div class="rcp-row"><span>Discount:</span><span>-Rs.${Number(sale.discount_amount).toFixed(2)}</span></div>`:''}
-      <div class="rcp-row"><span>Tax:</span><span>+Rs.${Number(sale.tax_amount).toFixed(2)}</span></div>
-      <div class="rcp-line"></div>
-      <div class="rcp-row" style="font-size:14px;font-weight:700"><span>TOTAL:</span><span>Rs.${Number(sale.total_amount).toFixed(2)}</span></div>
-      <div class="rcp-row"><span>Payment:</span><span>${paymentMethod.toUpperCase()}</span></div>
-      ${paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
-      <div class="rcp-line"></div>
-      <div class="rcp-center" style="font-size:11px">${headerNote}</div>
-      <div class="rcp-center" style="font-size:10px;margin-top:4px">${footerNote}</div>
-      <div class="rcp-center" style="font-size:10px;margin-top:4px">|||||||||||||||||||||||||||</div>
-      <div class="rcp-center" style="font-family:var(--mono);font-size:10px">${sale.invoice_number}</div>
-    </div>`;
+  const billName = document.getElementById('bill-customer-name')?.value?.trim();
+  const billContact = document.getElementById('bill-customer-contact')?.value?.trim();
+
+  return `
+    <div class="rcp-center" style="font-size:16px;font-weight:700">🏪 ${storeName}</div>
+    ${storeAddress ? `<div class="rcp-center" style="font-size:11px">${storeAddress}</div>` : ''}
+    ${storePhone   ? `<div class="rcp-center" style="font-size:11px">Tel: ${storePhone}</div>` : ''}
+    ${storeEmail   ? `<div class="rcp-center" style="font-size:11px">${storeEmail}</div>` : ''}
+    <div class="rcp-line"></div>
+    <div class="rcp-row"><span>Invoice:</span><span>${sale.invoice_number}</span></div>
+    <div class="rcp-row"><span>Date:</span><span>${(sale.created_at||'').replace('T',' ').slice(0,19)}</span></div>
+    <div class="rcp-row"><span>Customer:</span><span>${billName || sale.customer_name || 'Walk-in'}</span></div>
+    ${billContact ? `<div class="rcp-row"><span>Contact:</span><span>${billContact}</span></div>` : ''}
+    <div class="rcp-row"><span>Cashier:</span><span>${currentUser.full_name||currentUser.email}</span></div>
+    <div class="rcp-line"></div>
+    <div style="font-weight:700;margin-bottom:4px">ITEMS</div>
+    ${sale.items.map(i => `
+      <div class="rcp-item">
+        <div class="rcp-item-name">${i.product_name}</div>
+        <div class="rcp-row"><span>${i.quantity} x Rs.${Number(i.unit_price).toFixed(2)}</span><span>Rs.${Number(i.line_total).toFixed(2)}</span></div>
+      </div>`).join('')}
+    <div class="rcp-line"></div>
+    <div class="rcp-row"><span>Subtotal:</span><span>Rs.${Number(sale.subtotal).toFixed(2)}</span></div>
+    ${Number(sale.discount_amount)>0?`<div class="rcp-row"><span>Discount:</span><span>-Rs.${Number(sale.discount_amount).toFixed(2)}</span></div>`:''}
+    <div class="rcp-row"><span>Tax:</span><span>+Rs.${Number(sale.tax_amount).toFixed(2)}</span></div>
+    <div class="rcp-line"></div>
+    <div class="rcp-row" style="font-size:14px;font-weight:700"><span>TOTAL:</span><span>Rs.${Number(sale.total_amount).toFixed(2)}</span></div>
+    <div class="rcp-row"><span>Payment:</span><span>${paymentMethod.toUpperCase()}</span></div>
+    ${paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
+    <div class="rcp-line"></div>
+    <div class="rcp-center" style="font-size:11px">${headerNote}</div>
+    <div class="rcp-center" style="font-size:10px;margin-top:4px">${footerNote}</div>
+    <div class="rcp-center" style="font-size:10px;margin-top:4px">|||||||||||||||||||||||||||</div>
+    <div class="rcp-center" style="font-family:var(--mono);font-size:10px">${sale.invoice_number}</div>`;
+}
+
+function showReceipt(sale) {
+  document.getElementById('receipt-body').innerHTML = `<div class="receipt-preview">${_buildReceiptContentHtml(sale)}</div>`;
   openModal('receipt-modal');
   const billName = document.getElementById('bill-customer-name');
   const billContact = document.getElementById('bill-customer-contact');
   if (billName && !billName.value) billName.value = (sale.customer_name) || '';
   if (billContact) billContact.value = '';
+}
+
+// POS Terminal — thermal receipt print only (A4 invoice printing has been
+// removed from the POS receipt modal; A4 is still available elsewhere,
+// e.g. Sale Slips / Order Booking). Builds the receipt into #print-area —
+// the modal itself sits outside #print-area and the app's print CSS hides
+// everything except #print-area while printing, so routing through here
+// (like every other print button in the app) is what actually gets it onto
+// the page instead of a blank printout.
+function printPosReceipt() {
+  if (!_lastOrder) { toast('No receipt to print yet!', 'error'); return; }
+  const printArea = document.getElementById('print-area');
+  printArea.innerHTML = `<div class="thermal-receipt">${_buildReceiptContentHtml(_lastOrder)}</div>`;
+  printArea.style.display = 'block';
+  window.print();
+  setTimeout(() => { printArea.style.display = 'none'; }, 1000);
 }
 
 // ═══════════════════════════════════════════════════════

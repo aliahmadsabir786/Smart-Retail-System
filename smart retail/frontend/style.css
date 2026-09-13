@@ -392,12 +392,11 @@ body {
   .payment-method { font-size: 11px; padding: 8px 6px; }
   .payment-method i { font-size: 16px; }
   /* Cart */
-  .cart-item { padding: 10px 12px; gap: 8px; }
-  .cart-item-name { font-size: 12px; }
-  .cart-item-price { font-size: 11px; }
-  .qty-btn { width: 24px; height: 24px; font-size: 13px; }
-  .qty-val { font-size: 12px; width: 24px; }
-  .cart-item-total { font-size: 12px; width: 50px; }
+  .cart-table-header, .cart-table-row { grid-template-columns: 16px 1fr 56px 40px 32px 46px 14px; gap: 4px; padding: 8px 8px; }
+  .ctc-product-name { font-size: 11.5px; }
+  .ctc-barcode { font-size: 9px; }
+  .qty-btn-mini { width: 16px; height: 16px; font-size: 10px; }
+  .ctc-rate, .ctc-disc, .ctc-amount { font-size: 10.5px; }
   /* Charts */
   .chart-container { height: 170px; }
   /* Modals */
@@ -1300,28 +1299,44 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .cart-items { flex: 1; overflow-y: auto; min-height: 0; }
 .cart-items::-webkit-scrollbar { width: 4px; }
 .cart-items::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-.cart-item {
-  padding: 12px 16px; border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 10px;
+
+/* ── Receipt-style cart table (SI / Product+Barcode / Qty / Rate / Disc /
+   Amount) — mirrors the printed thermal invoice layout so what the
+   cashier sees while ringing up items matches what actually prints. ── */
+.cart-table { display: flex; flex-direction: column; }
+.cart-table-header, .cart-table-row {
+  display: grid;
+  grid-template-columns: 20px 1fr 56px 48px 38px 54px 16px;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
 }
-.cart-item-info { flex: 1; min-width: 0; }
-.cart-item-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cart-item-price { font-size: 12px; color: var(--text-secondary); }
-.cart-qty {
-  display: flex; align-items: center; gap: 6px;
+.cart-table-header {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--text-muted); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--bg-card); z-index: 1;
 }
-.qty-btn {
-  width: 26px; height: 26px; border-radius: 6px;
+.cart-table-row { border-bottom: 1px solid var(--border); font-size: 12px; transition: background .12s; }
+.cart-table-row:hover { background: var(--bg-secondary); }
+.ctc-si { text-align: center; color: var(--text-muted); font-weight: 600; font-size: 11px; }
+.ctc-product { min-width: 0; }
+.ctc-product-name { font-weight: 600; font-size: 12.5px; line-height: 1.3; word-break: break-word; }
+.ctc-barcode { font-size: 10px; color: var(--text-muted); font-family: var(--mono); margin-top: 2px; }
+.ctc-qty { display: flex; justify-content: center; }
+.cart-qty-mini { display: flex; align-items: center; gap: 3px; }
+.qty-btn-mini {
+  width: 18px; height: 18px; border-radius: 4px; padding: 0; line-height: 1;
   border: 1px solid var(--border); background: var(--bg-secondary);
-  color: var(--text-primary); cursor: pointer; font-size: 14px;
-  display: flex; align-items: center; justify-content: center;
-  transition: all .15s;
+  color: var(--text-primary); cursor: pointer; font-size: 11px;
+  display: flex; align-items: center; justify-content: center; transition: all .15s;
 }
-.qty-btn:hover { border-color: var(--accent); color: var(--accent); }
-.qty-val { width: 28px; text-align: center; font-weight: 700; font-size: 13px; }
-.cart-item-total { font-size: 13px; font-weight: 700; width: 60px; text-align: right; }
-.cart-remove { color: var(--text-muted); cursor: pointer; padding: 4px; font-size: 12px; transition: color .15s; }
-.cart-remove:hover { color: var(--red); }
+.qty-btn-mini:hover { border-color: var(--accent); color: var(--accent); }
+.qty-val-mini { min-width: 14px; text-align: center; font-weight: 700; font-size: 11px; }
+.ctc-rate, .ctc-disc, .ctc-amount { text-align: right; font-family: var(--mono); font-size: 11.5px; }
+.ctc-amount { font-weight: 700; }
+.ctc-action { display: flex; justify-content: center; }
+.cart-remove-mini { color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 2px; transition: color .15s; }
+.cart-remove-mini:hover { color: var(--red); }
 .cart-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 200px; color: var(--text-muted); gap: 12px; }
 .cart-empty i { font-size: 40px; }
 .pos-totals { padding: 16px 20px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -1450,7 +1465,48 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 }
 .receipt-preview .rcp-center { text-align: center; margin-bottom: 4px; }
 .receipt-preview .rcp-line { border-top: 1px dashed #ccc; margin: 8px 0; }
-.receipt-preview .rcp-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+.receipt-preview .rcp-row { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 3px; }
+/* Each item's name gets its own line and wraps onto a 2nd line if it's
+   long, instead of squeezing into one row and overlapping the price —
+   keeps the receipt readable no matter how long the product name is. */
+.receipt-preview .rcp-item { margin-bottom: 4px; }
+.receipt-preview .rcp-item-name {
+  font-weight: 600;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.35;
+  margin-bottom: 1px;
+}
+
+/* ── THERMAL RECEIPT PRINT (POS Terminal → Print Receipt) ──────────
+   Rendered into #print-area so it actually reaches the printed page —
+   the receipt modal itself sits outside #print-area and gets hidden by
+   the print rules below, so this is what makes "Print Receipt" work.
+   Sized for standard 80mm thermal paper; product names wrap the same
+   way as the on-screen preview above. A4 printing has been removed from
+   the POS receipt modal entirely — this is the only print path there now. */
+.thermal-receipt {
+  width: 72mm;
+  margin: 0 auto;
+  background: #fff;
+  color: #000;
+  padding: 4mm 3mm;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.thermal-receipt .rcp-center { text-align: center; margin-bottom: 4px; }
+.thermal-receipt .rcp-line { border-top: 1px dashed #000; margin: 8px 0; }
+.thermal-receipt .rcp-row { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 3px; }
+.thermal-receipt .rcp-item { margin-bottom: 4px; }
+.thermal-receipt .rcp-item-name {
+  font-weight: 600;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.35;
+  margin-bottom: 1px;
+}
 
 /* ── A4 PRINT ─────────────────────────────────── */
 @page {
@@ -1586,7 +1642,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   .btn-xs { min-height: 34px; }
   .form-input, select.form-input { min-height: 44px; }
   .nav-item { min-height: 44px; }
-  .qty-btn { min-width: 36px; min-height: 36px; }
+  .qty-btn-mini { min-width: 22px; min-height: 22px; }
   .icon-btn, .theme-toggle, .mobile-menu-btn { min-width: 40px; min-height: 40px; }
 }
 

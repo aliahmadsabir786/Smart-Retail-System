@@ -2990,6 +2990,19 @@ async function newBookingForm(editId, editCompletedInPlace) {
         qty: it.quantity - it.quantity_returned, cartons: 0, ppc: 1, taxPct: Number(it.tax_percent)||0,
         discPct: Number(it.discount_percent)||0,
       }));
+    // This invoice already deducted its items' quantities from stock when it
+    // was first completed — _bkStockByProduct (loaded above) reflects TODAY'S
+    // live stock, which does NOT include those units back yet (the backend
+    // only returns them to stock at save time, via edit_completed_sale's
+    // reverse-then-reapply). Without this, reducing an item from 8 to 3 would
+    // validate the "3" against stock that's still short those 8 units and
+    // wrongly report "out of stock" even though the save would return more
+    // than enough. Adding this invoice's own quantities back to the frontend's
+    // stock cache makes the qty field validate against what will actually be
+    // available once this invoice's old reservation is released.
+    _bookingItems.forEach(it => {
+      if (it.productId) _bkStockByProduct[it.productId] = (_bkStockByProduct[it.productId] || 0) + it.qty;
+    });
     _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 });
   } else if (editId) {
     // Editing a held (draft) invoice — pull its saved items/customer back in.
@@ -3593,7 +3606,7 @@ function computeBookingTotals() {
     const prod = _bkProductCache.find(p => p.id == item.productId);
     const taxPct = Number(prod?.tax_rate ?? item.taxPct) || 0;
     const itemTax = itemBase*taxPct/100;
-    const discPct = discPctNum;
+    const discPct = item.discPct || 0;
     // Per-line discount, taken off this line's tax-inclusive price — mirrors
     // SaleItem.line_discount on the backend and only affects this order,
     // never the product's own saved price/rate.

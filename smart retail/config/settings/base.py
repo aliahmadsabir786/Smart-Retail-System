@@ -278,6 +278,10 @@ CACHES = {
 # Celery
 # ------------------------------------------------------------------
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/1")
+# Fail fast if the broker (Redis) isn't reachable, instead of the request
+# that triggered the email (register / forgot-password) hanging for a long
+# OS-level TCP timeout before giving up.
+CELERY_BROKER_CONNECTION_TIMEOUT = config("CELERY_BROKER_CONNECTION_TIMEOUT", default=3, cast=int)
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://localhost:6379/2")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
@@ -295,7 +299,20 @@ EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="SmartRetail ERP <no-reply@smartretail.com>")
 
-FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
+# How long a password-reset / email-verification link stays valid (seconds).
+# Must match the "This link expires in 1 hour" text in
+# templates/emails/password_reset.html — Django's own default here is 3 days
+# (259200s), which would have made that email text wrong.
+PASSWORD_RESET_TIMEOUT = config("PASSWORD_RESET_TIMEOUT", default=3600, cast=int)
+
+# Fixed: this defaulted to "http://localhost:3000", a separate dev-server
+# port that doesn't exist in this project's architecture — Django serves the
+# whole SPA itself from "/" (see config/urls.py), on :8000 locally. Emailed
+# links (password reset, email verification) are absolute URLs built from
+# this value, so it must point at wherever this same Django app is actually
+# reachable — the Railway/production domain in deployment, set via the
+# FRONTEND_URL env var.
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:8000")
 
 # ------------------------------------------------------------------
 # Logging

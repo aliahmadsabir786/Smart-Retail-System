@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 from rest_framework import generics, status, permissions, serializers
@@ -20,6 +22,29 @@ from .serializers import (
 )
 from .tokens import email_verification_token
 from .tasks import send_verification_email, send_password_reset_email
+
+logger = logging.getLogger("apps")
+
+
+def _queue_email(task, *args):
+    """Enqueue an email task without letting a broker problem (Redis down/
+    unreachable, etc.) hang or fail the request that triggered it.
+
+    Fixed: send_verification_email.delay(...) / send_password_reset_email
+    .delay(...) were called directly inside the request/response cycle. If
+    the Celery broker can't be reached, .delay() can hang the whole request
+    (or raise, if it fails fast) — either way the person is stuck staring
+    at a spinner (or a scary 500) for something that should always feel
+    instant, since sending the email itself was never meant to be part of
+    what they're waiting on. Any broker problem is now caught and logged
+    instead, and the request finishes normally regardless — the account
+    action itself (registration / password-reset request) already
+    succeeded by this point either way.
+    """
+    try:
+        task.delay(*args)
+    except Exception:
+        logger.exception("Failed to queue email task %s — is the Celery broker reachable?", task.__name__)
 
 
 class LogoutInputSerializer(serializers.Serializer):
@@ -53,9 +78,9 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
 
         uid, token, link = build_uid_token_link(
-            user, "/verify-email", token_generator=email_verification_token
+            user, "verify-email", token_generator=email_verification_token
         )
-        send_verification_email.delay(user.id, link)
+        _queue_email(send_verification_email, user.id, link)
 
         return Response({
             "success": True,
@@ -137,8 +162,8 @@ class PasswordResetRequestView(generics.GenericAPIView):
 
         user = User.objects.filter(email=email).first()
         if user:
-            _, _, link = build_uid_token_link(user, "/reset-password")
-            send_password_reset_email.delay(user.id, link)
+            _, _, link = build_uid_token_link(user, "reset-password")
+            _queue_email(send_password_reset_email, user.id, link)
 
         return Response({
             "success": True,

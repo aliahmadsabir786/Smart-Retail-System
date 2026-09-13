@@ -177,6 +177,18 @@ function _ckTheme() {
 
 // Restore session on page refresh if a valid JWT is already stored.
 document.addEventListener('DOMContentLoaded', async () => {
+  // A password-reset link looks like /?view=reset-password&uid=..&token=..
+  // (this SPA has no server-side routing for sub-paths — everything lives
+  // under `/` — so the reset link points back at root with these as query
+  // params instead of a real path). Handle that before anything else, even
+  // if the browser also happens to have a valid session stored, since
+  // clicking a reset link should always take you to the reset screen.
+  if (_checkPasswordResetLink()) {
+    loadLoginBranding();
+    initLoginCursor();
+    return;
+  }
+
   if (typeof AuthAPI !== 'undefined' && AuthAPI.isLoggedIn()) {
     try {
       const user = await AuthAPI.profile();
@@ -188,6 +200,170 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadLoginBranding();
   initLoginCursor();
 });
+
+// ═══════════════════════════════════════════════════════
+// FORGOT PASSWORD / RESET PASSWORD
+// ═══════════════════════════════════════════════════════
+let _resetUid = null;
+let _resetToken = null;
+
+function _checkPasswordResetLink() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('view') !== 'reset-password') return false;
+  _resetUid = params.get('uid');
+  _resetToken = params.get('token');
+  // Clean the sensitive uid/token out of the visible URL/history right
+  // away — the reset screen keeps working off the values already captured
+  // above, but a refresh, a bookmark, or the browser's history/autofill no
+  // longer carries the token around once this has run.
+  window.history.replaceState({}, document.title, window.location.pathname);
+  if (!_resetUid || !_resetToken) {
+    showResetView(); // no valid uid/token at all — treat as an invalid link
+    _showResetInvalid();
+  } else {
+    showResetView();
+  }
+  return true;
+}
+
+function showLoginView() {
+  document.getElementById('login-view').style.display = '';
+  document.getElementById('forgot-view').style.display = 'none';
+  document.getElementById('reset-view').style.display = 'none';
+  // Clear out any state from a previous attempt so re-opening a view starts fresh.
+  const fpEmail = document.getElementById('fp-email');
+  const fpMsg = document.getElementById('fp-message');
+  if (fpEmail) fpEmail.value = '';
+  if (fpMsg) fpMsg.style.display = 'none';
+}
+
+function showForgotPasswordView() {
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('forgot-view').style.display = '';
+  document.getElementById('reset-view').style.display = 'none';
+  const err = document.getElementById('login-error');
+  if (err) err.style.display = 'none';
+  setTimeout(() => document.getElementById('fp-email')?.focus(), 60);
+}
+
+function showResetView() {
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('forgot-view').style.display = 'none';
+  document.getElementById('reset-view').style.display = '';
+  document.getElementById('reset-form-wrap').style.display = '';
+  document.getElementById('reset-invalid-wrap').style.display = 'none';
+  document.getElementById('reset-success-wrap').style.display = 'none';
+}
+
+function _showResetInvalid() {
+  document.getElementById('reset-form-wrap').style.display = 'none';
+  document.getElementById('reset-invalid-wrap').style.display = '';
+  document.getElementById('reset-success-wrap').style.display = 'none';
+}
+
+function _showResetSuccess() {
+  document.getElementById('reset-form-wrap').style.display = 'none';
+  document.getElementById('reset-invalid-wrap').style.display = 'none';
+  document.getElementById('reset-success-wrap').style.display = '';
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function submitForgotPassword() {
+  const emailEl = document.getElementById('fp-email');
+  const msgEl = document.getElementById('fp-message');
+  const btn = document.getElementById('fp-btn');
+  const email = (emailEl.value || '').trim();
+
+  msgEl.style.display = 'none';
+  if (!email) {
+    msgEl.textContent = 'Please enter your email address.';
+    msgEl.style.color = 'var(--red,#ef4444)';
+    msgEl.style.display = '';
+    return;
+  }
+  if (!EMAIL_RE.test(email)) {
+    msgEl.textContent = 'Please enter a valid email address.';
+    msgEl.style.color = 'var(--red,#ef4444)';
+    msgEl.style.display = '';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...';
+  try {
+    // The backend always returns this same generic response whether or not
+    // the email is actually registered — deliberately, so this screen can
+    // never be used to check which emails have accounts.
+    await AuthAPI.forgotPassword(email);
+    msgEl.textContent = 'If an account with this email exists, a password reset link has been sent.';
+    msgEl.style.color = 'var(--green,#10b981)';
+    msgEl.style.display = '';
+    emailEl.value = '';
+  } catch (err) {
+    // Only real request failures (network error, malformed input the
+    // backend itself rejected) land here — "email not found" never does.
+    msgEl.textContent = err.message || 'Something went wrong — please try again.';
+    msgEl.style.color = 'var(--red,#ef4444)';
+    msgEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Reset Link';
+  }
+}
+
+async function submitPasswordReset() {
+  const p1 = document.getElementById('rp-pass1').value;
+  const p2 = document.getElementById('rp-pass2').value;
+  const errEl = document.getElementById('rp-error');
+  const btn = document.getElementById('rp-btn');
+
+  errEl.style.display = 'none';
+  if (!p1 || !p2) {
+    errEl.textContent = 'Please enter and confirm your new password.';
+    errEl.style.display = '';
+    return;
+  }
+  if (p1 !== p2) {
+    errEl.textContent = 'Passwords do not match.';
+    errEl.style.display = '';
+    return;
+  }
+  if (!_resetUid || !_resetToken) {
+    _showResetInvalid();
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Resetting...';
+  try {
+    await AuthAPI.resetPasswordConfirm({
+      uid: _resetUid, token: _resetToken,
+      new_password: p1, new_password_confirm: p2,
+    });
+    document.getElementById('rp-pass1').value = '';
+    document.getElementById('rp-pass2').value = '';
+    _resetUid = null; _resetToken = null;
+    _showResetSuccess();
+  } catch (err) {
+    // An invalid/expired/already-used token fails validation on the
+    // backend's side (uid/token fields) — treat any of those as "show the
+    // expired-link screen" rather than a raw inline form error, since a
+    // retry with the same link can't succeed either way. A weak new
+    // password or a mismatch the backend itself catches still shows as a
+    // normal inline message so the person can just fix it and resubmit.
+    const badLink = err.data && (err.data.uid || err.data.token);
+    if (badLink) {
+      _showResetInvalid();
+    } else {
+      errEl.textContent = err.message || 'Could not reset password — please try again.';
+      errEl.style.display = '';
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-key"></i> Reset Password';
+  }
+}
 
 // Populates the login screen's brand panel with the real uploaded company
 // logo/name (Settings → Company) instead of the hardcoded placeholder —
@@ -3072,18 +3248,28 @@ function renderBookingItemRows() {
   tbody.innerHTML = _bookingItems.map((item,i)=>{
     const unit     = item.unit||'Pcs';
     const ppc      = item.ppc||1;
+    // Number(...) here (not just `||0`) because these fields can now hold
+    // the raw string the user is still typing (e.g. "12." mid-decimal —
+    // see updateBookingItem) rather than an already-parsed number. Mixing
+    // a string operand into a `+` would silently concatenate ("5"+2="52")
+    // instead of adding, which is exactly the kind of wrong total this is
+    // guarding against.
+    const qtyNum     = Number(item.qty) || 0;
+    const cartonsNum = Number(item.cartons) || 0;
+    const rateNum    = Number(item.rate) || 0;
+    const discPctNum = Number(item.discPct) || 0;
     let totalPcs = 0;
     if (unit==='Carton') {
-      totalPcs = (item.cartons||0)*ppc + (item.qty||0);
+      totalPcs = cartonsNum*ppc + qtyNum;
     } else {
-      totalPcs = (item.qty||0) + (item.cartons||0)*ppc;
+      totalPcs = qtyNum + cartonsNum*ppc;
     }
     const prod      = _bkProductCache.find(p => p.id == item.productId);
-    const baseAmt   = totalPcs*(item.rate||0);
+    const baseAmt   = totalPcs*rateNum;
     const taxPct    = Number(prod?.tax_rate ?? item.taxPct) || 0;
     const taxAmt    = baseAmt*taxPct/100;
     const priceWithTax = baseAmt+taxAmt;
-    const discPct   = item.discPct||0;
+    const discPct   = item.discPct || 0;
     // Line discount is taken off the tax-inclusive line price, matching how
     // the backend computes SaleItem.line_discount — this only affects this
     // one order line and never touches the product's own saved price.
@@ -3200,9 +3386,29 @@ function _bkProdReposition() {
   const drop = document.getElementById('bk-prod-float-drop');
   if (!inp || !drop) return;
   const r = inp.getBoundingClientRect();
+  const dropMaxHeight = 260;
+  const spaceBelow = window.innerHeight - r.bottom;
+  const spaceAbove = r.top;
+  // Fixed: this always opened the dropdown below the input, with no check
+  // for whether there was actually room on screen. Once several product
+  // rows had been added, the next empty row sat near the bottom of the
+  // page (or the viewport, on a shorter screen) — the dropdown would still
+  // try to open below it, landing off-screen and invisible, which looked
+  // exactly like "I can't add any more products" even though there was no
+  // real limit. Now it opens upward instead whenever there isn't enough
+  // room below but there is above.
+  const openUpward = spaceBelow < 160 && spaceAbove > spaceBelow;
   drop.style.left = r.left + 'px';
-  drop.style.top = (r.bottom + 4) + 'px';
   drop.style.width = r.width + 'px';
+  if (openUpward) {
+    drop.style.top = '';
+    drop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+    drop.style.maxHeight = Math.min(dropMaxHeight, spaceAbove - 10) + 'px';
+  } else {
+    drop.style.bottom = '';
+    drop.style.top = (r.bottom + 4) + 'px';
+    drop.style.maxHeight = Math.min(dropMaxHeight, spaceBelow - 10) + 'px';
+  }
 }
 
 function _bkProdRenderRows(list) {
@@ -3326,12 +3532,21 @@ function onBookingProductChange(i, productId) {
 }
 
 function updateBookingItem(i, field, val) {
-  _bookingItems[i][field] = parseFloat(val)||0;
+  // Fixed: this used to store parseFloat(val) immediately — e.g. typing
+  // "12." parses to 12, and the very next re-render then rebuilt the input's
+  // value from that number, silently erasing the "." you just typed. So
+  // typing a decimal one character at a time (e.g. "12.5") never worked —
+  // you'd end up with "125" instead, because by the time you typed "5" the
+  // "." was already gone and the field just appended the digit. The raw
+  // string is now kept as typed; numbers are only parsed out of it where an
+  // actual calculation or limit check needs one, below and elsewhere.
+  _bookingItems[i][field] = val;
   const item = _bookingItems[i];
+  const numVal = parseFloat(val) || 0;
 
   if (field === 'discPct') {
-    if (item.discPct < 0) item.discPct = 0;
-    if (item.discPct > 100) item.discPct = 100;
+    if (numVal < 0) item.discPct = 0;
+    else if (numVal > 100) item.discPct = 100;
   }
 
   // Defensive re-check: stock can shift between opening the form and typing
@@ -3342,7 +3557,7 @@ function updateBookingItem(i, field, val) {
     if (stock <= 0) {
       item.qty = 0;
       toast('That product is out of stock — quantity can\'t be added.', 'error');
-    } else if (item.qty > stock) {
+    } else if (numVal > stock) {
       item.qty = stock;
       toast(`Only ${stock} in stock — quantity capped.`, 'warning');
     }
@@ -3352,7 +3567,7 @@ function updateBookingItem(i, field, val) {
   // automatically append a fresh empty row so the next product can be
   // entered right away — no need to click "Add Item" every time.
   const isLastRow = i === _bookingItems.length - 1;
-  if (field === 'qty' && isLastRow && item.productId && item.qty > 0) {
+  if (field === 'qty' && isLastRow && item.productId && numVal > 0) {
     _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 });
   }
 
@@ -3366,12 +3581,19 @@ function updateBookingItem(i, field, val) {
 function computeBookingTotals() {
   let baseAmount = 0, autoTaxAmt = 0, itemDiscAmt = 0;
   _bookingItems.forEach(item => {
-    const tp = (item.qty||0) + (item.cartons||0)*(item.ppc||1);
-    const itemBase = tp*(item.rate||0);
+    // Number(...) here for the same reason as in renderBookingItemRows —
+    // these fields can hold the raw in-progress string from the input
+    // (e.g. "12.") rather than an already-parsed number.
+    const qtyNum = Number(item.qty) || 0;
+    const cartonsNum = Number(item.cartons) || 0;
+    const rateNum = Number(item.rate) || 0;
+    const discPctNum = Number(item.discPct) || 0;
+    const tp = qtyNum + cartonsNum*(item.ppc||1);
+    const itemBase = tp*rateNum;
     const prod = _bkProductCache.find(p => p.id == item.productId);
     const taxPct = Number(prod?.tax_rate ?? item.taxPct) || 0;
     const itemTax = itemBase*taxPct/100;
-    const discPct = item.discPct||0;
+    const discPct = discPctNum;
     // Per-line discount, taken off this line's tax-inclusive price — mirrors
     // SaleItem.line_discount on the backend and only affects this order,
     // never the product's own saved price/rate.
@@ -3441,9 +3663,9 @@ async function saveBooking(status) {
 
   const items = validItems.map(i => {
     const prod = _bkProductCache.find(p=>p.id==i.productId);
-    const tp = (i.qty||0)+(i.cartons||0)*(i.ppc||1);
+    const tp = (Number(i.qty)||0)+(Number(i.cartons)||0)*(i.ppc||1);
     return {
-      product: i.productId, quantity: tp, unit_price: i.rate,
+      product: i.productId, quantity: tp, unit_price: Number(i.rate) || 0,
       tax_percent: Number(prod?.tax_rate ?? i.taxPct) || 0,
       discount_percent: Number(i.discPct) || 0,
     };

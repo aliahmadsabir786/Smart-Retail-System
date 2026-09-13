@@ -193,10 +193,21 @@ class EmailVerificationConfirmSerializer(serializers.Serializer):
         return user
 
 
-def build_uid_token_link(user, base_path, token_generator=default_token_generator):
-    """Helper: builds a uid+token pair and full frontend link for email/reset flows."""
+def build_uid_token_link(user, view, token_generator=default_token_generator):
+    """Helper: builds a uid+token pair and full frontend link for email/reset
+    flows.
+
+    Fixed: this used to build a link like f"{FRONTEND_URL}/reset-password?
+    uid=..&token=..", but this project serves the whole SPA from a single
+    Django route at "/" (see config/urls.py) — there's no server route for
+    "/reset-password" itself, so following that link 404'd instead of
+    opening the reset screen. The SPA does its own client-side view
+    switching off query params, so the link now points back at "/" with a
+    `view` query param the frontend reads on load (see
+    _checkPasswordResetLink in script.js) instead of a path segment.
+    """
     from django.conf import settings
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = token_generator.make_token(user)
-    link = f"{settings.FRONTEND_URL}{base_path}?uid={uid}&token={token}"
+    link = f"{settings.FRONTEND_URL}/?view={view}&uid={uid}&token={token}"
     return uid, token, link

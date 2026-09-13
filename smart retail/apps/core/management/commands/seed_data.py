@@ -6,6 +6,12 @@ from apps.authentication.models import User, Role
 class Command(BaseCommand):
     help = "Seeds the database with a super admin and one demo user per role."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--reset", action="store_true",
+            help="Delete the existing seeded demo accounts (by email) before creating fresh ones.",
+        )
+
     @transaction.atomic
     def handle(self, *args, **options):
         demo_users = [
@@ -16,6 +22,11 @@ class Command(BaseCommand):
             ("inventory@smartretail.com", "Inventory123!", Role.INVENTORY_MANAGER, "Ivy", "Inventory", False),
             ("customer@smartretail.com", "Customer123!", Role.CUSTOMER, "Cindy", "Customer", False),
         ]
+
+        if options["reset"]:
+            emails = [email for email, *_ in demo_users]
+            deleted_count, _ = User.objects.filter(email__in=emails).delete()
+            self.stdout.write(self.style.WARNING(f"Deleted {deleted_count} existing seeded account(s)."))
 
         for email, password, role, first, last, is_super in demo_users:
             if User.objects.filter(email=email).exists():

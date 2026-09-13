@@ -152,6 +152,17 @@ const AuthAPI = {
     return apiRequest('/auth/profile/');
   },
 
+  async forgotPassword(email) {
+    return apiRequest('/auth/password-reset/', { method: 'POST', body: { email }, auth: false });
+  },
+
+  async resetPasswordConfirm({ uid, token, new_password, new_password_confirm }) {
+    return apiRequest('/auth/password-reset/confirm/', {
+      method: 'POST', auth: false,
+      body: { uid, token, new_password, new_password_confirm },
+    });
+  },
+
   isLoggedIn() {
     return !!TokenStore.getAccess();
   },

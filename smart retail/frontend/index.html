@@ -60,7 +60,7 @@
       </div>
     </div>
     <div class="login-form-panel">
-      <div class="login-box">
+      <div class="login-box" id="login-view">
         <div class="login-title">Welcome back</div>
         <div class="login-sub">Sign in to manage your retail operations</div>
         <div class="form-group">
@@ -75,6 +75,64 @@
           <i class="fa fa-sign-in-alt"></i> Sign In
         </button>
         <div id="login-error" style="color:var(--red,#ef4444);font-size:12px;margin-top:8px;display:none"></div>
+        <div style="text-align:center;margin-top:14px">
+          <a href="javascript:void(0)" onclick="showForgotPasswordView()" style="font-size:13px;color:var(--accent);text-decoration:none">Forgot Password?</a>
+        </div>
+      </div>
+
+      <!-- ── FORGOT PASSWORD: request a reset link by email ── -->
+      <div class="login-box" id="forgot-view" style="display:none">
+        <div class="login-title">Forgot Password?</div>
+        <div class="login-sub">Enter the email address associated with your account.</div>
+        <div class="form-group">
+          <label>Email</label>
+          <input class="form-input" id="fp-email" type="email" placeholder="Enter your account email" autocomplete="username">
+        </div>
+        <button class="btn-primary" id="fp-btn" onclick="submitForgotPassword()">
+          <i class="fa fa-paper-plane"></i> Send Reset Link
+        </button>
+        <div id="fp-message" style="font-size:12px;margin-top:8px;display:none"></div>
+        <div style="text-align:center;margin-top:14px">
+          <a href="javascript:void(0)" onclick="showLoginView()" style="font-size:13px;color:var(--accent);text-decoration:none">← Back to Login</a>
+        </div>
+      </div>
+
+      <!-- ── RESET PASSWORD: opened from the emailed link (?view=reset-password&uid=..&token=..) ── -->
+      <div class="login-box" id="reset-view" style="display:none">
+        <div id="reset-form-wrap">
+          <div class="login-title">Reset Password</div>
+          <div class="login-sub">Choose a new password for your account.</div>
+          <div class="form-group">
+            <label>New Password</label>
+            <input class="form-input" id="rp-pass1" type="password" placeholder="Enter new password" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label>Confirm New Password</label>
+            <input class="form-input" id="rp-pass2" type="password" placeholder="Confirm new password" autocomplete="new-password">
+          </div>
+          <button class="btn-primary" id="rp-btn" onclick="submitPasswordReset()">
+            <i class="fa fa-key"></i> Reset Password
+          </button>
+          <div id="rp-error" style="color:var(--red,#ef4444);font-size:12px;margin-top:8px;display:none"></div>
+        </div>
+
+        <!-- Shown instead of the form once the link turns out to be invalid/expired -->
+        <div id="reset-invalid-wrap" style="display:none;text-align:center">
+          <div class="login-title" style="color:var(--red,#ef4444)"><i class="fa fa-exclamation-triangle"></i> Invalid or Expired Link</div>
+          <div class="login-sub">This password reset link is no longer valid.<br>Please request a new one.</div>
+          <button class="btn-primary" onclick="showForgotPasswordView()">
+            <i class="fa fa-redo"></i> Request New Link
+          </button>
+        </div>
+
+        <!-- Shown after a successful reset -->
+        <div id="reset-success-wrap" style="display:none;text-align:center">
+          <div class="login-title" style="color:var(--green,#10b981)"><i class="fa fa-check-circle"></i> Password Reset Successful</div>
+          <div class="login-sub">Your password has been changed. You can now log in.</div>
+          <button class="btn-primary" onclick="showLoginView()">
+            <i class="fa fa-sign-in-alt"></i> Return to Login
+          </button>
+        </div>
       </div>
     </div>
   </div>

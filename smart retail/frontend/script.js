@@ -4667,7 +4667,10 @@ async function filterLedgerAccounts() {
   const q = (document.getElementById('ldg-search')?.value||'').toLowerCase();
   const sel = document.getElementById('ldg-account-select');
   if (!sel) return;
-  const data = type==='customer' ? await CustomersAPI.list({ page_size: 500 }) : await SuppliersAPI.list({ page_size: 500 });
+  // page_size:2000 — was 500, so any customer/supplier past the first 500
+  // never showed up no matter what you typed in the search box (the box only
+  // filters this locally-cached list, it doesn't re-query the server).
+  const data = type==='customer' ? await CustomersAPI.list({ page_size: 2000 }) : await SuppliersAPI.list({ page_size: 2000 });
   _ledgerAccountCache = data.results || data;
   const filtered = _ledgerAccountCache.filter(x=>x.name.toLowerCase().includes(q));
   sel.innerHTML = '<option value="">— Select Account —</option>' +
@@ -4861,7 +4864,7 @@ function renderDailyRecap(entries, opts) {
 async function renderAllAccountsSummary() {
   const type = document.getElementById('ldg-type')?.value||'customer';
   const items = _ledgerAccountCache.length ? _ledgerAccountCache
-    : (type==='customer' ? (await CustomersAPI.list({page_size:500})).results : (await SuppliersAPI.list({page_size:500})).results);
+    : (type==='customer' ? (await CustomersAPI.list({page_size:2000})).results : (await SuppliersAPI.list({page_size:2000})).results);
   document.getElementById('ldg-all-title').textContent = type==='customer' ? 'All Customer Accounts' : 'All Supplier Accounts';
   document.getElementById('ldg-all-tbody').innerHTML = items.map(x=>{
     const balance = type==='customer' ? Number(x.outstanding_balance) : Number(x.outstanding_payable);
@@ -7531,8 +7534,12 @@ function getUsernameCollectionRows(username) {
 }
 
 async function renderCollection() {
+  // page_size:2000 — was 500, which silently capped the Collection page at
+  // the first 500 customers/sales (same class of bug as the earlier order
+  // booking fix: a hardcoded page_size below max_page_size hides everything
+  // past the cut). See apps/core/pagination.py — max_page_size is 2000.
   const [custData, salesData, returnsData] = await Promise.all([
-    CustomersAPI.list({ page_size: 500 }), SalesAPI.list({ page_size: 500 }),
+    CustomersAPI.list({ page_size: 2000 }), SalesAPI.list({ page_size: 2000 }),
     SalesAPI.returnHistory({ page_size: 1000 }),
   ]);
   _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: 'ACC-'+String(c.id).padStart(4,'0') }));

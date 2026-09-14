@@ -2639,11 +2639,12 @@ async function renderUsers() {
       <td>${u.email}</td>
       <td style="font-size:11px;color:var(--text-secondary);max-width:200px">${['super_admin','admin'].includes(u.role)?'<span class="badge badge-purple">All Modules</span>':'<span class="badge badge-blue" style="font-size:9px">Role-based</span>'}</td>
       <td style="font-size:12px">${u.last_login ? u.last_login.replace('T',' ').slice(0,16) : 'Never'}</td>
-      <td><span class="badge ${u.is_active?'badge-green':'badge-red'}">${u.is_active?'Active':'Inactive'}</span></td>
+      <td><span class="badge ${u.is_active?'badge-green':'badge-red'}" style="cursor:pointer" onclick="${u.id!==currentUser?.id?`toggleUserActive(${u.id},${u.is_active})`:''}" title="${u.id!==currentUser?.id?'Click to '+(u.is_active?'deactivate':'activate'):''}">${u.is_active?'Active':'Inactive'}</span></td>
       <td>
         <div class="flex-gap">
           <button class="btn btn-ghost btn-xs" onclick="editUser(${u.id})"><i class="fa fa-edit"></i></button>
-          ${u.id!==currentUser?.id?`<button class="btn btn-ghost btn-xs" onclick="deleteUser(${u.id})" style="color:var(--red)"><i class="fa fa-trash"></i></button>`:''}
+          ${u.id!==currentUser?.id?`<button class="btn btn-ghost btn-xs" onclick="toggleUserActive(${u.id},${u.is_active})" style="color:${u.is_active?'var(--yellow)':'var(--green)'}" title="${u.is_active?'Deactivate':'Activate'}"><i class="fa ${u.is_active?'fa-user-slash':'fa-user-check'}"></i></button>`:''}
+          ${u.id!==currentUser?.id?`<button class="btn btn-ghost btn-xs" onclick="deleteUser(${u.id})" style="color:var(--red)" title="Delete permanently"><i class="fa fa-trash"></i></button>`:''}
         </div>
       </td>
     </tr>`).join('');
@@ -2719,13 +2720,28 @@ async function saveUser() {
 }
 
 async function deleteUser(id) {
-  if (!(await confirmModal("This user will lose access to SmartRetail ERP immediately.", { title: 'Deactivate User?', confirmText: 'Deactivate', icon: 'fa-user-slash' }))) return;
+  if (!(await confirmModal("This user account will be permanently deleted. This can't be undone — their past sales/purchases/records stay intact, just no longer linked to a named user.", { title: 'Delete User?', confirmText: 'Delete Permanently', icon: 'fa-trash' }))) return;
   try {
     await UsersAPI.remove(id);
     renderUsers();
-    toast('User deactivated','success');
+    toast('User deleted permanently','success');
   } catch (err) {
-    toast(err.message || 'Failed to deactivate user', 'error');
+    toast(err.message || 'Failed to delete user', 'error');
+  }
+}
+
+async function toggleUserActive(id, currentlyActive) {
+  const goingTo = currentlyActive ? 'deactivate' : 'activate';
+  if (!(await confirmModal(
+    currentlyActive ? "This user won't be able to sign in until reactivated." : "This user will be able to sign in again.",
+    { title: (currentlyActive?'Deactivate':'Activate') + ' User?', confirmText: currentlyActive?'Deactivate':'Activate', danger: currentlyActive, icon: currentlyActive?'fa-user-slash':'fa-user-check' }
+  ))) return;
+  try {
+    await UsersAPI.update(id, { is_active: !currentlyActive });
+    renderUsers();
+    toast(`User ${goingTo}d`, 'success');
+  } catch (err) {
+    toast(err.message || `Failed to ${goingTo} user`, 'error');
   }
 }
 

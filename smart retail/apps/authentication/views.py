@@ -214,8 +214,18 @@ class UserManagementViewSet(viewsets.ModelViewSet):
     """
     Admin-only CRUD over all user accounts (/api/v1/auth/users/).
     Distinct from ProfileView, which only ever touches request.user.
-    Deleting a user here is a soft "deactivate" (is_active=False) rather
-    than a hard delete, to preserve FK history (audit logs, sales served_by, etc).
+
+    Deleting a user here is a REAL, permanent delete — every FK that could
+    reference a user (Sale.served_by/received_by/processed_by,
+    Purchase.ordered_by/paid_by/processed_by, Expense.approved_by,
+    AuditLog.user) is declared SET_NULL, so removing the user account never
+    removes or breaks those historical records — they just keep existing
+    with that "who did this" field set to null. Only a user's OWN
+    activity-log rows and notifications cascade-delete with them, which is
+    correct (there's no reason to keep either once the account is gone).
+    Toggling is_active (Activate/Deactivate) is the separate, reversible
+    action for temporarily blocking someone's login without deleting them
+    — done via a normal PATCH to this same endpoint.
     """
     queryset = User.objects.all().order_by("-date_joined")
     serializer_class = UserManagementSerializer
@@ -225,6 +235,11 @@ class UserManagementViewSet(viewsets.ModelViewSet):
     search_fields = ["email", "first_name", "last_name", "phone"]
     ordering_fields = ["date_joined", "email"]
 
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=["is_active"])
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.id == request.user.id:
+            return Response(
+                {"detail": "You can't delete your own account while signed in as it."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)

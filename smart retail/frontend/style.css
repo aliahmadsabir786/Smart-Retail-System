@@ -812,6 +812,17 @@ body.light-mode .theme-toggle { border-color: var(--accent); color: var(--accent
   outline: none;
 }
 .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.password-field { position: relative; }
+.password-field .form-input { padding-right: 42px; }
+.password-toggle {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-secondary); font-size: 15px; border-radius: var(--radius-sm);
+}
+.password-toggle:hover { color: var(--accent); }
+#login-screen .password-toggle, .login-box .password-toggle { color: rgba(255,255,255,.5); }
+#login-screen .password-toggle:hover, .login-box .password-toggle:hover { color: #fff; }
 .btn-primary {
   width: 100%; padding: 13px; border: none;
   background: linear-gradient(135deg, var(--accent), var(--purple));

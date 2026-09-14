@@ -69,7 +69,10 @@
         </div>
         <div class="form-group">
           <label>Password</label>
-          <input class="form-input" id="l-pass" type="password" placeholder="Enter password" autocomplete="current-password">
+          <div class="password-field">
+            <input class="form-input" id="l-pass" type="password" placeholder="Enter password" autocomplete="current-password">
+            <button type="button" class="password-toggle" onclick="togglePasswordVisibility('l-pass', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
+          </div>
         </div>
         <button class="btn-primary" id="login-btn" onclick="doLogin()">
           <i class="fa fa-sign-in-alt"></i> Sign In
@@ -104,11 +107,17 @@
           <div class="login-sub">Choose a new password for your account.</div>
           <div class="form-group">
             <label>New Password</label>
-            <input class="form-input" id="rp-pass1" type="password" placeholder="Enter new password" autocomplete="new-password">
+            <div class="password-field">
+              <input class="form-input" id="rp-pass1" type="password" placeholder="Enter new password" autocomplete="new-password">
+              <button type="button" class="password-toggle" onclick="togglePasswordVisibility('rp-pass1', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
+            </div>
           </div>
           <div class="form-group">
             <label>Confirm New Password</label>
-            <input class="form-input" id="rp-pass2" type="password" placeholder="Confirm new password" autocomplete="new-password">
+            <div class="password-field">
+              <input class="form-input" id="rp-pass2" type="password" placeholder="Confirm new password" autocomplete="new-password">
+              <button type="button" class="password-toggle" onclick="togglePasswordVisibility('rp-pass2', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
+            </div>
           </div>
           <button class="btn-primary" id="rp-btn" onclick="submitPasswordReset()">
             <i class="fa fa-key"></i> Reset Password
@@ -2684,7 +2693,12 @@
           </select>
         </div>
       </div>
-      <div class="form-group-inline"><label>Password *</label><input class="form-input" type="password" id="usr-pass" placeholder="••••••••"></div>
+      <div class="form-group-inline"><label>Password *</label>
+        <div class="password-field">
+          <input class="form-input" type="password" id="usr-pass" placeholder="••••••••">
+          <button type="button" class="password-toggle" onclick="togglePasswordVisibility('usr-pass', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
+        </div>
+      </div>
       <div id="permissions-panel" style="display:none;margin-top:12px">
         <label style="display:block;font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Module Access (Sub-Admin)</label>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">

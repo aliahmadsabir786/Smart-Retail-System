@@ -8948,3 +8948,19 @@ function printPurchaseReturnReport() {
   const pa=document.getElementById('print-area'); pa.innerHTML=html; pa.style.display='block';
   window.print(); setTimeout(()=>{pa.style.display='none';},1200);
 }
+// ── PASSWORD SHOW/HIDE TOGGLE ─────────────────────────
+// Flips an <input type="password"> to type="text" (and back) and swaps the
+// eye / eye-slash icon on the button that triggered it, so users can check
+// what they've typed before submitting.
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const icon = btn.querySelector('i');
+  const showing = input.type === 'password';
+  input.type = showing ? 'text' : 'password';
+  if (icon) {
+    icon.classList.toggle('fa-eye', !showing);
+    icon.classList.toggle('fa-eye-slash', showing);
+  }
+  btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
+}

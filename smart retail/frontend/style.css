@@ -1591,6 +1591,52 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     break-inside: avoid !important;
   }
 }
+/* ── LANDSCAPE 2-UP (real, full-size invoices side by side) ──────
+   This is what "Print All → 2 on One Page" uses instead of the printer's
+   own "2 pages per sheet" option. That browser option just photographs
+   two already-built PORTRAIT pages and shrinks them down to fit one
+   sheet — which is why bumping the on-screen font size never seemed to
+   change anything once printed that way: the shrink happens AFTER the
+   page is built, undoing it. Here, instead, the physical page itself is
+   authored as landscape and each invoice only has to fill half of it, so
+   whatever font size you set (Invoice Font Size / Product Name Font
+   Size) prints at that real size — same as a single, one-per-page
+   invoice — with no extra shrink layered on top. */
+.a4-landscape-pair {
+  display: flex;
+  gap: 8mm;
+  align-items: flex-start;
+  width: 100%;
+}
+.a4-landscape-pair .a4-doc {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  flex: 1 1 0;
+  /* Each half must NOT force its own new page — that's the whole point
+     of "2 on one page" — even though buildSlipA4Html's inline style
+     always sets page-break-before:always (needed for normal, one-per-
+     page printing). !important beats that inline style here. */
+  page-break-before: avoid !important;
+  break-before: avoid !important;
+}
+@media print {
+  .a4-landscape-pair {
+    page-break-after: always;
+    break-after: page;
+  }
+  .a4-landscape-pair:last-child {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  .a4-landscape-pair .a4-doc {
+    /* Overrides the generic ".a4-doc { page-break-after: always }" rule
+       above — without this, a page break would land BETWEEN the left and
+       right invoice instead of after the pair. */
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+}
 #print-area { display: none; }
 .a4-doc {
   width: 210mm; min-height: 270mm;

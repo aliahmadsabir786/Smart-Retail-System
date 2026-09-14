@@ -4090,6 +4090,15 @@ function buildSlipA4Html(rawSale) {
   // template one by one.
   const fontScale = Number(ssSettings.fontScale) || 1;
 
+  // Independent of fontScale above — this ONLY bumps the "Product Name"
+  // cell text in the items table (the actual name in each row), not the
+  // header label, not any other column, not the rest of the slip. It
+  // still gets multiplied by the overall `zoom` too (that's unavoidable —
+  // zoom scales the whole box), but relative to everything else on the
+  // page it stays bigger by exactly this factor.
+  const productNameFontScale = Number(ssSettings.productNameFontScale) || 1;
+  const productNameFontSize = (9.5 * productNameFontScale).toFixed(2);
+
   return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px;zoom:${fontScale}">
     <!-- ═══ MAIN HEADER ═══ -->
     <div style="display:flex;align-items:flex-start;gap:10px;border-bottom:2px solid #000;padding-bottom:4mm;margin-bottom:3mm">
@@ -4169,7 +4178,7 @@ function buildSlipA4Html(rawSale) {
           const bg = i%2===1?'#f4f4f4':'#fff';
           return `<tr>
             <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;font-weight:700;color:#000;background:${bg}">${i+1}</td>
-            <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;font-weight:700;color:#000;background:${bg}">${it.icon||''} ${it.name||'—'}</td>
+            <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:${productNameFontSize}px;font-weight:700;color:#000;background:${bg}">${it.icon||''} ${it.name||'—'}</td>
             <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:10px;font-weight:700;color:#000;text-align:center;background:${bg}">${tp}</td>
             <td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:9.5px;font-weight:600;color:#000;text-align:right;background:${bg}">Rs. ${(it.rate||0).toFixed(2)}</td>
             ${ssSettings.showSubtotal ? `<td style="padding:5px 5px;border-bottom:1px solid #ddd;font-size:10px;font-weight:700;color:#000;text-align:right;background:${bg}">Rs. ${baseAmt.toFixed(2)}</td>` : ''}
@@ -4364,6 +4373,21 @@ function printAllSlipsA4(mode) {
         <span>Date: ${dateFilter||'All'} | Printed: ${new Date().toLocaleDateString()}</span>
       </div>
     </div>`;
+  } else if (mode === 'landscape2up') {
+    // Two REAL, full-width invoices side-by-side on one physical landscape
+    // sheet — not the browser's own "2 pages per sheet" print option,
+    // which just photographically shrinks two already-built portrait
+    // pages down to fit (which is why increasing the on-page font size
+    // barely showed up after that shrink). Here the page itself is
+    // authored as landscape and each invoice only ever has to fill half
+    // of it, so the printed text stays at its real, legible size.
+    let pairHtml = '';
+    for (let i = 0; i < slips.length; i += 2) {
+      const left = buildSlipA4Html(slips[i]);
+      const right = slips[i + 1] ? buildSlipA4Html(slips[i + 1]) : '<div class="a4-doc" style="visibility:hidden"></div>';
+      pairHtml += `<div class="a4-landscape-pair">${left}${right}</div>`;
+    }
+    html = pairHtml;
   } else {
     html = slips.map(b=>buildSlipA4Html(b)).join('');
   }
@@ -4371,10 +4395,27 @@ function printAllSlipsA4(mode) {
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;
   printArea.style.display = 'block';
+
+  // @page is a global, page-level rule — it can't be scoped with a class
+  // selector like normal CSS, so switching just this one print to
+  // landscape means temporarily swapping in its own <style> tag rather
+  // than editing style.css's page-wide @page block (which every other
+  // print in the app also relies on staying portrait).
+  let landscapeStyleTag = null;
+  if (mode === 'landscape2up') {
+    landscapeStyleTag = document.createElement('style');
+    landscapeStyleTag.id = 'temp-landscape-page-style';
+    landscapeStyleTag.textContent = '@page { size: A4 landscape; margin: 8mm; }';
+    document.head.appendChild(landscapeStyleTag);
+  }
+
   // Allow browser to fully render all slip HTML before triggering print dialog
   setTimeout(() => {
     window.print();
-    setTimeout(() => { printArea.style.display = 'none'; }, 1500);
+    setTimeout(() => {
+      printArea.style.display = 'none';
+      if (landscapeStyleTag) landscapeStyleTag.remove();
+    }, 1500);
   }, 350);
   toast(`Preparing ${slips.length} slip${slips.length!==1?'s':''}... Print dialog will open shortly.`, 'success');
 }
@@ -7185,6 +7226,10 @@ const SS_SETTINGS_DEFAULTS = {
   // change it here any time instead of hunting through buildSlipA4Html's
   // hardcoded px values.
   fontScale: 1.15,
+  // Separate control that ONLY bumps the "Product Name" column text in
+  // the items table — independent of fontScale above, which scales the
+  // whole slip (logo, totals, header, everything). 1 = original 9.5px.
+  productNameFontScale: 1,
 };
 let ssSettings = (() => {
   try {
@@ -7202,6 +7247,8 @@ function saveSsSettings() {
   });
   const fontScaleEl = document.getElementById('ss-font-scale');
   if (fontScaleEl) ssSettings.fontScale = parseFloat(fontScaleEl.value) || 1;
+  const productNameFontScaleEl = document.getElementById('ss-product-name-font-scale');
+  if (productNameFontScaleEl) ssSettings.productNameFontScale = parseFloat(productNameFontScaleEl.value) || 1;
   localStorage.setItem(SS_SETTINGS_KEY, JSON.stringify(ssSettings));
   closeModal('ss-settings-modal');
   toast('Sale Slip settings saved!', 'success');
@@ -8165,6 +8212,19 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="1.45" ${ssSettings.fontScale===1.45?'selected':''}>Huge</option>
           </select>
           <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Scales all text, headers and totals on the printed A4 slip together — change it here any time, no code edits needed.</div>
+        </div>
+        <div style="margin-bottom:16px;padding:12px 14px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:8px">
+            <i class="fa fa-font" style="color:var(--accent)"></i> Product Name Font Size
+          </label>
+          <select class="form-input" id="ss-product-name-font-scale" style="padding:9px 12px">
+            <option value="1" ${ssSettings.productNameFontScale===1?'selected':''}>Normal (original)</option>
+            <option value="1.3" ${ssSettings.productNameFontScale===1.3?'selected':''}>Large</option>
+            <option value="1.5" ${ssSettings.productNameFontScale===1.5?'selected':''}>Extra Large</option>
+            <option value="1.75" ${ssSettings.productNameFontScale===1.75?'selected':''}>Huge</option>
+            <option value="2" ${ssSettings.productNameFontScale===2?'selected':''}>Maximum</option>
+          </select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Only enlarges the product name text inside the items table — everything else on the slip stays the same size.</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           ${[

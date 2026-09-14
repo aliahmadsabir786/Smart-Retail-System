@@ -1,7 +1,7 @@
 from django.db import connection, transaction
 from django.db.models.deletion import ProtectedError
 from rest_framework import generics, status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.permissions import IsAdminOrAbove, IsSuperAdmin
@@ -10,9 +10,21 @@ from .serializers import CompanySettingsSerializer
 
 
 class CompanySettingsView(generics.RetrieveUpdateAPIView):
-    """GET/PATCH /settings/company/ — single company-wide settings object (singleton)."""
+    """GET/PATCH /settings/company/ — single company-wide settings object (singleton).
+
+    Every role that can print a sale slip, report, or ledger statement
+    (manager, inventory_manager, cashier, salesperson — not just admin+)
+    needs to READ this so the company name/logo/address actually show up
+    on what they print. Editing the settings is still admin+ only — GET
+    is opened to any authenticated user, PATCH/PUT stay behind
+    IsAdminOrAbove.
+    """
     serializer_class = CompanySettingsSerializer
-    permission_classes = [IsAdminOrAbove]
+
+    def get_permissions(self):
+        if self.request.method in ("GET", "HEAD", "OPTIONS"):
+            return [IsAuthenticated()]
+        return [IsAdminOrAbove()]
 
     def get_object(self):
         return CompanySettings.load()

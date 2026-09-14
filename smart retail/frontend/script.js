@@ -4081,8 +4081,16 @@ function buildSlipA4Html(rawSale) {
     ? `<img src="${logoDataUrl}" style="max-width:56px;max-height:46px;object-fit:contain">`
     : `<span style="font-size:28px;line-height:1">🏪</span>`;
 
-  return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px">
+  // `zoom` (not standard CSS but supported by every Chromium-based
+  // browser, which is what this app's print flow runs in) scales the
+  // WHOLE slip — every hardcoded px font-size, padding, and border below
+  // — together in one shot. That's what makes ssSettings.fontScale a
+  // real "change it in Settings, not in code" control instead of having
+  // to hunt down and hand-edit every explicit font-size value in this
+  // template one by one.
+  const fontScale = Number(ssSettings.fontScale) || 1;
 
+  return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px;zoom:${fontScale}">
     <!-- ═══ MAIN HEADER ═══ -->
     <div style="display:flex;align-items:flex-start;gap:10px;border-bottom:2px solid #000;padding-bottom:4mm;margin-bottom:3mm">
       ${ssSettings.showCompanyLogo ? `<div style="width:60px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid #ddd;border-radius:5px;overflow:hidden;background:#f9f9f9;padding:3px">
@@ -7170,7 +7178,13 @@ const SS_SETTINGS_DEFAULTS = {
   showTax: true, showTaxAmount: true, showDiscount: true, showCartonPrice: true,
   showSubtotal: true, showCustomerDetails: true, showProfit: false,
   showCompanyLogo: true, showFooterNotes: true, showBookedBy: true,
-  showPaymentMethod: true
+  showPaymentMethod: true,
+  // 1 = the slip's original text size. Bumped to 1.15 by default now (was
+  // always 1 before) since the base template's print text ran small —
+  // this is the "manual, no-code-editing" control for it going forward:
+  // change it here any time instead of hunting through buildSlipA4Html's
+  // hardcoded px values.
+  fontScale: 1.15,
 };
 let ssSettings = (() => {
   try {
@@ -7186,6 +7200,8 @@ function saveSsSettings() {
   document.querySelectorAll('.ss-setting-check').forEach(cb => {
     ssSettings[cb.dataset.key] = cb.checked;
   });
+  const fontScaleEl = document.getElementById('ss-font-scale');
+  if (fontScaleEl) ssSettings.fontScale = parseFloat(fontScaleEl.value) || 1;
   localStorage.setItem(SS_SETTINGS_KEY, JSON.stringify(ssSettings));
   closeModal('ss-settings-modal');
   toast('Sale Slip settings saved!', 'success');
@@ -8137,6 +8153,19 @@ document.addEventListener('DOMContentLoaded', function() {
         <button class="modal-close" onclick="closeModal('ss-settings-modal')">✕</button>
       </div>
       <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+        <div style="margin-bottom:16px;padding:12px 14px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:8px">
+            <i class="fa fa-text-height" style="color:var(--accent)"></i> Invoice Font Size
+          </label>
+          <select class="form-input" id="ss-font-scale" style="padding:9px 12px">
+            <option value="0.9" ${ssSettings.fontScale===0.9?'selected':''}>Small</option>
+            <option value="1" ${ssSettings.fontScale===1?'selected':''}>Normal (original)</option>
+            <option value="1.15" ${ssSettings.fontScale===1.15?'selected':''}>Large</option>
+            <option value="1.3" ${ssSettings.fontScale===1.3?'selected':''}>Extra Large</option>
+            <option value="1.45" ${ssSettings.fontScale===1.45?'selected':''}>Huge</option>
+          </select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Scales all text, headers and totals on the printed A4 slip together — change it here any time, no code edits needed.</div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           ${[
             ['showCustomerDetails','Customer Details','fa-user'],

@@ -3105,17 +3105,19 @@ function closeBookingForm() {
 }
 
 function searchCustomerByAcc(val) {
-  const v = val.trim().toLowerCase();
-  if (!v) return;
-  const cust = _bkCustomerCache.find(c =>
-    ('acc-'+String(c.id).padStart(4,'0')).toLowerCase()===v ||
-    (c.name||'').toLowerCase().includes(v)
-  );
-  if (cust) {
-    document.getElementById('bk-customer').value = cust.id;
-    onBookingCustomerChange();
-    toast('Customer found: '+cust.name,'success');
-  }
+  const v = (val||'').trim();
+  if (!v) { bkCustDropClose(); return; }
+  // Previously this used _bkCustomerCache.find(...), which silently
+  // auto-picked only the VERY FIRST matching customer (or did nothing at
+  // all if that first candidate wasn't the one you wanted) — no list was
+  // ever shown, so typing a letter here looked like the filter just
+  // wasn't working even when several customers matched. This field now
+  // routes through the same case-insensitive, list-showing search as the
+  // Customer Name field below, so every match shows up and any one of
+  // them can be picked from the dropdown.
+  const searchEl = document.getElementById('bk-customer-search');
+  if (searchEl) searchEl.value = v;
+  bkCustSearch(v);
 }
 
 function clearAccSearch() {
@@ -3226,19 +3228,48 @@ function bkCustSearch(q) {
     if (name.includes(lc) || phone.includes(lc) || email.includes(lc) || acc.includes(lc)) return 1;
     return -1; // no match
   };
-  const results = _bkCustomerCache
+  const localResults = _bkCustomerCache
     .map(c => ({ c, r: rank(c) }))
     .filter(x => x.r >= 0)
     .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name))
     .slice(0, 20)
     .map(x => x.c);
-  if (!results.length) {
-    drop.style.display='';
-    drop.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
-    return;
-  }
+
   drop.style.display='';
-  drop.innerHTML = _bkCustDropRows(results);
+  drop.innerHTML = localResults.length
+    ? _bkCustDropRows(localResults)
+    : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
+
+  // _bkCustomerCache only ever holds the first batch of customers loaded
+  // when the form opened (capped at 500, alphabetical by name — see
+  // Customer.Meta.ordering) — with more customers than that, anyone whose
+  // name sorts past that cutoff (e.g. starts with a later letter) was
+  // invisible to this search even though they exist and show up fine on
+  // the Customers page, which searches the server live with no cap. A
+  // live search here closes that gap for good, regardless of how many
+  // customers exist — the local list above is just the instant preview
+  // while this resolves.
+  debounced('bk-cust-live-search', async () => {
+    let serverResults = [];
+    try {
+      const data = await CustomersAPI.list({ search: q, page_size: 20 });
+      serverResults = data.results || data;
+    } catch (err) {
+      return; // offline/server error — leave the local preview as-is
+    }
+    // Merge any customer the server found but the local cache doesn't
+    // have yet, so picking them from the dropdown (bkCustSelect →
+    // onBookingCustomerChange, which looks them up by id) still works.
+    serverResults.forEach(sc => {
+      if (!_bkCustomerCache.some(c => c.id === sc.id)) _bkCustomerCache.push(sc);
+    });
+    // Only repaint if the user hasn't since changed what they're typing.
+    if ((document.getElementById('bk-customer-search')?.value||'').toLowerCase().trim() !== lc) return;
+    const finalResults = serverResults.length ? serverResults : localResults;
+    drop.innerHTML = finalResults.length
+      ? _bkCustDropRows(finalResults.slice(0, 20))
+      : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
+  }, 250);
 }
 
 function bkCustSearchFocus() {
@@ -3278,6 +3309,16 @@ function addBookingItemRow() {
 }
 
 function removeBookingItemRow(i) {
+  // The floating product-search dropdown (#bk-prod-float-drop) lives once
+  // in document.body, positioned over whichever row last opened it — it is
+  // NOT part of the row markup itself, so deleting a row never closes or
+  // repositions it. Every row below the deleted one then shifts up by one,
+  // but that leftover dropdown stays pinned at its old on-screen spot and
+  // silently overlaps the row that's now underneath it, blocking clicks
+  // and typing there — which looks exactly like that field went
+  // "disabled". Closing it here, before the rows shift, is what prevents
+  // that stale overlay.
+  bkProdDropClose();
   _bookingItems.splice(i,1);
   if (!_bookingItems.length) _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 });
   renderBookingItemRows();

@@ -1906,11 +1906,25 @@
             <p>Warehouse dispatch — pieces &amp; cartons dispatched with total supply cost</p>
           </div>
           <div class="page-header-actions" style="flex-wrap:wrap;gap:8px">
-            <div style="display:flex;align-items:center;gap:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px 12px">
+            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;flex-wrap:wrap">
               <i class="fa fa-calendar-alt" style="color:var(--text-muted);font-size:12px"></i>
-              <input type="date" id="os-date-from" style="background:transparent;border:none;color:var(--text-primary);font-size:12px;outline:none;width:130px" onchange="renderOrderSummary()">
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="os-date-from" onchange="renderOrderSummary()">
+                <input type="text" id="os-date-from-display" class="dt-picker-input" placeholder="From date" readonly>
+              </div>
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="os-time-from" onchange="renderOrderSummary()">
+                <input type="text" id="os-time-from-display" class="dt-picker-input dt-time-input" placeholder="Time" readonly>
+              </div>
               <span style="color:var(--text-muted);font-size:11px">→</span>
-              <input type="date" id="os-date-to" style="background:transparent;border:none;color:var(--text-primary);font-size:12px;outline:none;width:130px" onchange="renderOrderSummary()">
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="os-date-to" onchange="renderOrderSummary()">
+                <input type="text" id="os-date-to-display" class="dt-picker-input" placeholder="To date" readonly>
+              </div>
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="os-time-to" onchange="renderOrderSummary()">
+                <input type="text" id="os-time-to-display" class="dt-picker-input dt-time-input" placeholder="Time" readonly>
+              </div>
             </div>
             <!-- Username filter -->
             <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:5px 10px;min-width:200px">

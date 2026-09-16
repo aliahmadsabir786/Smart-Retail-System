@@ -6430,6 +6430,171 @@ async function deleteRoute(id) {
 // ═══════════════════════════════════════════════════════
 let _osBookingsCache = [];
 
+// ══════════════════════════════════════════════════════════════
+// Modern Date & Time Picker — theme-aware replacement for the
+// native browser date/time inputs (used by Order Summary filters).
+// Each field is a hidden input (holds the real "YYYY-MM-DD" / "HH:MM"
+// value that the rest of the app reads) paired with a visible,
+// readonly display input that opens a styled dropdown panel.
+// ══════════════════════════════════════════════════════════════
+(function(){
+  let activePanel = null;
+  function closeActivePanel(){
+    if (activePanel) { activePanel.remove(); activePanel = null; }
+    document.querySelectorAll('.dt-picker-input.dt-active').forEach(el => el.classList.remove('dt-active'));
+  }
+  document.addEventListener('click', (e) => {
+    if (activePanel && !activePanel.contains(e.target) && !e.target.classList.contains('dt-picker-input')) {
+      closeActivePanel();
+    }
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeActivePanel(); });
+
+  const pad = n => String(n).padStart(2,'0');
+  const fmtISO = (y,m,d) => `${y}-${pad(m+1)}-${pad(d)}`;
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  window.formatDtDateDisplay = function(iso){
+    if (!iso) return '';
+    const [y,m,d] = iso.split('-').map(Number);
+    return `${pad(d)} ${MONTHS_SHORT[m-1]} ${y}`;
+  };
+  window.formatDtTimeDisplay = function(hm){
+    if (!hm) return '';
+    const [h,m] = hm.split(':').map(Number);
+    let h12 = h % 12; if (h12===0) h12 = 12;
+    return `${pad(h12)}:${pad(m)} ${h<12?'AM':'PM'}`;
+  };
+  window.syncDtDisplay = function(id){
+    const hidden  = document.getElementById(id);
+    const display = document.getElementById(id+'-display');
+    if (!hidden || !display) return;
+    display.value = id.includes('time') ? formatDtTimeDisplay(hidden.value) : formatDtDateDisplay(hidden.value);
+  };
+
+  function openPanel(panel, wrap, displayEl){
+    wrap.appendChild(panel);
+    activePanel = panel;
+    displayEl.classList.add('dt-active');
+  }
+
+  function openDatePicker(hiddenInput, displayEl, onSelect){
+    closeActivePanel();
+    const wrap = hiddenInput.closest('.dt-picker-wrap');
+    const base = hiddenInput.value ? new Date(hiddenInput.value+'T00:00:00') : new Date();
+    let viewY = base.getFullYear(), viewM = base.getMonth();
+    const selected = hiddenInput.value || '';
+    const panel = document.createElement('div');
+    panel.className = 'dt-picker-panel dt-cal';
+
+    function render(){
+      const first = new Date(viewY, viewM, 1);
+      const startDow = first.getDay();
+      const daysInMonth = new Date(viewY, viewM+1, 0).getDate();
+      const daysInPrev = new Date(viewY, viewM, 0).getDate();
+      const todayStr = fmtISO(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+      let cells = '';
+      for (let i = startDow-1; i >= 0; i--) cells += `<div class="dt-cal-day muted">${daysInPrev-i}</div>`;
+      for (let d = 1; d <= daysInMonth; d++){
+        const dateStr = fmtISO(viewY, viewM, d);
+        const cls = ['dt-cal-day'];
+        if (dateStr === todayStr) cls.push('today');
+        if (dateStr === selected) cls.push('selected');
+        cells += `<div class="${cls.join(' ')}" data-date="${dateStr}">${d}</div>`;
+      }
+      const trailing = (7 - ((startDow + daysInMonth) % 7)) % 7;
+      for (let d = 1; d <= trailing; d++) cells += `<div class="dt-cal-day muted">${d}</div>`;
+
+      panel.innerHTML = `
+        <div class="dt-cal-head">
+          <button class="dt-cal-nav" type="button" data-nav="-1"><i class="fa fa-chevron-left"></i></button>
+          <div class="dt-cal-title">${MONTHS[viewM]} ${viewY}</div>
+          <button class="dt-cal-nav" type="button" data-nav="1"><i class="fa fa-chevron-right"></i></button>
+        </div>
+        <div class="dt-cal-grid">
+          ${['S','M','T','W','T','F','S'].map(d=>`<div class="dt-cal-dow">${d}</div>`).join('')}
+          ${cells}
+        </div>
+        <div class="dt-cal-footer">
+          <button class="dt-cal-today-btn" type="button">Today</button>
+          <button class="dt-cal-clear-btn" type="button">Clear</button>
+        </div>`;
+
+      panel.querySelectorAll('.dt-cal-nav').forEach(btn => {
+        btn.onclick = (e) => { e.stopPropagation(); viewM += Number(btn.dataset.nav); if (viewM<0){viewM=11;viewY--;} if (viewM>11){viewM=0;viewY++;} render(); };
+      });
+      panel.querySelectorAll('.dt-cal-day[data-date]').forEach(el => {
+        el.onclick = (e) => { e.stopPropagation(); onSelect(el.dataset.date); closeActivePanel(); };
+      });
+      panel.querySelector('.dt-cal-today-btn').onclick = (e) => { e.stopPropagation(); const t=new Date(); onSelect(fmtISO(t.getFullYear(),t.getMonth(),t.getDate())); closeActivePanel(); };
+      panel.querySelector('.dt-cal-clear-btn').onclick = (e) => { e.stopPropagation(); onSelect(''); closeActivePanel(); };
+    }
+    render();
+    openPanel(panel, wrap, displayEl);
+  }
+
+  function openTimePicker(hiddenInput, displayEl, onSelect){
+    closeActivePanel();
+    const wrap = hiddenInput.closest('.dt-picker-wrap');
+    let h24 = null, m = 0;
+    if (hiddenInput.value) { const [hh,mm] = hiddenInput.value.split(':').map(Number); h24 = hh; m = mm; }
+    let h12 = h24 === null ? null : (h24 % 12 === 0 ? 12 : h24 % 12);
+    let ampm = h24 === null ? 'AM' : (h24 < 12 ? 'AM' : 'PM');
+    const panel = document.createElement('div');
+    panel.className = 'dt-picker-panel dt-time';
+
+    function render(){
+      const hours = Array.from({length:12}, (_,i)=>i+1);
+      const mins  = Array.from({length:60}, (_,i)=>i);
+      panel.innerHTML = `
+        <div class="dt-time-cols">
+          <div class="dt-time-col">${hours.map(hh=>`<div class="dt-time-opt ${hh===h12?'selected':''}" data-h="${hh}">${pad(hh)}</div>`).join('')}</div>
+          <div class="dt-time-col">${mins.map(mm=>`<div class="dt-time-opt ${mm===m?'selected':''}" data-m="${mm}">${pad(mm)}</div>`).join('')}</div>
+          <div class="dt-time-col">
+            <div class="dt-time-opt ${ampm==='AM'?'selected':''}" data-ap="AM">AM</div>
+            <div class="dt-time-opt ${ampm==='PM'?'selected':''}" data-ap="PM">PM</div>
+          </div>
+        </div>
+        <div class="dt-time-footer">
+          <button class="dt-time-now-btn" type="button">Now</button>
+          <button class="dt-time-clear-btn" type="button">Clear</button>
+        </div>`;
+
+      panel.querySelectorAll('[data-h]').forEach(el => { el.onclick = (e)=>{ e.stopPropagation(); h12=Number(el.dataset.h); if(h24===null) h24=0; commit(); }; });
+      panel.querySelectorAll('[data-m]').forEach(el => { el.onclick = (e)=>{ e.stopPropagation(); m=Number(el.dataset.m); if(h24===null) h24=0; commit(); }; });
+      panel.querySelectorAll('[data-ap]').forEach(el => { el.onclick = (e)=>{ e.stopPropagation(); ampm=el.dataset.ap; if(h24===null) h24=0; commit(); }; });
+      panel.querySelector('.dt-time-now-btn').onclick = (e)=>{ e.stopPropagation(); const t=new Date(); onSelect(`${pad(t.getHours())}:${pad(t.getMinutes())}`); closeActivePanel(); };
+      panel.querySelector('.dt-time-clear-btn').onclick = (e)=>{ e.stopPropagation(); onSelect(''); closeActivePanel(); };
+      panel.querySelectorAll('.dt-time-opt.selected').forEach(el => el.scrollIntoView({block:'center'}));
+    }
+    function commit(){
+      if (h12 === null) h12 = 12;
+      let hh = h12 % 12; if (ampm === 'PM') hh += 12;
+      onSelect(`${pad(hh)}:${pad(m)}`);
+      render();
+    }
+    render();
+    openPanel(panel, wrap, displayEl);
+  }
+
+  window.wireModernDateTimeInputs = function(){
+    [['os-date-from','date'], ['os-date-to','date'], ['os-time-from','time'], ['os-time-to','time']].forEach(([id,type]) => {
+      const hidden  = document.getElementById(id);
+      const display = document.getElementById(id+'-display');
+      if (!hidden || !display || display.dataset.dtWired) return;
+      display.dataset.dtWired = '1';
+      syncDtDisplay(id);
+      display.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const onSelect = (val) => { hidden.value = val; syncDtDisplay(id); hidden.dispatchEvent(new Event('change')); };
+        if (type === 'date') openDatePicker(hidden, display, onSelect);
+        else openTimePicker(hidden, display, onSelect);
+      });
+    });
+  };
+})();
+
 function openOrderSummaryTab() {
   // Default the page to TODAY's summary on open, instead of an unbounded
   // range that silently included every past order.
@@ -6440,21 +6605,27 @@ function openOrderSummaryTab() {
     fromEl.value = today;
     toEl.value   = today;
   }
+  wireModernDateTimeInputs();
+  syncDtDisplay('os-date-from'); syncDtDisplay('os-date-to');
+  syncDtDisplay('os-time-from'); syncDtDisplay('os-time-to');
   renderOrderSummary();
 }
 
 async function renderOrderSummary() {
-  const fromEl = document.getElementById('os-date-from');
-  const toEl   = document.getElementById('os-date-to');
-  let fromVal  = fromEl?.value;
-  let toVal    = toEl?.value;
+  // Date and time are independent: leaving either side (from/to, date/time)
+  // blank simply means "no limit" on that side — you are never forced to
+  // fill both. e.g. clearing "From" just removes the lower bound and the
+  // result follows "To" alone.
+  const fromDate = document.getElementById('os-date-from')?.value || '';
+  const toDate   = document.getElementById('os-date-to')?.value   || '';
+  const fromTime = document.getElementById('os-time-from')?.value || '';
+  const toTime   = document.getElementById('os-time-to')?.value   || '';
 
-  // If the user only picks ONE side of the date range, treat it as a single-day
-  // filter for that date instead of leaving the range open-ended (which was
-  // pulling in every past order up to/from that date, e.g. "today" showing
-  // yesterday's bills too).
-  if (toVal && !fromVal) { fromVal = toVal; if (fromEl) fromEl.value = toVal; }
-  if (fromVal && !toVal) { toVal = fromVal; if (toEl) toEl.value = fromVal; }
+  // Build full lower/upper datetime boundaries only from the sides that are
+  // actually filled in. A time with no date on that side is ignored (there's
+  // nothing to anchor it to).
+  const fromDT = fromDate ? `${fromDate}T${fromTime || '00:00'}` : '';
+  const toDT   = toDate   ? `${toDate}T${toTime   || '23:59'}` : '';
 
   const q          = (document.getElementById('os-search')?.value||'').toLowerCase();
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
@@ -6473,9 +6644,9 @@ async function renderOrderSummary() {
   }
 
   const bookings = _osBookingsCache.filter(b => {
-    const bDate = (b.created_at||'').slice(0,10);
-    if (fromVal && bDate < fromVal) return false;
-    if (toVal   && bDate > toVal)   return false;
+    const bDT = (b.created_at||'').slice(0,16); // "YYYY-MM-DDTHH:MM"
+    if (fromDT && bDT < fromDT) return false;
+    if (toDT   && bDT > toDT)   return false;
     if (usernameFilter && (b.served_by_name||'') !== usernameFilter) return false;
     return true;
   });
@@ -6613,6 +6784,10 @@ async function renderOrderSummary() {
 function clearOsFilter() {
   document.getElementById('os-date-from').value = '';
   document.getElementById('os-date-to').value   = '';
+  const tf = document.getElementById('os-time-from'); if (tf) tf.value = '';
+  const tt = document.getElementById('os-time-to');   if (tt) tt.value = '';
+  syncDtDisplay('os-date-from'); syncDtDisplay('os-date-to');
+  syncDtDisplay('os-time-from'); syncDtDisplay('os-time-to');
   document.getElementById('os-search').value    = '';
   const usDd = document.getElementById('os-username-filter');
   if (usDd) usDd.value = '';
@@ -6621,13 +6796,17 @@ function clearOsFilter() {
 
 function exportOrderSummaryCsv() {
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
-  const fromVal = document.getElementById('os-date-from')?.value || '';
-  const toVal   = document.getElementById('os-date-to')?.value   || '';
+  const fromDate = document.getElementById('os-date-from')?.value || '';
+  const toDate   = document.getElementById('os-date-to')?.value   || '';
+  const fromTime = document.getElementById('os-time-from')?.value || '';
+  const toTime   = document.getElementById('os-time-to')?.value   || '';
+  const fromDT = fromDate ? `${fromDate}T${fromTime || '00:00'}` : '';
+  const toDT   = toDate   ? `${toDate}T${toTime   || '23:59'}` : '';
 
   const bookings = _osBookingsCache.filter(b => {
-    const d = (b.created_at||'').slice(0,10);
-    if (fromVal && d < fromVal) return false;
-    if (toVal   && d > toVal)   return false;
+    const bDT = (b.created_at||'').slice(0,16);
+    if (fromDT && bDT < fromDT) return false;
+    if (toDT   && bDT > toDT)   return false;
     if (usernameFilter && (b.served_by_name||'') !== usernameFilter) return false;
     return true;
   });
@@ -6729,6 +6908,9 @@ document.addEventListener('DOMContentLoaded', () => {
     fromEl.value = d.toISOString().split('T')[0];
   }
   if (toEl && !toEl.value) toEl.value = new Date().toISOString().split('T')[0];
+  wireModernDateTimeInputs();
+  syncDtDisplay('os-date-from'); syncDtDisplay('os-date-to');
+  syncDtDisplay('os-time-from'); syncDtDisplay('os-time-to');
   // Apply saved show/hide for fin KPI cards
   applyOsFinKpiVisibility();
 });

@@ -2155,3 +2155,71 @@ body.sidebar-open { overflow: hidden; }
 @media (max-width: 640px) {
   .pagination-bar { justify-content: center; text-align: center; }
 }
+/* ══════════════ Modern Date & Time Picker ══════════════ */
+.dt-picker-wrap { position: relative; display: inline-flex; }
+.dt-picker-input {
+  background: transparent; border: none; color: var(--text-primary);
+  font-size: 12px; font-family: var(--font); outline: none;
+  width: 92px; cursor: pointer; padding: 2px 4px; border-radius: 6px;
+  transition: background .15s;
+}
+.dt-time-input { width: 78px; }
+.dt-picker-input::placeholder { color: var(--text-muted); }
+.dt-picker-input:hover, .dt-picker-input.dt-active { background: var(--accent-glow); color: var(--accent); }
+
+.dt-picker-panel {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 500;
+  background: var(--bg-card); border: 1px solid var(--border-light);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  padding: 14px; animation: dtFadeIn .14s ease-out;
+}
+@keyframes dtFadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Calendar */
+.dt-cal { width: 232px; }
+.dt-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dt-cal-title { font-size: 13px; font-weight: 700; color: var(--text-primary); letter-spacing: .01em; }
+.dt-cal-nav {
+  width: 26px; height: 26px; border-radius: 8px; border: none;
+  background: var(--bg-secondary); color: var(--text-secondary);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s; font-size: 11px;
+}
+.dt-cal-nav:hover { background: var(--accent-glow); color: var(--accent); }
+.dt-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.dt-cal-dow { font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px 0 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.dt-cal-day {
+  font-size: 12px; text-align: center; padding: 7px 0; border-radius: 8px;
+  cursor: pointer; color: var(--text-primary); transition: background .12s, color .12s;
+}
+.dt-cal-day:hover { background: var(--accent-glow); color: var(--accent); }
+.dt-cal-day.muted { color: var(--text-muted); opacity: .5; cursor: default; }
+.dt-cal-day.muted:hover { background: none; }
+.dt-cal-day.today { box-shadow: inset 0 0 0 1.5px var(--accent); font-weight: 700; }
+.dt-cal-day.selected { background: var(--accent); color: #fff; font-weight: 700; box-shadow: none; }
+.dt-cal-footer { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.dt-cal-today-btn, .dt-cal-clear-btn, .dt-time-now-btn, .dt-time-clear-btn {
+  font-size: 11px; background: none; border: none; cursor: pointer; font-weight: 700;
+  padding: 4px 8px; border-radius: 6px; transition: background .15s;
+}
+.dt-cal-today-btn, .dt-time-now-btn { color: var(--accent); }
+.dt-cal-today-btn:hover, .dt-time-now-btn:hover { background: var(--accent-glow); }
+.dt-cal-clear-btn, .dt-time-clear-btn { color: var(--text-muted); }
+.dt-cal-clear-btn:hover, .dt-time-clear-btn:hover { background: var(--bg-secondary); color: var(--red); }
+
+/* Time picker */
+.dt-time { width: 196px; }
+.dt-time-cols { display: flex; gap: 6px; }
+.dt-time-col {
+  flex: 1; max-height: 168px; overflow-y: auto; scrollbar-width: thin;
+  border-radius: 8px; background: var(--bg-secondary); padding: 4px;
+}
+.dt-time-col::-webkit-scrollbar { width: 4px; }
+.dt-time-col::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 2px; }
+.dt-time-opt {
+  font-size: 12px; text-align: center; padding: 7px 0; border-radius: 7px;
+  cursor: pointer; color: var(--text-primary); transition: background .12s, color .12s; font-family: var(--mono);
+}
+.dt-time-opt:hover { background: var(--accent-glow); color: var(--accent); }
+.dt-time-opt.selected { background: var(--accent); color: #fff; font-weight: 700; }
+.dt-time-footer { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }

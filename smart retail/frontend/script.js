@@ -600,6 +600,12 @@ function navigate(page) {
     settings: renderSettings,
   };
   if (renders[page]) renders[page]();
+  // Wires the modern date/time picker onto any of its known field-ids that
+  // exist on whichever page just rendered (booking, saleslips, salereturn,
+  // etc.) — a no-op for pages that don't have any of those ids, and safe
+  // to call repeatedly (each field only gets wired once).
+  wireModernDateTimeInputs();
+  ['bk-date-filter', 'ss-date', 'sr-date-from', 'sr-date-to'].forEach(id => syncDtDisplay(id));
   document.getElementById('notif-panel').classList.add('hidden');
   // Close sidebar on mobile after navigation
   closeSidebarMobile();
@@ -6449,6 +6455,11 @@ let _osBookingsCache = [];
     }
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeActivePanel(); });
+  // The panel is now `position:fixed` (see openPanel below) so it doesn't
+  // travel with any scrollable container — close it on scroll/resize
+  // rather than leaving it floating over the wrong spot.
+  window.addEventListener('scroll', () => closeActivePanel(), true);
+  window.addEventListener('resize', () => closeActivePanel());
 
   const pad = n => String(n).padStart(2,'0');
   const fmtISO = (y,m,d) => `${y}-${pad(m+1)}-${pad(d)}`;
@@ -6474,7 +6485,22 @@ let _osBookingsCache = [];
   };
 
   function openPanel(panel, wrap, displayEl){
-    wrap.appendChild(panel);
+    // Appended to <body> and positioned with `fixed` coordinates from the
+    // wrap's own on-screen position — NOT appended inside `wrap` itself —
+    // so the panel can never get clipped by an ancestor card's
+    // `overflow: hidden` (which every .card has, for its own rounded
+    // corners) no matter which page or card this picker sits inside.
+    document.body.appendChild(panel);
+    const rect = wrap.getBoundingClientRect();
+    panel.style.position = 'fixed';
+    panel.style.top = Math.round(rect.bottom + 8) + 'px';
+    panel.style.left = Math.round(rect.left) + 'px';
+    // Keep it fully on-screen if opening near the right edge.
+    requestAnimationFrame(() => {
+      const pRect = panel.getBoundingClientRect();
+      const overflowX = pRect.right - (window.innerWidth - 8);
+      if (overflowX > 0) panel.style.left = Math.round(rect.left - overflowX) + 'px';
+    });
     activePanel = panel;
     displayEl.classList.add('dt-active');
   }
@@ -6580,7 +6606,8 @@ let _osBookingsCache = [];
 
   window.wireModernDateTimeInputs = function(){
     [['os-date-from','date'], ['os-date-to','date'], ['os-time-from','time'], ['os-time-to','time'],
-     ['col-date-from','date'], ['col-date-to','date'], ['col-time-from','time'], ['col-time-to','time']].forEach(([id,type]) => {
+     ['col-date-from','date'], ['col-date-to','date'], ['col-time-from','time'], ['col-time-to','time'],
+     ['bk-date-filter','date'], ['ss-date','date'], ['sr-date-from','date'], ['sr-date-to','date']].forEach(([id,type]) => {
       const hidden  = document.getElementById(id);
       const display = document.getElementById(id+'-display');
       if (!hidden || !display || display.dataset.dtWired) return;
@@ -8843,6 +8870,7 @@ window.clearSaleSlipsFilters = function() {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  syncDtDisplay('ss-date');
   renderSaleSlips();
 };
 
@@ -9056,6 +9084,7 @@ function clearSrFilters() {
   ['sr-invoice-search','sr-cust-search','sr-date-from','sr-date-to'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
+  syncDtDisplay('sr-date-from'); syncDtDisplay('sr-date-to');
   searchSaleReturnInvoice();
 }
 

@@ -2168,7 +2168,9 @@ body.sidebar-open { overflow: hidden; }
 .dt-picker-input:hover, .dt-picker-input.dt-active { background: var(--accent-glow); color: var(--accent); }
 
 .dt-picker-panel {
-  position: absolute; top: calc(100% + 8px); left: 0; z-index: 500;
+  /* position/top/left are set inline by JS (fixed, viewport-relative) —
+     see openPanel() in script.js. Only visual styling lives here. */
+  z-index: 500;
   background: var(--bg-card); border: 1px solid var(--border-light);
   border-radius: var(--radius); box-shadow: var(--shadow-lg);
   padding: 14px; animation: dtFadeIn .14s ease-out;

@@ -7841,7 +7841,7 @@ function getUsernameCollectionRows(username, fromDT, toDT) {
   const byCustomer = {};
   bookings.forEach(b => {
     const key = b.customer || b.customer_name;
-    if (!byCustomer[key]) byCustomer[key] = { customerName: b.customer_name||'Walk-in', accountNo: b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—', username: b.served_by_name||username, invoices: [], totalBill: 0, discAmt: 0, taxAmt: 0, received: 0 };
+    if (!byCustomer[key]) byCustomer[key] = { customerId: b.customer || null, customerName: b.customer_name||'Walk-in', accountNo: b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—', username: b.served_by_name||username, invoices: [], totalBill: 0, discAmt: 0, taxAmt: 0, received: 0 };
     byCustomer[key].invoices.push(b.invoice_number);
     byCustomer[key].totalBill += Number(b.total_amount);
     byCustomer[key].discAmt  += Number(b.discount_amount);
@@ -7928,7 +7928,8 @@ async function renderCollection() {
       <td class="td-mono" style="color:var(--green)">${r.discAmt>0?'Rs.'+r.discAmt.toFixed(2):'—'}</td>
       <td class="fw-700 td-mono text-green">Rs.${(r.received||0).toFixed(2)}</td>
       <td class="fw-700 td-mono" style="color:${r.pending>0?'var(--red)':'var(--green)'}">Rs.${r.pending.toFixed(2)}</td>
-      <td><button class="btn btn-ghost btn-xs" onclick="printUsernameCollection('${r.username}')"><i class="fa fa-print"></i></button></td>
+      <td><button class="btn btn-ghost btn-xs" onclick="printUsernameCollection('${r.username}')" title="Print"><i class="fa fa-print"></i></button>
+      ${r.customerId ? `<button class="btn btn-green btn-xs" onclick="openCollectionPayment(${r.customerId})" title="Record payment"><i class="fa fa-plus"></i> Pay</button>` : ''}</td>
     </tr>`).join('');
     return;
   }

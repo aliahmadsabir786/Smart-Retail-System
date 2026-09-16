@@ -590,7 +590,7 @@ function navigate(page) {
     reports: renderReports,
     stockreport: renderStockReport,
     supplyroutes: renderSupplyRoutes,
-    ordersummary: renderOrderSummary,
+    ordersummary: openOrderSummaryTab,
     users: renderUsers,
     pos: initPOS,
     booking: initBooking,
@@ -6430,9 +6430,32 @@ async function deleteRoute(id) {
 // ═══════════════════════════════════════════════════════
 let _osBookingsCache = [];
 
+function openOrderSummaryTab() {
+  // Default the page to TODAY's summary on open, instead of an unbounded
+  // range that silently included every past order.
+  const fromEl = document.getElementById('os-date-from');
+  const toEl   = document.getElementById('os-date-to');
+  if (fromEl && toEl && !fromEl.value && !toEl.value) {
+    const today = new Date().toISOString().split('T')[0];
+    fromEl.value = today;
+    toEl.value   = today;
+  }
+  renderOrderSummary();
+}
+
 async function renderOrderSummary() {
-  const fromVal    = document.getElementById('os-date-from')?.value;
-  const toVal      = document.getElementById('os-date-to')?.value;
+  const fromEl = document.getElementById('os-date-from');
+  const toEl   = document.getElementById('os-date-to');
+  let fromVal  = fromEl?.value;
+  let toVal    = toEl?.value;
+
+  // If the user only picks ONE side of the date range, treat it as a single-day
+  // filter for that date instead of leaving the range open-ended (which was
+  // pulling in every past order up to/from that date, e.g. "today" showing
+  // yesterday's bills too).
+  if (toVal && !fromVal) { fromVal = toVal; if (fromEl) fromEl.value = toVal; }
+  if (fromVal && !toVal) { toVal = fromVal; if (toEl) toEl.value = fromVal; }
+
   const q          = (document.getElementById('os-search')?.value||'').toLowerCase();
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
 

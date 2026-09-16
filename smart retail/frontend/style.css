@@ -2175,6 +2175,12 @@ body.sidebar-open { overflow: hidden; }
 }
 @keyframes dtFadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
+/* The Collection page's Filters card clips overflow by default (like every
+   .card, for its own rounded corners) — that clipped the calendar/time
+   dropdown panel instead of letting it float above the card. This card
+   has no edge-to-edge content of its own, so it's safe to let it overflow. */
+#col-filters-card { overflow: visible; }
+
 /* Calendar */
 .dt-cal { width: 232px; }
 .dt-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }

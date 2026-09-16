@@ -6579,7 +6579,8 @@ let _osBookingsCache = [];
   }
 
   window.wireModernDateTimeInputs = function(){
-    [['os-date-from','date'], ['os-date-to','date'], ['os-time-from','time'], ['os-time-to','time']].forEach(([id,type]) => {
+    [['os-date-from','date'], ['os-date-to','date'], ['os-time-from','time'], ['os-time-to','time'],
+     ['col-date-from','date'], ['col-date-to','date'], ['col-time-from','time'], ['col-time-to','time']].forEach(([id,type]) => {
       const hidden  = document.getElementById(id);
       const display = document.getElementById(id+'-display');
       if (!hidden || !display || display.dataset.dtWired) return;
@@ -7745,8 +7746,10 @@ let _colCustomerCache = [];
 let _colSalesCache = [];
 let _colReturnsCache = [];
 
-function _custBookings(custId) {
-  return _colSalesCache.filter(b => b.customer === custId);
+function _custBookings(custId, fromDT, toDT) {
+  let list = _colSalesCache.filter(b => b.customer === custId);
+  if (fromDT || toDT) list = list.filter(b => _inDT(b.created_at, fromDT, toDT));
+  return list;
 }
 
 // Total refunded against a specific sale — a fully-returned sale nets to
@@ -7757,11 +7760,33 @@ function _refundedForSale(saleId) {
     .reduce((s, r) => s + Number(r.refund_amount || 0), 0);
 }
 
-function getCustomerBalance(custId) {
-  const bookings = _custBookings(custId);
-  const totalOrders = bookings.reduce((s, b) => s + Number(b.total_amount), 0);
-  const payments    = bookings.reduce((s, b) => s + Number(b.paid_amount), 0);
-  const refunds     = bookings.reduce((s, b) => s + _refundedForSale(b.id), 0);
+// Shared bounds check — same "YYYY-MM-DDTHH:MM" comparison Order Summary
+// uses. fromDT/toDT are full datetime strings (or '' for no limit on that
+// side), so leaving one side blank simply removes that bound instead of
+// forcing a full range.
+function _inDT(createdAt, fromDT, toDT) {
+  const dt = (createdAt || '').slice(0, 16);
+  if (!dt) return false;
+  if (fromDT && dt < fromDT) return false;
+  if (toDT   && dt > toDT)   return false;
+  return true;
+}
+
+// custId's balance AS OF the selected window: orders billed in the window,
+// minus payments actually received in the window (a payment collected
+// today against an older invoice still counts as "received" today, even
+// though that invoice itself was booked outside the window — so payments
+// are checked against ALL of the customer's bookings, not just the ones
+// whose own created_at falls in range).
+function getCustomerBalance(custId, fromDT, toDT) {
+  const filtered = fromDT || toDT ? true : false;
+  const allBookings = _colSalesCache.filter(b => b.customer === custId);
+  const bookingsInRange = filtered ? allBookings.filter(b => _inDT(b.created_at, fromDT, toDT)) : allBookings;
+  const totalOrders = bookingsInRange.reduce((s, b) => s + Number(b.total_amount), 0);
+  const refunds     = bookingsInRange.reduce((s, b) => s + _refundedForSale(b.id), 0);
+  const payments = filtered
+    ? allBookings.reduce((s, b) => s + (b.payments||[]).filter(p => _inDT(p.created_at, fromDT, toDT)).reduce((a,p)=>a+Number(p.amount),0), 0)
+    : allBookings.reduce((s, b) => s + Number(b.paid_amount), 0);
   return { totalOrders: totalOrders - refunds, payments, balance: (totalOrders - refunds) - payments };
 }
 
@@ -7779,10 +7804,13 @@ function getLastPaymentDate(custId) {
   return allPayments.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''))[0].created_at.slice(0,10);
 }
 
-// Build username summary: all sales served by a username, grouped by customer
-function getUsernameCollectionRows(username) {
+// Build username summary: all sales served by a username, grouped by
+// customer, restricted to the selected date+time window (fromDT/toDT —
+// either side blank means "no limit" on that side, same as Order Summary).
+function getUsernameCollectionRows(username, fromDT, toDT) {
   const lc = username.toLowerCase();
-  const bookings = _colSalesCache.filter(b => (b.served_by_name||'').toLowerCase().includes(lc));
+  let bookings = _colSalesCache.filter(b => (b.served_by_name||'').toLowerCase().includes(lc));
+  if (fromDT || toDT) bookings = bookings.filter(b => _inDT(b.created_at, fromDT, toDT));
   const byCustomer = {};
   bookings.forEach(b => {
     const key = b.customer || b.customer_name;
@@ -7820,8 +7848,16 @@ async function renderCollection() {
   _colReturnsCache = returnsData.results || returnsData;
 
   const q           = (document.getElementById('col-search')?.value||'').toLowerCase();
-  const dateFrom    = document.getElementById('col-date-from')?.value||'';
-  const dateTo      = document.getElementById('col-date-to')?.value||'';
+  // Date and time are independent, same as Order Summary: leaving either
+  // side (from/to, date/time) blank just means "no limit" on that side —
+  // e.g. From date empty + To date = today shows everything UP TO today,
+  // with no lower bound at all, instead of being forced into a range.
+  const dateFrom = document.getElementById('col-date-from')?.value || '';
+  const dateTo   = document.getElementById('col-date-to')?.value   || '';
+  const timeFrom = document.getElementById('col-time-from')?.value || '';
+  const timeTo   = document.getElementById('col-time-to')?.value   || '';
+  const dateFromDT = dateFrom ? `${dateFrom}T${timeFrom || '00:00'}` : '';
+  const dateToDT   = dateTo   ? `${dateTo}T${timeTo   || '23:59'}` : '';
   const balFilter   = document.getElementById('col-balance-filter')?.value||'';
   const usernameQ   = (document.getElementById('col-username-filter')?.value||'').toLowerCase().trim();
   const viewMode    = document.getElementById('col-view-mode')?.value || 'customer';
@@ -7834,7 +7870,7 @@ async function renderCollection() {
 
   // ── Username view: group by username ──
   if (viewMode === 'username' && usernameQ) {
-    const rows = getUsernameCollectionRows(usernameQ);
+    const rows = getUsernameCollectionRows(usernameQ, dateFromDT, dateToDT);
     if (label) label.textContent = rows.length + ' record(s) for "' + usernameQ + '"';
 
     // Update KPIs
@@ -7878,7 +7914,7 @@ async function renderCollection() {
     <th>Remaining</th><th>Last Payment</th><th>Actions</th></tr>`;
 
   let rows = _colCustomerCache.map(c => {
-    const bal = getCustomerBalance(c.id);
+    const bal = getCustomerBalance(c.id, dateFromDT, dateToDT);
     const todayOrders = getTodayOrders(c.id);
     const lastPay     = getLastPaymentDate(c.id);
     const totalPending = bal.totalOrders - bal.payments;
@@ -8029,9 +8065,10 @@ async function saveCollectionPayment() {
 }
 
 function clearCollectionFilters() {
-  ['col-search','col-date-from','col-date-to','col-username-filter'].forEach(id => {
+  ['col-search','col-date-from','col-date-to','col-time-from','col-time-to','col-username-filter'].forEach(id => {
     const el=document.getElementById(id); if(el) el.value='';
   });
+  ['col-date-from','col-date-to','col-time-from','col-time-to'].forEach(id => syncDtDisplay(id));
   const bf=document.getElementById('col-balance-filter'); if(bf) bf.value='';
   const vm=document.getElementById('col-view-mode'); if(vm) vm.value='customer';
   renderCollection();
@@ -8382,6 +8419,9 @@ window.navigate = function(page) {
     const dtEl = document.getElementById('col-date-to');
     if (dfEl && !dfEl.value) dfEl.value = new Date(Date.now()-7*24*60*60*1000).toISOString().split('T')[0];
     if (dtEl && !dtEl.value) dtEl.value = today;
+    wireModernDateTimeInputs();
+    syncDtDisplay('col-date-from'); syncDtDisplay('col-date-to');
+    syncDtDisplay('col-time-from'); syncDtDisplay('col-time-to');
     renderCollection();
   }
 };
@@ -8625,7 +8665,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 
     <!-- Filters -->
-    <div class="card" style="margin-bottom:16px">
+    <div class="card" id="col-filters-card" style="margin-bottom:16px">
       <div class="card-body" style="padding:14px 20px">
         <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
           <div class="form-group-inline" style="margin-bottom:0;flex:1;min-width:160px">
@@ -8648,12 +8688,30 @@ document.addEventListener('DOMContentLoaded', function() {
             </select>
           </div>
           <div class="form-group-inline" style="margin-bottom:0">
-            <label>Date From</label>
-            <input class="form-input" type="date" id="col-date-from" style="padding:9px 12px" onchange="renderCollection()">
+            <label><i class="fa fa-calendar-alt" style="color:var(--text-muted)"></i> From</label>
+            <div style="display:flex;gap:4px">
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="col-date-from" onchange="renderCollection()">
+                <input type="text" id="col-date-from-display" class="dt-picker-input" placeholder="From date" readonly>
+              </div>
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="col-time-from" onchange="renderCollection()">
+                <input type="text" id="col-time-from-display" class="dt-picker-input dt-time-input" placeholder="Time" readonly>
+              </div>
+            </div>
           </div>
           <div class="form-group-inline" style="margin-bottom:0">
-            <label>Date To</label>
-            <input class="form-input" type="date" id="col-date-to" style="padding:9px 12px" onchange="renderCollection()">
+            <label><i class="fa fa-calendar-alt" style="color:var(--text-muted)"></i> To</label>
+            <div style="display:flex;gap:4px">
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="col-date-to" onchange="renderCollection()">
+                <input type="text" id="col-date-to-display" class="dt-picker-input" placeholder="To date" readonly>
+              </div>
+              <div class="dt-picker-wrap">
+                <input type="hidden" id="col-time-to" onchange="renderCollection()">
+                <input type="text" id="col-time-to-display" class="dt-picker-input dt-time-input" placeholder="Time" readonly>
+              </div>
+            </div>
           </div>
           <div class="form-group-inline" style="margin-bottom:0">
             <label>Balance Filter</label>

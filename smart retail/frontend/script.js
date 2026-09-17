@@ -6658,8 +6658,21 @@ async function renderOrderSummary() {
   const q          = (document.getElementById('os-search')?.value||'').toLowerCase();
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
 
-  const salesData = await SalesAPI.list({ page_size: 500 });
-  _osBookingsCache = (salesData.results || salesData).filter(s => s.status !== 'cancelled');
+  const [salesData, returnsData] = await Promise.all([
+    SalesAPI.list({ page_size: 500 }),
+    SalesAPI.returnHistory({ page_size: 1000 }),
+  ]);
+  // Exclude cancelled AND fully-returned sales — a fully-returned invoice
+  // (the usual way to "cancel" a wrongly-created/duplicate bill) has zero
+  // net effect and shouldn't count as an order here at all. A
+  // partially-returned sale keeps its remaining (non-returned) items —
+  // handled below via _refundedForSale/quantity_returned — not excluded
+  // outright.
+  _osBookingsCache = (salesData.results || salesData).filter(s => !['cancelled', 'returned'].includes(s.status));
+  const returnsList = returnsData.results || returnsData;
+  const _refundedForSale = (saleId) => returnsList
+    .filter(r => r.sale === saleId)
+    .reduce((s, r) => s + Number(r.refund_amount || 0), 0);
 
   // Populate username (served_by) dropdown
   const usDd = document.getElementById('os-username-filter');
@@ -6680,7 +6693,11 @@ async function renderOrderSummary() {
   });
 
   const finOrders   = bookings.length;
-  const finAmount   = bookings.reduce((s,b) => s+Number(b.total_amount), 0);
+  // Net out any partial-return refund from each sale's own total/tax/
+  // discount before summing — a partially-returned invoice's KPI figures
+  // should reflect what's actually still owed/sold, not the original
+  // full-bill amount.
+  const finAmount   = bookings.reduce((s,b) => s + Math.max(0, Number(b.total_amount) - _refundedForSale(b.id)), 0);
   const finTax      = bookings.reduce((s,b) => s+Number(b.tax_amount), 0);
   const finDiscount = bookings.reduce((s,b) => s+Number(b.discount_amount), 0);
   const finReceived = bookings.reduce((s,b) => s+Number(b.paid_amount), 0);
@@ -6707,6 +6724,11 @@ async function renderOrderSummary() {
   const productMap = {};
   bookings.forEach(bk => {
     (bk.items||[]).forEach(it => {
+      // Subtract whatever's already been returned on this line — a
+      // partially-returned invoice should only count what's actually
+      // still sold, not the original booked quantity.
+      const netQty = it.quantity - Number(it.quantity_returned || 0);
+      if (netQty <= 0) return;
       const key = it.product;
       if (!productMap[key]) {
         productMap[key] = {
@@ -6715,7 +6737,7 @@ async function renderOrderSummary() {
           totalPieces: 0, orderCount: 0,
         };
       }
-      productMap[key].totalPieces += it.quantity;
+      productMap[key].totalPieces += netQty;
       productMap[key].orderCount++;
     });
   });

@@ -227,6 +227,17 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
         )
         return Response(SaleReturnSerializer(sale_return).data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=["post"], url_path="void")
+    def void(self, request, pk=None):
+        """POST /sales/{id}/void/ — completely removes a wrongly-created/
+        duplicate finalized invoice: restocks everything on it, clears its
+        due off the customer's balance, and deletes it outright (not a
+        Return — it won't show up anywhere afterwards, even under a
+        'returned'/'cancelled' status filter)."""
+        sale = self.get_object()
+        services.void_sale(sale, user=request.user)
+        return Response({"detail": "Invoice deleted — stock and balance restored."})
+
 
 class SaleReturnViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """Read-only history of processed sale returns (/api/v1/sales/returns/)."""

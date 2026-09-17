@@ -666,3 +666,55 @@ def process_return(sale, return_items, reason, user):
         sale.customer.save(update_fields=["outstanding_balance"])
 
     return sale_return
+
+
+@transaction.atomic
+def void_sale(sale, user):
+    """
+    Completely voids a finalized sale — for a wrongly-created/duplicate
+    invoice, where a Return isn't what's wanted (a Return keeps the
+    invoice on record with a 'returned' status, still visible if you
+    filter for it). This instead:
+      1. Restocks whatever quantity of each line hasn't already been
+         returned (a fresh invoice with nothing returned yet just
+         restocks everything that was on it).
+      2. Reverses this sale's currently-outstanding due (total minus
+         whatever's already been paid on it) off the customer's
+         outstanding_balance — after this, the invoice owes nothing.
+      3. Soft-deletes the sale, its items, and its payments, so it
+         disappears from every list/report built on the normal manager —
+         Sale Slips, Order Summary, Collection, Stock Report — with no
+         special-case filtering needed anywhere, because the API itself
+         no longer returns it.
+
+    Refuses a still-held DRAFT (delete it directly instead — see
+    perform_destroy) or an already-voided sale.
+    """
+    if sale.status == Sale.Status.DRAFT:
+        raise InvalidTransitionException(
+            "A held invoice isn't finalized yet — delete it directly instead of voiding."
+        )
+
+    for item in sale.items.all():
+        remaining = item.quantity - item.quantity_returned
+        if remaining > 0:
+            inventory_services.stock_in(
+                product=item.product, warehouse=sale.warehouse, quantity=remaining,
+                variant=item.variant, reference=sale.invoice_number,
+                notes=f"Void of {sale.invoice_number}", user=user,
+                transaction_type=StockTransaction.TransactionType.SALE_RETURN,
+            )
+        item.delete()
+
+    if sale.customer:
+        due = sale.total_amount - sale.paid_amount
+        if due > 0:
+            sale.customer.outstanding_balance = max(
+                Decimal("0"), sale.customer.outstanding_balance - due
+            )
+            sale.customer.save(update_fields=["outstanding_balance"])
+
+    for payment in sale.payments.all():
+        payment.delete()
+
+    sale.delete()

@@ -3883,6 +3883,25 @@ async function cancelBooking(id) {
   }
 }
 
+// Different from cancelBooking above: that keeps the invoice on record
+// with a 'returned' status. This restocks everything, zeroes this bill's
+// due off the customer's account, and DELETES the invoice outright — for
+// a wrongly-created/duplicate booking that shouldn't exist anywhere at
+// all afterwards. Irreversible.
+async function voidBooking(id, invoiceNumber) {
+  if (!(await confirmModal(
+    `Invoice ${invoiceNumber||''} will be permanently removed — its stock is restored and its due is cleared from the customer's account. This cannot be undone.`,
+    { title: 'Delete Invoice Completely?', confirmText: 'Delete Invoice', icon: 'fa-trash' }
+  ))) return;
+  try {
+    await SalesAPI.void(id);
+    renderBookingList();
+    toast('Invoice deleted — stock restored and balance cleared', 'warning');
+  } catch (err) {
+    toast(err.message || 'Failed to delete invoice', 'error');
+  }
+}
+
 async function renderBookingList() {
   const q  = (document.getElementById('bk-search')?.value||'').toLowerCase();
   const nq = (document.getElementById('bk-name-search')?.value||'').toLowerCase().trim();
@@ -3921,7 +3940,8 @@ async function renderBookingList() {
                 <button class="btn btn-ghost btn-xs" onclick="editBooking(${b.id})" style="color:var(--accent)" title="Edit held invoice"><i class="fa fa-pen"></i></button>
                 <button class="btn btn-ghost btn-xs" onclick="deleteHeldBooking(${b.id},'${b.invoice_number}')" style="color:var(--red)" title="Delete held invoice"><i class="fa fa-trash"></i></button>
               ` : !['returned','cancelled'].includes(b.status) ? `
-                <button class="btn btn-ghost btn-xs" onclick="cancelBooking(${b.id})" style="color:var(--red)" title="Cancel"><i class="fa fa-ban"></i></button>
+                <button class="btn btn-ghost btn-xs" onclick="cancelBooking(${b.id})" style="color:var(--red)" title="Cancel / Return"><i class="fa fa-ban"></i></button>
+                <button class="btn btn-ghost btn-xs" onclick="voidBooking(${b.id},'${b.invoice_number}')" style="color:var(--red)" title="Delete invoice completely — restocks it, clears balance, removes it entirely"><i class="fa fa-trash"></i></button>
               ` : ''}
             </div>
           </td>
@@ -3977,6 +3997,7 @@ function viewSlipDetail(id) {
         <button class="btn btn-ghost btn-sm" onclick="editSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit</button>
       ` : ['completed', 'partially_returned', 'edited'].includes(b.status) ? `
         <button class="btn btn-red btn-sm" onclick="cancelSlipFromModal(${b.id})"><i class="fa fa-undo"></i> Cancel / Return</button>
+        <button class="btn btn-red btn-sm" onclick="voidSlipFromModal(${b.id}, '${b.invoice_number}')" title="Restocks it, clears the balance, and removes it completely — not kept as 'returned'"><i class="fa fa-trash"></i> Delete Invoice</button>
         <button class="btn btn-ghost btn-sm" onclick="editCompletedSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit Invoice</button>
       ` : ''}
       <button class="btn btn-accent btn-sm" onclick="printSingleSlipA4(${b.id})"><i class="fa fa-print"></i> Print A4</button>
@@ -4023,6 +4044,29 @@ async function cancelSlipFromModal(id) {
     toast('Invoice cancelled — stock and balance restored', 'warning');
   } catch (err) {
     toast(err.message || 'Failed to cancel invoice', 'error');
+  }
+}
+
+// Different from cancelSlipFromModal above: that one keeps the invoice on
+// record with a 'returned'/'partially_returned' status (still visible if
+// something filters for it). This one restocks everything, zeroes out
+// this bill's due on the customer's account, and DELETES the invoice
+// outright — for a wrongly-created/duplicate bill that shouldn't exist
+// anywhere at all: not in Sale Slips, not in Order Summary, not in the
+// Collection ledger, not in the Stock Report. Irreversible.
+async function voidSlipFromModal(id, invoiceNumber) {
+  if (!(await confirmModal(
+    `Invoice ${invoiceNumber||''} will be permanently removed — its stock is restored and its due is cleared from the customer's account. This cannot be undone.`,
+    { title: 'Delete Invoice Completely?', confirmText: 'Delete Invoice', icon: 'fa-trash' }
+  ))) return;
+  try {
+    await SalesAPI.void(id);
+    closeModal('order-detail-modal');
+    _slipsLoaded = false;
+    renderSaleSlips();
+    toast('Invoice deleted — stock restored and balance cleared', 'warning');
+  } catch (err) {
+    toast(err.message || 'Failed to delete invoice', 'error');
   }
 }
 

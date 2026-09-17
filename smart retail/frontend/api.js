@@ -265,6 +265,10 @@ const SalesAPI = {
   remove(id) { return apiRequest(`/sales/${id}/`, { method: 'DELETE' }); },
   pay(id, data) { return apiRequest(`/sales/${id}/pay/`, { method: 'POST', body: data }); },
   processReturn(id, data) { return apiRequest(`/sales/${id}/return/`, { method: 'POST', body: data }); },
+  // Completely removes a wrongly-created/duplicate finalized invoice —
+  // restocks it, clears its due off the customer's balance, and deletes
+  // it (unlike processReturn, which keeps it on record as 'returned').
+  void(id) { return apiRequest(`/sales/${id}/void/`, { method: 'POST' }); },
   returnHistory(params = {}) { return apiRequest(`/sales/returns/${buildQuery(params)}`); },
   coupons() { return apiRequest('/sales/coupons/'); },
   // "Hold Invoice" — parks a booking as a draft with no stock/balance impact.

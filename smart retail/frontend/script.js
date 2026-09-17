@@ -5436,11 +5436,18 @@ async function renderSingleProductReport() {
   // Real sales history: fetch all sales, filter items by this product
   const salesData = await SalesAPI.list({ page_size: 500 });
   const salesRows = [];
-  (salesData.results || salesData).filter(s => s.status !== 'cancelled').forEach(s => {
+  // Exclude cancelled AND fully-returned sales — same fix as Order
+  // Summary/Collection: a returned invoice has zero net effect and
+  // shouldn't count as "sold" here. A partially-returned line only
+  // counts what's left after subtracting quantity_returned.
+  (salesData.results || salesData).filter(s => !['cancelled', 'returned'].includes(s.status)).forEach(s => {
     (s.items||[]).filter(it => it.product === prodId).forEach(it => {
+      const netQty = it.quantity - Number(it.quantity_returned || 0);
+      if (netQty <= 0) return;
+      const netAmt = it.quantity ? Number(it.line_total) * (netQty / it.quantity) : 0;
       salesRows.push({
         date: (s.created_at||'').slice(0,10), invoice: s.invoice_number, customer: s.customer_name||'Walk-in',
-        qty: it.quantity, ctns: 0, lpcs: it.quantity, rate: Number(it.unit_price), amt: Number(it.line_total),
+        qty: netQty, ctns: 0, lpcs: netQty, rate: Number(it.unit_price), amt: netAmt,
       });
     });
   });
@@ -5519,12 +5526,17 @@ async function renderStockReport() {
   }
   document.getElementById('sr-date-label').textContent = 'Report Date: ' + reportDate;
 
-  // Sold-today from real sales on that date
+  // Sold-today from real sales on that date. Excludes cancelled AND
+  // fully-returned sales, and nets out any partial-return quantity per
+  // line — same fix as Order Summary/Collection/product report above.
   const soldMap = {};
   const salesData = await SalesAPI.list({ page_size: 500 });
   (salesData.results || salesData)
-    .filter(s => (s.created_at||'').slice(0,10) === reportDate && s.status !== 'cancelled')
-    .forEach(s => (s.items||[]).forEach(it => { soldMap[it.product] = (soldMap[it.product]||0) + it.quantity; }));
+    .filter(s => (s.created_at||'').slice(0,10) === reportDate && !['cancelled', 'returned'].includes(s.status))
+    .forEach(s => (s.items||[]).forEach(it => {
+      const netQty = it.quantity - Number(it.quantity_returned || 0);
+      if (netQty > 0) soldMap[it.product] = (soldMap[it.product]||0) + netQty;
+    }));
 
   let prods = _invProductCache.map(p => {
     const st = _invStockByProduct[p.id] || { quantity: 0 };
@@ -5743,14 +5755,19 @@ async function printSingleProductA4(prodId, reportDate) {
   const statusText = remaining === 0 ? 'OUT OF STOCK' : remaining <= minStock ? 'LOW STOCK' : 'IN STOCK';
   const statusColor = remaining === 0 ? '#dc2626' : remaining <= minStock ? '#b45309' : '#16a34a';
 
-  // Gather real sales for this product
+  // Gather real sales for this product. Excludes cancelled AND
+  // fully-returned sales, and nets out any partial-return quantity —
+  // same fix as the on-screen report above.
   const salesData = await SalesAPI.list({ page_size: 500 });
   const salesRows = [];
-  (salesData.results || salesData).filter(s => s.status !== 'cancelled').forEach(s => {
+  (salesData.results || salesData).filter(s => !['cancelled', 'returned'].includes(s.status)).forEach(s => {
     (s.items||[]).filter(it => it.product === prodId).forEach(it => {
+      const netQty = it.quantity - Number(it.quantity_returned || 0);
+      if (netQty <= 0) return;
+      const netAmt = it.quantity ? Number(it.line_total) * (netQty / it.quantity) : 0;
       salesRows.push({
         date: (s.created_at||'').slice(0,10), invoice: s.invoice_number, customer: s.customer_name||'Walk-in',
-        qty: it.quantity, ctns: 0, lpcs: it.quantity, rate: Number(it.unit_price), amt: Number(it.line_total),
+        qty: netQty, ctns: 0, lpcs: netQty, rate: Number(it.unit_price), amt: netAmt,
       });
     });
   });

@@ -657,7 +657,24 @@ def process_return(sale, return_items, reason, user):
         for i in SaleItem.objects.filter(sale=sale)
     )
     sale.status = Sale.Status.RETURNED if all_returned else Sale.Status.PARTIALLY_RETURNED
-    sale.save(update_fields=["status"])
+
+    # Net the refund straight off the invoice's own stored totals — this is
+    # the single field every screen actually reads (Sale Slips list and
+    # detail view, the printed A4 invoice, Booking List, due_amount,
+    # Customer Collection, Order Summary, Stock Report). Previously only
+    # quantity_returned and the customer's outstanding_balance were
+    # updated, so the invoice itself kept showing its full pre-return
+    # amount everywhere — this was the actual bug: it's not that any one
+    # screen forgot to subtract returns, it's that the source field they
+    # all read from never changed. paid_amount is untouched on purpose:
+    # it's the historical record of cash actually collected, and if that
+    # now exceeds the (now smaller) total_amount, due_amount going
+    # negative is the existing, established way this app represents a
+    # resulting customer credit/advance (see the "(Advance)" label
+    # elsewhere for previous_balance).
+    sale.subtotal = max(Decimal("0"), sale.subtotal - total_refund)
+    sale.total_amount = max(Decimal("0"), sale.total_amount - total_refund)
+    sale.save(update_fields=["status", "subtotal", "total_amount"])
 
     if sale.customer:
         sale.customer.outstanding_balance = max(

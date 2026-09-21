@@ -3976,20 +3976,25 @@ function viewSlipDetail(id) {
     </div>
     <table>
       <thead><tr><th>Product</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead>
-      <tbody>${b.items.map(it=>`<tr>
-          <td>📦 ${it.product_name||'—'}</td>
+      <tbody>${b.items.filter(it => (it.quantity - Number(it.quantity_returned||0)) > 0).map(it=>{
+          // Only the remaining (non-returned) quantity/amount — a fully
+          // returned line is filtered out above entirely.
+          const netQty = it.quantity - Number(it.quantity_returned||0);
+          const netAmt = it.quantity ? Number(it.line_total) * (netQty / it.quantity) : 0;
+          return `<tr>
+          <td>📦 ${it.product_name||'—'}${Number(it.quantity_returned) > 0 ? `<div style="font-size:10px;color:var(--red)">${it.quantity_returned} returned</div>` : ''}</td>
           <td>Rs.${Number(it.unit_price).toFixed(2)}</td>
-          <td class="fw-700">${it.quantity}</td>
-          <td class="fw-700 text-green">Rs.${Number(it.line_total).toFixed(2)}</td>
-        </tr>`).join('')}</tbody>
+          <td class="fw-700">${netQty}</td>
+          <td class="fw-700 text-green">Rs.${netAmt.toFixed(2)}</td>
+        </tr>`;}).join('')}</tbody>
     </table>
     <div style="margin-top:16px;text-align:right">
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Subtotal: Rs.${Number(b.subtotal).toFixed(2)}</div>
       ${Number(b.discount_amount)>0?`<div style="font-size:12px;color:var(--red);margin-bottom:4px">Discount: -Rs.${Number(b.discount_amount).toFixed(2)}</div>`:''}
       ${Number(b.tax_amount)>0?`<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Tax: +Rs.${Number(b.tax_amount).toFixed(2)}</div>`:''}
       <div style="font-size:16px;font-weight:800;margin-bottom:6px">Bill Total: Rs.${Number(b.total_amount).toFixed(2)}</div>
       <div style="font-size:18px;font-weight:800;color:var(--yellow)">Due: Rs.${Number(b.due_amount).toFixed(2)}</div>
     </div>
+    ${['returned','partially_returned'].includes(b.status) ? `<div style="font-size:11px;color:var(--text-muted);text-align:right;margin-top:-4px">Bill Total already reflects the return.</div>` : ''}
     ${b.notes?`<div style="margin-top:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;font-size:12px"><strong>Notes:</strong> ${b.notes}</div>`:''}
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
       ${b.status === 'draft' ? `
@@ -4099,15 +4104,30 @@ function _adaptSaleForSlipPrint(sale) {
     accountNo: sale.customer ? ('ACC-'+String(sale.customer).padStart(4,'0')) : '—',
     paymentMethod: (sale.payments[0]?.method) || '—',
     createdBy: '',
-    items: (sale.items||[]).map(it => ({
-      icon: '📦', name: it.product_name, qty: it.quantity, cartons: 0, ppc: 1,
-      rate: Number(it.unit_price), taxPct: Number(it.tax_percent),
-      discPct: Number(it.discount_percent)||0,
-    })),
+    items: (sale.items||[])
+      .map(it => {
+        // Only what's still actually on the bill — an item that's been
+        // fully returned shouldn't print as a line at all, and a
+        // partially-returned one should only show its remaining quantity.
+        const netQty = it.quantity - Number(it.quantity_returned || 0);
+        return {
+          icon: '📦', name: it.product_name, qty: netQty, cartons: 0, ppc: 1,
+          rate: Number(it.unit_price), taxPct: Number(it.tax_percent),
+          discPct: Number(it.discount_percent)||0,
+        };
+      })
+      .filter(it => it.qty > 0),
     discAmt: Number(sale.discount_amount),
     discountPct: 0,
     prevBal: Number(sale.previous_balance) || 0,
     notes: sale.notes || '',
+    // The authoritative bill total — already net of any return, straight
+    // from the backend (see process_return in services.py). Used below
+    // instead of re-deriving the total from items, so the printed total
+    // always matches what Sale Slips/Collection/every other screen shows,
+    // to the cent, instead of drifting from a second, independent
+    // calculation.
+    totalAmount: Number(sale.total_amount),
   };
 }
 
@@ -4268,7 +4288,15 @@ function buildSlipA4Html(rawSale) {
           // Decimal, "> 0" alone could let a sub-cent sliver through and
           // print a ghost "Bill Discount (0.0%) -Rs.0.00" line.
           const billDiscAmt  = Math.round(Math.max(0, (b.discAmt||0) - itemDiscAmt) * 100) / 100;
-          const grandTotal   = subtotalBase + totalTaxAmt - itemDiscAmt - billDiscAmt;
+          // Use the authoritative, already-return-adjusted total straight
+          // from the backend when available (real invoices always have
+          // it — see _adaptSaleForSlipPrint) rather than re-deriving it
+          // from items, so this always matches Sale Slips/Collection to
+          // the cent instead of two independent calculations drifting
+          // apart after a partial return.
+          const grandTotal   = (typeof b.totalAmount === 'number')
+            ? b.totalAmount
+            : subtotalBase + totalTaxAmt - itemDiscAmt - billDiscAmt;
           return `
         ${ssSettings.showSubtotal ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000"><span>Base Amount</span><span style="font-weight:600">Rs. ${subtotalBase.toFixed(2)}</span></div>` : ''}
         ${(ssSettings.showTax && hasTax) ? `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#8b0000"><span>Sale Tax/GST</span><span style="font-weight:600">+ Rs. ${totalTaxAmt.toFixed(2)}</span></div>` : ''}
@@ -6719,21 +6747,15 @@ async function renderOrderSummary() {
   const q          = (document.getElementById('os-search')?.value||'').toLowerCase();
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
 
-  const [salesData, returnsData] = await Promise.all([
-    SalesAPI.list({ page_size: 500 }),
-    SalesAPI.returnHistory({ page_size: 1000 }),
-  ]);
+  const salesData = await SalesAPI.list({ page_size: 500 });
   // Exclude cancelled AND fully-returned sales — a fully-returned invoice
   // (the usual way to "cancel" a wrongly-created/duplicate bill) has zero
   // net effect and shouldn't count as an order here at all. A
-  // partially-returned sale keeps its remaining (non-returned) items —
-  // handled below via _refundedForSale/quantity_returned — not excluded
-  // outright.
+  // partially-returned sale keeps its remaining (non-returned) items;
+  // its own total_amount is already net of the return (see process_return
+  // in services.py, which nets the refund off the invoice's total_amount
+  // at the source) — nothing further to subtract here.
   _osBookingsCache = (salesData.results || salesData).filter(s => !['cancelled', 'returned'].includes(s.status));
-  const returnsList = returnsData.results || returnsData;
-  const _refundedForSale = (saleId) => returnsList
-    .filter(r => r.sale === saleId)
-    .reduce((s, r) => s + Number(r.refund_amount || 0), 0);
 
   // Populate username (served_by) dropdown
   const usDd = document.getElementById('os-username-filter');
@@ -6754,11 +6776,7 @@ async function renderOrderSummary() {
   });
 
   const finOrders   = bookings.length;
-  // Net out any partial-return refund from each sale's own total/tax/
-  // discount before summing — a partially-returned invoice's KPI figures
-  // should reflect what's actually still owed/sold, not the original
-  // full-bill amount.
-  const finAmount   = bookings.reduce((s,b) => s + Math.max(0, Number(b.total_amount) - _refundedForSale(b.id)), 0);
+  const finAmount   = bookings.reduce((s,b) => s+Number(b.total_amount), 0);
   const finTax      = bookings.reduce((s,b) => s+Number(b.tax_amount), 0);
   const finDiscount = bookings.reduce((s,b) => s+Number(b.discount_amount), 0);
   const finReceived = bookings.reduce((s,b) => s+Number(b.paid_amount), 0);
@@ -7854,20 +7872,11 @@ if (!DB.purchaseReturns)  DB.purchaseReturns = [];
 
 let _colCustomerCache = [];
 let _colSalesCache = [];
-let _colReturnsCache = [];
 
 function _custBookings(custId, fromDT, toDT) {
   let list = _colSalesCache.filter(b => b.customer === custId);
   if (fromDT || toDT) list = list.filter(b => _inDT(b.created_at, fromDT, toDT));
   return list;
-}
-
-// Total refunded against a specific sale — a fully-returned sale nets to
-// ~0 owed, a partially-returned one only has the refunded portion removed.
-function _refundedForSale(saleId) {
-  return _colReturnsCache
-    .filter(r => r.sale === saleId)
-    .reduce((s, r) => s + Number(r.refund_amount || 0), 0);
 }
 
 // Shared bounds check — same "YYYY-MM-DDTHH:MM" comparison Order Summary
@@ -7892,19 +7901,23 @@ function getCustomerBalance(custId, fromDT, toDT) {
   const filtered = fromDT || toDT ? true : false;
   const allBookings = _colSalesCache.filter(b => b.customer === custId);
   const bookingsInRange = filtered ? allBookings.filter(b => _inDT(b.created_at, fromDT, toDT)) : allBookings;
+  // b.total_amount is already net of any returns against this sale — see
+  // process_return in services.py, which nets the refund straight off the
+  // invoice's own total_amount at the source. Don't subtract refunds again
+  // here on top of that; b.total_amount is already correct.
   const totalOrders = bookingsInRange.reduce((s, b) => s + Number(b.total_amount), 0);
-  const refunds     = bookingsInRange.reduce((s, b) => s + _refundedForSale(b.id), 0);
   const payments = filtered
     ? allBookings.reduce((s, b) => s + (b.payments||[]).filter(p => _inDT(p.created_at, fromDT, toDT)).reduce((a,p)=>a+Number(p.amount),0), 0)
     : allBookings.reduce((s, b) => s + Number(b.paid_amount), 0);
-  return { totalOrders: totalOrders - refunds, payments, balance: (totalOrders - refunds) - payments };
+  return { totalOrders, payments, balance: totalOrders - payments };
 }
 
 function getTodayOrders(custId) {
   const today = new Date().toISOString().split('T')[0];
+  // b.total_amount is already net of returns (see getCustomerBalance above).
   return _custBookings(custId)
     .filter(b => (b.created_at||'').slice(0,10) === today)
-    .reduce((s, b) => s + Number(b.total_amount) - _refundedForSale(b.id), 0);
+    .reduce((s, b) => s + Number(b.total_amount), 0);
 }
 
 function getLastPaymentDate(custId) {
@@ -7944,18 +7957,18 @@ async function renderCollection() {
   // the first 500 customers/sales (same class of bug as the earlier order
   // booking fix: a hardcoded page_size below max_page_size hides everything
   // past the cut). See apps/core/pagination.py — max_page_size is 2000.
-  const [custData, salesData, returnsData] = await Promise.all([
+  const [custData, salesData] = await Promise.all([
     CustomersAPI.list({ page_size: 2000 }), SalesAPI.list({ page_size: 2000 }),
-    SalesAPI.returnHistory({ page_size: 1000 }),
   ]);
   _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: 'ACC-'+String(c.id).padStart(4,'0') }));
   // Exclude both cancelled AND fully-returned sales — a bill that was voided
   // (e.g. edited from cash to credit, which cancels/returns the old invoice
   // and creates a fresh one) must disappear from Collection entirely, not
   // just the ones explicitly marked 'cancelled'. A partially-returned sale
-  // still has a legitimate remaining balance, so it stays included.
+  // still has a legitimate remaining balance (its total_amount is already
+  // net of the return — see process_return in services.py), so it stays
+  // included with no further adjustment needed here.
   _colSalesCache = (salesData.results || salesData).filter(b => !['cancelled', 'returned'].includes(b.status));
-  _colReturnsCache = returnsData.results || returnsData;
 
   const q           = (document.getElementById('col-search')?.value||'').toLowerCase();
   // Date and time are independent, same as Order Summary: leaving either

@@ -22,13 +22,23 @@ def get_customer_ledger(customer):
     active_sales = Sale.objects.filter(customer=customer).exclude(
         status__in=[Sale.Status.CANCELLED, Sale.Status.RETURNED]
     ).order_by("created_at", "id")
+    # sale.total_amount is already net of any return against it — see
+    # process_return in apps/sales/services.py, which nets the refund
+    # straight off the invoice's own total_amount at the source. So
+    # total_billed here is already the correct, current amount owed on
+    # these invoices; it must NOT be reduced by refund_amount again below
+    # (that used to double-subtract every return — once because
+    # total_amount was already smaller, and again via total_returned —
+    # which is exactly what showed a returned invoice's remaining balance
+    # as a false negative "advance").
     total_billed = sum((s.total_amount for s in active_sales), Decimal("0"))
+    amount_owed = total_billed
 
-    # Partial returns against a still-active sale reduce what's actually
-    # owed, even though the sale itself isn't fully cancelled/returned.
+    # Still fetched for the informational "Return against X" line below
+    # (so a return remains visible in the statement), but no longer
+    # subtracted from amount_owed — seeing when/how much was returned is
+    # useful, it just must not move the balance a second time.
     returns = SaleReturn.objects.filter(sale__in=active_sales).select_related("sale").order_by("created_at", "id")
-    total_returned = sum((r.refund_amount for r in returns), Decimal("0"))
-    amount_owed = total_billed - total_returned
 
     # Includes both payments tied to a specific invoice AND standalone
     # "General Collection" payments recorded straight against the customer
@@ -58,9 +68,15 @@ def get_customer_ledger(customer):
             "description": f"Invoice — {sale.invoice_number}",
         }))
     for r in returns:
-        txns.append((r.created_at, r.id, 1, -r.refund_amount, {
+        # delta 0 on purpose: the return's financial effect is already
+        # baked into the invoice line above (its total_amount is already
+        # net of this refund) — this line is shown purely so a return
+        # remains visible in the statement, without moving the balance a
+        # second time.
+        txns.append((r.created_at, r.id, 1, Decimal("0"), {
             "type": "return", "sale_id": r.sale_id, "reference": r.sale.invoice_number,
-            "description": f"Return against {r.sale.invoice_number}",
+            "description": f"Return against {r.sale.invoice_number} (already reflected in the invoice total above)",
+            "display_amount": r.refund_amount,
         }))
     for p in payments:
         if p.sale_id:
@@ -80,12 +96,16 @@ def get_customer_ledger(customer):
     entries = []
     for date, _row_id, _tiebreak, delta, data in txns:
         running_balance += delta
+        # Return lines carry delta=0 (see above) but still show the real
+        # refund figure via display_amount, rather than the 0 that
+        # abs(delta) would otherwise show.
+        shown_amount = data.get("display_amount", abs(delta))
         entry = {
             "date": date.isoformat(),
             "type": data["type"],
             "reference": data["reference"],
             "description": data["description"],
-            "amount": str(abs(delta)),
+            "amount": str(shown_amount),
             "remaining": str(running_balance),
         }
         if "sale_id" in data:

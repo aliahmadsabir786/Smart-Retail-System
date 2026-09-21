@@ -147,8 +147,29 @@ def expense_report(date_from=None, date_to=None):
 
 
 def profit_report(date_from=None, date_to=None):
+    """
+    Row-per-line P&L statement for the Reports table/print/export: Total
+    Income, then Expenses broken out as individual line items (name,
+    category, date, amount) followed by their total — same layout as a
+    standard P&L statement — then Cost of Goods Sold and Net Profit/(Loss).
+    """
     from apps.finance import services as finance_services
     pl = finance_services.get_profit_and_loss(date_from, date_to)
-    columns = [("metric", "Metric"), ("value", "Value")]
-    rows = [{"metric": k.replace("_", " ").title(), "value": str(v)} for k, v in pl.items()]
+    columns = [("description", "Description"), ("date", "Date"), ("amount", "Amount")]
+
+    rows = [{"description": "Total Income", "date": "", "amount": str(pl["income"])}]
+    rows.append({"description": "", "date": "", "amount": ""})
+    rows.append({"description": "Expenses", "date": "", "amount": ""})
+    for item in pl["expense_items"]:
+        label = f"{item['title']} ({item['category']})" if item["category"] else item["title"]
+        rows.append({"description": label, "date": item["date"], "amount": str(item["amount"])})
+    rows.append({"description": "Total Expenses", "date": "", "amount": str(pl["expenses"])})
+    rows.append({"description": "", "date": "", "amount": ""})
+    rows.append({"description": "Cost of Goods Sold", "date": "", "amount": str(pl["cost_of_goods_sold"])})
+    rows.append({"description": "Gross Profit", "date": "", "amount": str(pl["gross_profit"])})
+    rows.append({
+        "description": "Net Profit" if pl["is_profit"] else "Net Loss",
+        "date": "", "amount": str(pl["net_profit"]),
+    })
+
     return rows, columns

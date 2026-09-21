@@ -51,6 +51,28 @@ def get_total_expenses(date_from=None, date_to=None):
     return qs.aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
 
+def get_expense_breakdown(date_from=None, date_to=None):
+    """
+    Every individual approved expense in the period, oldest first — used
+    to print the P&L's Expenses section as itemized lines (name, category,
+    date, amount) followed by the total, instead of just a single lump
+    total with no detail behind it.
+    """
+    qs = _date_filter(
+        Expense.objects.filter(status=Expense.Status.APPROVED).select_related("category"),
+        "expense_date", date_from, date_to, is_datetime=False,
+    ).order_by("expense_date", "id")
+    return [
+        {
+            "title": e.title,
+            "category": e.category.name if e.category else "",
+            "date": e.expense_date.isoformat(),
+            "amount": e.amount,
+        }
+        for e in qs
+    ]
+
+
 def get_purchase_cash_outflow(date_from=None, date_to=None):
     """Cash actually paid to suppliers in the period (not the full PO value)."""
     from apps.purchase.models import SupplierPayment
@@ -70,6 +92,7 @@ def get_profit_and_loss(date_from=None, date_to=None):
     cogs = get_cost_of_goods_sold(date_from, date_to)
     gross_profit = income - cogs
     expenses = get_total_expenses(date_from, date_to)
+    expense_items = get_expense_breakdown(date_from, date_to)
     net_profit = gross_profit - expenses
 
     return {
@@ -77,6 +100,7 @@ def get_profit_and_loss(date_from=None, date_to=None):
         "cost_of_goods_sold": cogs,
         "gross_profit": gross_profit,
         "expenses": expenses,
+        "expense_items": expense_items,
         "net_profit": net_profit,
         "is_profit": net_profit >= 0,
     }

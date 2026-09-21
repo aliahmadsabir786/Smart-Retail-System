@@ -2960,23 +2960,33 @@ async function printReportA4() {
     }
     const fmt = n => Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     const netProfit = Number(pl.net_profit);
+    const expenseRows = (pl.expense_items||[]).map(it => `
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:6px 10px 6px 24px;color:#444">${it.title}${it.category?` <span style="color:#999">(${it.category})</span>`:''}</td>
+            <td style="padding:6px 10px;font-size:12px;color:#777">${it.date}</td>
+            <td style="padding:6px 10px;text-align:right">Rs.${fmt(it.amount)}</td>
+          </tr>`).join('');
     const body = `
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <tbody>
           <tr style="border-bottom:1px solid #e5e7eb">
-            <td style="padding:12px 10px;font-weight:700">💹 Total Income</td>
+            <td style="padding:12px 10px;font-weight:700" colspan="2">💹 Total Income</td>
             <td style="padding:12px 10px;text-align:right;font-weight:800;color:#16a34a">Rs.${fmt(pl.income)}</td>
           </tr>
-          <tr style="border-bottom:1px solid #e5e7eb">
-            <td style="padding:12px 10px;font-weight:700">📉 Total Expenses</td>
-            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#dc2626">Rs.${fmt(pl.expenses)}</td>
+          <tr>
+            <td style="padding:12px 10px 4px;font-weight:700" colspan="3">📉 Expenses</td>
+          </tr>
+          ${expenseRows || '<tr><td style="padding:6px 10px 6px 24px;color:#999" colspan="3">No expenses in this period</td></tr>'}
+          <tr style="border-bottom:1px solid #e5e7eb;border-top:1px solid #e5e7eb">
+            <td style="padding:10px;font-weight:700" colspan="2">Total Expenses</td>
+            <td style="padding:10px;text-align:right;font-weight:800;color:#dc2626">Rs.${fmt(pl.expenses)}</td>
           </tr>
           <tr style="border-bottom:1px solid #e5e7eb">
-            <td style="padding:12px 10px;font-weight:700">📊 Cost of Goods Sold</td>
+            <td style="padding:12px 10px;font-weight:700" colspan="2">📊 Cost of Goods Sold</td>
             <td style="padding:12px 10px;text-align:right;font-weight:800;color:#00a9a5">Rs.${fmt(pl.cost_of_goods_sold)}</td>
           </tr>
           <tr style="background:#f8fafc">
-            <td style="padding:16px 10px;font-weight:900;font-size:15px">🏆 Net Profit</td>
+            <td style="padding:16px 10px;font-weight:900;font-size:15px" colspan="2">🏆 Net Profit</td>
             <td style="padding:16px 10px;text-align:right;font-weight:900;font-size:18px;color:${netProfit>=0?'#16a34a':'#dc2626'}">Rs.${fmt(Math.abs(netProfit))}${netProfit<0?' (Loss)':''}</td>
           </tr>
         </tbody>
@@ -5720,7 +5730,7 @@ function saveStockReportSettings() {
   closeModal('sr-settings-modal');
 }
 
-function printStockReportA4() {
+async function printStockReportA4() {
   const prefs = _getStockReportPrefs();
   const today = new Date().toISOString().split('T')[0];
   const reportDate = document.getElementById('sr-date')?.value || today;
@@ -5739,13 +5749,32 @@ function printStockReportA4() {
   // regardless of the Category/Stock filters selected there.
   const catFilter   = document.getElementById('sr-cat')?.value || '';
   const stockFilter = document.getElementById('sr-stockfilter')?.value || '';
+
+  // Real quantity sold on reportDate per product — same computation (and
+  // same cancelled/returned/quantity_returned handling) as the on-screen
+  // Stock Report's own "Sold Today" figure. This was previously an empty
+  // object that never got filled in, so the Sold column always showed
+  // "—" and Opening (stock + sold) always silently came out equal to
+  // Remaining.
   const soldMap = {};
+  const salesData = await SalesAPI.list({ page_size: 500 });
+  (salesData.results || salesData)
+    .filter(s => (s.created_at||'').slice(0,10) === reportDate && !['cancelled', 'returned'].includes(s.status))
+    .forEach(s => (s.items||[]).forEach(it => {
+      const netQty = it.quantity - Number(it.quantity_returned || 0);
+      if (netQty > 0) soldMap[it.product] = (soldMap[it.product]||0) + netQty;
+    }));
+
   let prods = _invProductCache.map(p => ({ ...p, stock: (_invStockByProduct[p.id]||{}).quantity || 0 }));
   if (catFilter)             prods = prods.filter(p => p.category_name === catFilter);
   if (stockFilter === 'low') prods = prods.filter(p => p.stock > 0 && p.stock <= (p.reorder_level||10));
   if (stockFilter === 'out') prods = prods.filter(p => p.stock === 0);
   if (stockFilter === 'ok')  prods = prods.filter(p => p.stock > (p.reorder_level||10));
   const totalValue = prods.reduce((s, p) => s + Number(p.final_price||p.selling_price||0) * p.stock, 0);
+  // Value of what was actually sold on reportDate — same "current
+  // price × quantity" valuation method as totalValue above (kept
+  // consistent rather than mixing in each sale's own historical price).
+  const totalSoldValue = prods.reduce((s, p) => s + Number(p.final_price||p.selling_price||0) * (soldMap[p.id]||0), 0);
   const rows = prods.map((p, i) => {
     const minStock = p.reorder_level || 10;
     const sold = soldMap[p.id] || 0;
@@ -5767,7 +5796,8 @@ function printStockReportA4() {
     </tr>`;
   }).join('');
 
-  const colCount = 5 + (prefs.sku?1:0) + (prefs.category?1:0) + (prefs.sold?1:0) + (prefs.cartons?1:0) + (prefs.loose?1:0) + (prefs.value?1:0);
+  const totalSoldQty = prods.reduce((s, p) => s + (soldMap[p.id]||0), 0);
+  const leadColspan  = 2 + (prefs.sku?1:0) + (prefs.category?1:0); // #, Product, [SKU], [Category]
 
   const html = `<div class="a4-doc">
     ${getInvoiceHeaderHtml('STOCK REPORT', 'SR-'+reportDate, reportDate, { showLogo: prefs.logo, showAddress: prefs.address })}
@@ -5792,15 +5822,24 @@ function printStockReportA4() {
       <tbody>${rows}</tbody>
       <tfoot>
         <tr style="background:#d9d9d9 !important;color:#000 !important;font-weight:700;font-size:11px">
-          <td colspan="${colCount-2}" style="padding:7px 8px">TOTALS — ${prods.length} products</td>
-          ${prefs.value ? `<td style="padding:7px 8px;text-align:right">Rs. ${totalValue.toFixed(2)}</td>` : '<td></td>'}
+          <td colspan="${leadColspan}" style="padding:7px 8px">TOTALS — ${prods.length} products</td>
+          <td style="padding:7px 8px"></td>
+          ${prefs.sold ? `<td style="padding:7px 8px;text-align:center">${totalSoldQty}</td>` : ''}
+          <td style="padding:7px 8px"></td>
+          ${prefs.cartons ? `<td style="padding:7px 8px"></td>` : ''}
+          ${prefs.loose ? `<td style="padding:7px 8px"></td>` : ''}
+          ${prefs.value ? `<td style="padding:7px 8px;text-align:right">Rs. ${totalValue.toFixed(2)}</td>` : ''}
           <td style="padding:7px 8px"></td>
         </tr>
       </tfoot>
     </table>
-    <div style="display:flex;justify-content:flex-end;margin-bottom:5mm">
+    <div style="display:flex;justify-content:flex-end;gap:4mm;margin-bottom:5mm">
+      <div style="background:#fee2e2;border:2px solid #dc2626;border-radius:8px;padding:10px 20px;text-align:right;min-width:220px">
+        <div style="font-size:11px;color:#991b1b;font-weight:600;letter-spacing:.03em;text-transform:uppercase">Sold Amount (${reportDate})</div>
+        <div style="font-size:22px;font-weight:900;color:#000">Rs. ${totalSoldValue.toFixed(2)}</div>
+      </div>
       <div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;padding:10px 20px;text-align:right;min-width:260px">
-        <div style="font-size:11px;color:#92400e;font-weight:600;letter-spacing:.03em;text-transform:uppercase">Total Stock Value</div>
+        <div style="font-size:11px;color:#92400e;font-weight:600;letter-spacing:.03em;text-transform:uppercase">Remaining Stock Value</div>
         <div style="font-size:22px;font-weight:900;color:#000">Rs. ${totalValue.toFixed(2)}</div>
       </div>
     </div>

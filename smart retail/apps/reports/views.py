@@ -138,6 +138,8 @@ class SupplierReportView(BaseReportView):
 
 class TaxReportView(_DateRangeReportView):
     report_slug = "tax_report"
+    total_columns = ["subtotal", "tax_amount"]
+    total_label_column = "date"
 
     def get_data(self, request):
         date_from, date_to = self._date_range(request)

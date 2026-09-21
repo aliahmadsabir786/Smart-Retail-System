@@ -106,6 +106,22 @@ class TestReportsAPI:
         assert total_row["quantity"] == "17"
         assert Decimal(total_row["stock_value"]) == Decimal("170.00")
 
+    def test_tax_report_has_total_row(self, api_client, manager, sale_setup):
+        # sale_setup: 3 units at 25.00, no tax configured on the item -> subtotal
+        # 75.00, tax_amount 0.00 for the one sale.
+        api_client.force_authenticate(manager)
+        url = reverse("reports:tax-report")
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        results = response.data["results"]
+        assert response.data["count"] == 1
+        assert len(results) == 2
+
+        total_row = results[-1]
+        assert total_row["date"] == "TOTAL"
+        assert Decimal(total_row["subtotal"]) == Decimal("75.00")
+        assert Decimal(total_row["tax_amount"]) == Decimal("0.00")
+
     def test_inventory_report_excel_export(self, api_client, manager, sale_setup):
         api_client.force_authenticate(manager)
         url = reverse("reports:inventory-report")

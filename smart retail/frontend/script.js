@@ -2457,6 +2457,7 @@ function renderAccounting() {
 // ═══════════════════════════════════════════════════════
 let _reportColumnsCache = [];    // every column the currently loaded report returned
 let _reportVisibleColumns = [];  // same, minus whatever the user hid in Report Settings
+let _reportHasTotalRow = false;  // whether the last-loaded report actually returned a TOTAL row
 
 // Per-report-type column visibility, kept on this device only — same pattern
 // as the existing Stock Report print settings. Lets each report show only
@@ -2466,7 +2467,12 @@ const _REPORT_PREFS_KEY = 'smartretail_report_col_prefs';
 
 function _isTotalRow(row, columns) {
   if (!row || !columns.length) return false;
-  return String(row[columns[0]] ?? '').trim().toUpperCase() === 'TOTAL';
+  // Check every column, not just the first — different reports label their
+  // Total row in different columns (Sales uses "date", Inventory uses
+  // "product" since "sku" comes first but is often hidden), so this stays
+  // correct regardless of which column carries the "TOTAL" marker or
+  // whether that column happens to be hidden by Report Settings.
+  return columns.some(c => String(row[c] ?? '').trim().toUpperCase() === 'TOTAL');
 }
 
 function _reportColumnPrefs(slug) {
@@ -2510,7 +2516,13 @@ function openReportSettings() {
   }
 
   const prefs = _reportColumnPrefs(slug);
-  document.getElementById('report-settings-list').innerHTML = columns.map(c => `
+
+  const totalToggleHtml = _reportHasTotalRow ? `
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding-bottom:10px;margin-bottom:6px;border-bottom:1px solid var(--border);font-weight:700">
+      <input type="checkbox" id="report-total-toggle" ${prefs._showTotal === false ? '' : 'checked'}> Show TOTAL row at the end
+    </label>` : '';
+
+  document.getElementById('report-settings-list').innerHTML = totalToggleHtml + columns.map(c => `
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
       <input type="checkbox" class="report-col-check" value="${c}" ${prefs[c] === false ? '' : 'checked'}> ${_fmtColLabel(c)}
     </label>`).join('');
@@ -2521,7 +2533,6 @@ function openReportSettings() {
 function saveReportSettings() {
   const slug = _currentReportSlug || 'sales';
   const checks = document.querySelectorAll('#report-settings-list .report-col-check');
-  if (!checks.length) { closeModal('report-settings-modal'); return; }
 
   const allPrefs = (() => {
     try { return JSON.parse(localStorage.getItem(_REPORT_PREFS_KEY) || '{}'); }
@@ -2529,6 +2540,8 @@ function saveReportSettings() {
   })();
   const slugPrefs = {};
   checks.forEach(chk => { slugPrefs[chk.value] = chk.checked; });
+  const totalToggle = document.getElementById('report-total-toggle');
+  if (totalToggle) slugPrefs._showTotal = totalToggle.checked;
   allPrefs[slug] = slugPrefs;
 
   try {
@@ -2683,7 +2696,7 @@ async function generateReport() {
 
   try {
     const data = await ReportsAPI.fetch(slug, _reportDateParams());
-    const rows = data.results || [];
+    let rows = data.results || [];
     // Derive columns from the first row's keys (backend already sends
     // human-friendly values as strings) — falls back to an empty table
     // with just a "No data" message if there are no rows yet. If a Total
@@ -2691,6 +2704,13 @@ async function generateReport() {
     // this stays accurate either way.
     const allColumns = rows.length ? Object.keys(rows[0]) : [];
     _reportColumnsCache = allColumns;
+    _reportHasTotalRow = rows.some(r => _isTotalRow(r, allColumns));
+
+    const prefs = _reportColumnPrefs(slug);
+    if (_reportHasTotalRow && prefs._showTotal === false) {
+      rows = rows.filter(r => !_isTotalRow(r, allColumns));
+    }
+
     const columns = _visibleReportColumns(slug, allColumns);
     _reportVisibleColumns = columns;
 
@@ -3116,7 +3136,7 @@ async function printReportA4() {
   // invoice/sale-slip's Total line, so it's bolded with a rule above it
   // instead of blending into the rest of the table.
   const bodyRowsHtml = dataRows.map(cells => {
-    const isTotal = String(cells[0] || '').trim().toUpperCase() === 'TOTAL';
+    const isTotal = cells.some(c => String(c || '').trim().toUpperCase() === 'TOTAL');
     const rowStyle = isTotal ? ' style="font-weight:800;border-top:2px solid #333"' : '';
     return `<tr${rowStyle}>${cells.map((val, i) => {
       const col = columns[i];

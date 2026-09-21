@@ -87,6 +87,25 @@ class TestReportsAPI:
         assert response["Content-Type"] == "text/csv"
         assert b"Invoice #" in response.content
 
+    def test_inventory_report_has_total_row_for_quantity_and_stock_value(self, api_client, manager, sale_setup):
+        # 20 units stocked in, 3 sold in sale_setup -> 17 left, cost_price 10.00/unit.
+        api_client.force_authenticate(manager)
+        url = reverse("reports:inventory-report")
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        results = response.data["results"]
+        assert response.data["count"] == 1
+        assert len(results) == 2
+
+        item_row = results[0]
+        assert item_row["quantity"] == 17
+        assert Decimal(item_row["stock_value"]) == Decimal("170.00")
+
+        total_row = results[-1]
+        assert total_row["product"] == "TOTAL"
+        assert total_row["quantity"] == "17"
+        assert Decimal(total_row["stock_value"]) == Decimal("170.00")
+
     def test_inventory_report_excel_export(self, api_client, manager, sale_setup):
         api_client.force_authenticate(manager)
         url = reverse("reports:inventory-report")

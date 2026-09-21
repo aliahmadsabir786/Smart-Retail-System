@@ -33,6 +33,7 @@ class BaseReportView(APIView):
     report_slug = "report"
     total_columns = None  # e.g. ["total_amount", "cost_of_sale", "profit"]
     total_label_column = None  # column that gets the "TOTAL" label; defaults to the first column
+    total_integer_columns = ()  # subset of total_columns that are counts, not money — no decimals in the sum
 
     def get_data(self, request):
         raise NotImplementedError
@@ -56,7 +57,8 @@ class BaseReportView(APIView):
         label_col = self.total_label_column or columns[0][0]
         totals_row[label_col] = "TOTAL"
         for key in self.total_columns:
-            totals_row[key] = str(sums[key].quantize(Decimal("0.01")))
+            value = sums[key].to_integral_value() if key in self.total_integer_columns else sums[key].quantize(Decimal("0.01"))
+            totals_row[key] = str(value)
         return rows + [totals_row]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
@@ -100,6 +102,9 @@ class PurchaseReportView(_DateRangeReportView):
 
 class InventoryReportView(BaseReportView):
     report_slug = "inventory_report"
+    total_columns = ["quantity", "stock_value"]
+    total_label_column = "product"
+    total_integer_columns = ["quantity"]
 
     def get_data(self, request):
         rows, columns = services.inventory_report()

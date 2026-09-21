@@ -1264,6 +1264,7 @@
             <p>Comprehensive business intelligence and performance metrics</p>
           </div>
           <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openReportSettings()"><i class="fa fa-cog"></i> Report Settings</button>
             <button class="btn btn-ghost btn-sm" onclick="printReportA4()"><i class="fa fa-print"></i> Print A4</button>
             <button class="btn btn-ghost btn-sm" onclick="exportCurrentReport('csv')"><i class="fa fa-file-csv"></i> CSV</button>
             <button class="btn btn-ghost btn-sm" onclick="exportCurrentReport('excel')"><i class="fa fa-file-excel"></i> Excel</button>
@@ -2895,6 +2896,24 @@
         </div>
       </div>
       <div id="warehouse-summary-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- REPORT SETTINGS MODAL -->
+<div class="modal-overlay" id="report-settings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">⚙ Report Settings — <span id="report-settings-name">Sales Report</span></div>
+      <button class="modal-close" onclick="closeModal('report-settings-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Choose which columns appear in the table and on the printed A4 report. CSV/Excel/PDF exports always include every column. Saved on this device, per report type.</p>
+      <div style="display:flex;flex-direction:column;gap:10px" id="report-settings-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('report-settings-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveReportSettings()"><i class="fa fa-check"></i> Save Settings</button>
     </div>
   </div>
 </div>

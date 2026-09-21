@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db.models import Sum, Count
 from apps.sales.models import Sale, SaleItem
 from apps.purchase.models import PurchaseOrder
@@ -29,24 +30,45 @@ def _date_filter(qs, field, date_from, date_to, is_datetime=True):
 
 
 def sales_report(date_from=None, date_to=None):
+    """
+    Row-per-sale Sales Report. Each row now also carries Cost of Sale
+    (sum of product.cost_price * quantity across that sale's items) and
+    Profit (Sale Amount - Cost of Sale). The view layer (see
+    SalesReportView.total_columns) appends a final Total row over these
+    same columns — Sale Amount, Cost of Sale, Profit, etc. — the same way
+    a sale slip/invoice ends with a Total line, without inflating the
+    reported record `count`.
+    """
     qs = _date_filter(Sale.objects.exclude(status=Sale.Status.CANCELLED), "created_at", date_from, date_to)
     columns = [
         ("date", "Date"), ("invoice_number", "Invoice #"), ("customer", "Customer"), ("warehouse", "Warehouse"),
         ("subtotal", "Subtotal"), ("discount_amount", "Discount"), ("tax_amount", "Tax"),
-        ("total_amount", "Total"), ("paid_amount", "Paid"), ("status", "Status"),
+        ("total_amount", "Sale Amount"), ("cost_of_sale", "Cost of Sale"), ("profit", "Profit"),
+        ("paid_amount", "Paid"), ("status", "Status"),
     ]
-    rows = [
-        {
+
+    sales = qs.select_related("customer", "warehouse").prefetch_related("items__product")
+
+    rows = []
+    for s in sales:
+        cost_of_sale = sum(
+            (item.quantity * item.product.cost_price for item in s.items.all()),
+            Decimal("0"),
+        ).quantize(Decimal("0.01"))
+        sale_amount = s.total_amount
+        profit = (sale_amount - cost_of_sale).quantize(Decimal("0.01"))
+
+        rows.append({
             "date": s.created_at.strftime("%Y-%m-%d"),
             "invoice_number": s.invoice_number,
             "customer": s.customer.name if s.customer else "Walk-in",
             "warehouse": s.warehouse.name,
             "subtotal": str(s.subtotal), "discount_amount": str(s.discount_amount),
-            "tax_amount": str(s.tax_amount), "total_amount": str(s.total_amount),
+            "tax_amount": str(s.tax_amount), "total_amount": str(sale_amount),
+            "cost_of_sale": str(cost_of_sale), "profit": str(profit),
             "paid_amount": str(s.paid_amount), "status": s.status,
-        }
-        for s in qs.select_related("customer", "warehouse")
-    ]
+        })
+
     return rows, columns
 
 

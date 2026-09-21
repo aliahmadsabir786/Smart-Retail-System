@@ -54,6 +54,31 @@ class TestReportsAPI:
         assert response.data["success"] is True
         assert response.data["count"] == 1
 
+    def test_sales_report_includes_cost_of_sale_profit_and_total_row(self, api_client, manager, sale_setup):
+        # sale_setup sells 3 units at 25.00 (cost_price 10.00/unit) ->
+        # sale amount 75.00, cost of sale 30.00, profit 45.00.
+        api_client.force_authenticate(manager)
+        url = reverse("reports:sales-report")
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        results = response.data["results"]
+
+        # `count` only reflects the one real sale — the totals row below is a
+        # display-only summary line, the same way a sale slip's Total line
+        # isn't itself a purchased item.
+        assert response.data["count"] == 1
+        assert len(results) == 2
+
+        sale_row = results[0]
+        assert Decimal(sale_row["cost_of_sale"]) == Decimal("30.00")
+        assert Decimal(sale_row["profit"]) == Decimal("45.00")
+
+        total_row = results[-1]
+        assert total_row["date"] == "TOTAL"
+        assert Decimal(total_row["total_amount"]) == Decimal("75.00")
+        assert Decimal(total_row["cost_of_sale"]) == Decimal("30.00")
+        assert Decimal(total_row["profit"]) == Decimal("45.00")
+
     def test_sales_report_csv_export(self, api_client, manager, sale_setup):
         api_client.force_authenticate(manager)
         url = reverse("reports:sales-report")

@@ -2455,7 +2455,91 @@ function renderAccounting() {
 // ═══════════════════════════════════════════════════════
 // REPORTS
 // ═══════════════════════════════════════════════════════
-let _reportColumnsCache = [];
+let _reportColumnsCache = [];    // every column the currently loaded report returned
+let _reportVisibleColumns = [];  // same, minus whatever the user hid in Report Settings
+
+// Per-report-type column visibility, kept on this device only — same pattern
+// as the existing Stock Report print settings. Lets each report show only
+// the fields that matter for how this business uses it (e.g. hide Discount
+// on a store that never discounts) without touching what the backend sends.
+const _REPORT_PREFS_KEY = 'smartretail_report_col_prefs';
+
+function _isTotalRow(row, columns) {
+  if (!row || !columns.length) return false;
+  return String(row[columns[0]] ?? '').trim().toUpperCase() === 'TOTAL';
+}
+
+function _reportColumnPrefs(slug) {
+  try { return JSON.parse(localStorage.getItem(_REPORT_PREFS_KEY) || '{}')[slug] || {}; }
+  catch (e) { return {}; }
+}
+
+function _visibleReportColumns(slug, columns) {
+  const prefs = _reportColumnPrefs(slug);
+  // A column is hidden only if the user explicitly unchecked it (prefs[key] === false);
+  // anything never configured, or any brand-new column the backend adds later, stays visible.
+  const visible = columns.filter(c => prefs[c] !== false);
+  return visible.length ? visible : columns; // never let settings hide every single column
+}
+
+function openReportSettings() {
+  const slug = _currentReportSlug || 'sales';
+  const titleMap = {
+    sales: 'Sales Report', inventory: 'Inventory Report', purchase: 'Purchase Report',
+    expenses: 'Expense Report', profit: 'Profit & Loss Report', customers: 'Customer Report',
+    suppliers: 'Supplier Report', tax: 'Tax Report',
+  };
+  document.getElementById('report-settings-name').textContent = titleMap[slug] || 'Report';
+
+  if (slug === 'profit') {
+    document.getElementById('report-settings-list').innerHTML =
+      `<p style="font-size:12px;color:var(--text-muted)">Profit &amp; Loss has a fixed statement layout and has no optional columns to toggle.</p>`;
+    openModal('report-settings-modal');
+    return;
+  }
+
+  const columns = _reportColumnsCache && _reportColumnsCache.length
+    ? _reportColumnsCache
+    : Array.from(document.querySelectorAll('#report-table-head th')).map(th => th.dataset.col).filter(Boolean);
+
+  if (!columns.length) {
+    document.getElementById('report-settings-list').innerHTML =
+      `<p style="font-size:12px;color:var(--text-muted)">Generate this report at least once so its columns are known, then reopen Report Settings.</p>`;
+    openModal('report-settings-modal');
+    return;
+  }
+
+  const prefs = _reportColumnPrefs(slug);
+  document.getElementById('report-settings-list').innerHTML = columns.map(c => `
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+      <input type="checkbox" class="report-col-check" value="${c}" ${prefs[c] === false ? '' : 'checked'}> ${_fmtColLabel(c)}
+    </label>`).join('');
+
+  openModal('report-settings-modal');
+}
+
+function saveReportSettings() {
+  const slug = _currentReportSlug || 'sales';
+  const checks = document.querySelectorAll('#report-settings-list .report-col-check');
+  if (!checks.length) { closeModal('report-settings-modal'); return; }
+
+  const allPrefs = (() => {
+    try { return JSON.parse(localStorage.getItem(_REPORT_PREFS_KEY) || '{}'); }
+    catch (e) { return {}; }
+  })();
+  const slugPrefs = {};
+  checks.forEach(chk => { slugPrefs[chk.value] = chk.checked; });
+  allPrefs[slug] = slugPrefs;
+
+  try {
+    localStorage.setItem(_REPORT_PREFS_KEY, JSON.stringify(allPrefs));
+    closeModal('report-settings-modal');
+    toast('Report settings saved', 'success');
+    generateReport();
+  } catch (e) {
+    toast('Could not save settings on this device', 'error');
+  }
+}
 
 function _reportDateParams() {
   const from = document.getElementById('rpt-from')?.value;
@@ -2602,15 +2686,23 @@ async function generateReport() {
     const rows = data.results || [];
     // Derive columns from the first row's keys (backend already sends
     // human-friendly values as strings) — falls back to an empty table
-    // with just a "No data" message if there are no rows yet.
-    const columns = rows.length ? Object.keys(rows[0]) : [];
-    _reportColumnsCache = columns;
+    // with just a "No data" message if there are no rows yet. If a Total
+    // row was appended, its key set is identical to every other row's, so
+    // this stays accurate either way.
+    const allColumns = rows.length ? Object.keys(rows[0]) : [];
+    _reportColumnsCache = allColumns;
+    const columns = _visibleReportColumns(slug, allColumns);
+    _reportVisibleColumns = columns;
 
     document.getElementById('report-table-head').innerHTML = columns
-      .map(c => `<th>${c.replace(/_/g,' ').replace(/\b\w/g, ch => ch.toUpperCase())}</th>`).join('');
+      .map(c => `<th>${_fmtColLabel(c)}</th>`).join('');
 
     document.getElementById('report-table').innerHTML = rows.length
-      ? rows.map(row => `<tr>${columns.map(c => `<td>${row[c]}</td>`).join('')}</tr>`).join('')
+      ? rows.map(row => {
+          const isTotal = _isTotalRow(row, allColumns);
+          const style = isTotal ? ' style="font-weight:800;border-top:2px solid var(--border)"' : '';
+          return `<tr${style}>${columns.map(c => `<td>${row[c]}</td>`).join('')}</tr>`;
+        }).join('')
       : `<tr><td colspan="${columns.length||1}" style="text-align:center;color:var(--text-muted);padding:20px">No data for the selected range</td></tr>`;
   } catch (err) {
     toast(err.message || 'Failed to generate report', 'error');
@@ -2872,7 +2964,7 @@ const _REPORT_NUMERIC_COLS = new Set([
   'subtotal', 'discount_amount', 'tax_amount', 'total_amount', 'paid_amount',
   'amount', 'quantity', 'reorder_level', 'stock_value', 'total_orders',
   'total_spent', 'outstanding_balance', 'loyalty_points', 'total_purchased',
-  'outstanding_payable',
+  'outstanding_payable', 'cost_of_sale', 'profit',
 ]);
 // Column keys that are identifiers/codes — monospace, left-aligned, so they
 // read like an invoice/PO number rather than prose.
@@ -2998,8 +3090,10 @@ async function printReportA4() {
   // Every other report: same generic engine, but columns/alignment are
   // driven entirely by whatever this report type actually returned — no
   // more hardcoded Sales-shaped header forced onto Purchase/Tax/Inventory.
-  const columns = _reportColumnsCache && _reportColumnsCache.length
-    ? _reportColumnsCache
+  // Respects whatever the user chose in Report Settings, so a column hidden
+  // on screen stays hidden on the printed A4 copy too.
+  const columns = _reportVisibleColumns && _reportVisibleColumns.length
+    ? _reportVisibleColumns
     : Array.from(document.querySelectorAll('#report-table-head th')).map((th, i) => th.dataset.col || `col${i}`);
 
   const dataRows = [];
@@ -3018,12 +3112,19 @@ async function printReportA4() {
     return `<th style="text-align:${align}">${_fmtColLabel(c)}</th>`;
   }).join('');
 
-  const bodyRowsHtml = dataRows.map(cells => `<tr>${cells.map((val, i) => {
-    const col = columns[i];
-    const align = _REPORT_NUMERIC_COLS.has(col) ? 'right' : 'left';
-    const mono = _REPORT_CODE_COLS.has(col) ? 'font-family:monospace;font-size:11px' : '';
-    return `<td style="text-align:${align};${mono}">${val}</td>`;
-  }).join('')}</tr>`).join('');
+  // The Total row (when the report has one) is the printed equivalent of an
+  // invoice/sale-slip's Total line, so it's bolded with a rule above it
+  // instead of blending into the rest of the table.
+  const bodyRowsHtml = dataRows.map(cells => {
+    const isTotal = String(cells[0] || '').trim().toUpperCase() === 'TOTAL';
+    const rowStyle = isTotal ? ' style="font-weight:800;border-top:2px solid #333"' : '';
+    return `<tr${rowStyle}>${cells.map((val, i) => {
+      const col = columns[i];
+      const align = _REPORT_NUMERIC_COLS.has(col) ? 'right' : 'left';
+      const mono = _REPORT_CODE_COLS.has(col) ? 'font-family:monospace;font-size:11px' : '';
+      return `<td style="text-align:${align};${mono}">${val}</td>`;
+    }).join('')}</tr>`;
+  }).join('');
 
   const body = `<table>
       <thead><tr>${headHtml}</tr></thead>

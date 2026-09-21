@@ -1,10 +1,9 @@
 from decimal import Decimal
 from django.db.models import Sum, Count
 from apps.sales.models import Sale, SaleItem
-from apps.purchase.models import PurchaseOrder
+from apps.purchase.models import PurchaseOrder, PurchaseOrderItem
 from apps.inventory.models import StockItem
 from apps.customers.models import Customer
-from apps.suppliers.models import Supplier
 from apps.expenses.models import Expense
 
 
@@ -127,22 +126,37 @@ def customer_report():
     return rows, columns
 
 
-def supplier_report():
-    columns = [
-        ("name", "Supplier"), ("phone", "Phone"), ("total_orders", "Total POs"),
-        ("total_purchased", "Total Purchased"), ("outstanding_payable", "Outstanding Payable"),
-    ]
-    suppliers = Supplier.objects.annotate(
-        total_orders=Count("purchase_orders", distinct=True),
-        total_purchased=Sum("purchase_orders__total_amount"),
+def supplier_report(date_from=None, date_to=None):
+    """
+    Row-per-product Supplier Report: every purchase-order line item, with the
+    date it was ordered and which supplier it came from — so you can see
+    exactly what was bought from each supplier and when, the same way the
+    Sales Report is row-per-invoice rather than one aggregate line per
+    customer.
+    """
+    qs = _date_filter(
+        PurchaseOrderItem.objects.exclude(purchase_order__status=PurchaseOrder.Status.CANCELLED)
+                                  .select_related("purchase_order__supplier", "purchase_order__warehouse", "product"),
+        "purchase_order__created_at", date_from, date_to,
     )
-    rows = [
-        {
-            "name": s.name, "phone": s.phone, "total_orders": s.total_orders,
-            "total_purchased": str(s.total_purchased or 0), "outstanding_payable": str(s.outstanding_payable),
-        }
-        for s in suppliers
+    columns = [
+        ("date", "Date"), ("po_number", "PO #"), ("supplier", "Supplier"), ("product", "Product"),
+        ("quantity", "Quantity"), ("unit_cost", "Unit Cost"), ("amount", "Amount"),
     ]
+    rows = []
+    for item in qs.order_by("purchase_order__created_at"):
+        po = item.purchase_order
+        quantity = item.quantity_received or item.quantity_ordered
+        amount = (quantity * item.unit_cost).quantize(Decimal("0.01"))
+        rows.append({
+            "date": po.created_at.strftime("%Y-%m-%d"),
+            "po_number": po.po_number,
+            "supplier": po.supplier.name,
+            "product": item.product.name,
+            "quantity": quantity,
+            "unit_cost": str(item.unit_cost),
+            "amount": str(amount),
+        })
     return rows, columns
 
 

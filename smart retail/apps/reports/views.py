@@ -128,11 +128,15 @@ class CustomerReportView(BaseReportView):
         return rows, columns, "Customer Report"
 
 
-class SupplierReportView(BaseReportView):
+class SupplierReportView(_DateRangeReportView):
     report_slug = "supplier_report"
+    total_columns = ["quantity", "amount"]
+    total_label_column = "date"
+    total_integer_columns = ["quantity"]
 
     def get_data(self, request):
-        rows, columns = services.supplier_report()
+        date_from, date_to = self._date_range(request)
+        rows, columns = services.supplier_report(date_from, date_to)
         return rows, columns, "Supplier Report"
 
 

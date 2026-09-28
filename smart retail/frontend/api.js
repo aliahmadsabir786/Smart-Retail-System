@@ -243,6 +243,8 @@ const CustomersAPI = {
   remove(id) { return apiRequest(`/customers/${id}/`, { method: 'DELETE' }); },
   groups() { return apiRequest('/customers/groups/'); },
   ledger(id) { return apiRequest(`/customers/${id}/ledger/`); },
+  // Real balance (invoices minus ALL payments incl. advances) for every customer at once.
+  balances() { return apiRequest('/customers/balances/'); },
   // General cash collection against the customer's running balance — not
   // tied to a specific invoice (e.g. daily credit-collection rounds).
   collectPayment(id, data) { return apiRequest(`/customers/${id}/collect-payment/`, { method: 'POST', body: data }); },

@@ -122,3 +122,37 @@ def get_customer_ledger(customer):
         "remaining": str(amount_owed - running_paid),
         "entries": entries,
     }
+
+
+def get_all_customer_balances():
+    """
+    Bulk version of get_customer_ledger()'s totals, for the Customer
+    Collection screen: {customer_id: {amount_owed, total_paid, remaining}}
+    for every customer, in 2 queries instead of one ledger call each.
+
+    Same maths as get_customer_ledger: amount_owed is the sum of active
+    invoices (already net of returns), total_paid is every payment against
+    those invoices PLUS standalone General Collection / advance payments.
+    `remaining` can be negative (customer has an advance sitting).
+    """
+    from django.db.models import Sum, Q
+    from apps.sales.models import Sale, Payment
+
+    active = Sale.objects.exclude(status__in=[Sale.Status.CANCELLED, Sale.Status.RETURNED]).filter(customer__isnull=False)
+    owed = {r["customer"]: r["t"] for r in active.values("customer").annotate(t=Sum("total_amount"))}
+
+    invoice_paid = {
+        r["sale__customer"]: r["t"]
+        for r in Payment.objects.filter(sale__in=active).values("sale__customer").annotate(t=Sum("amount"))
+    }
+    direct_paid = {
+        r["customer"]: r["t"]
+        for r in Payment.objects.filter(sale__isnull=True, customer__isnull=False).values("customer").annotate(t=Sum("amount"))
+    }
+
+    out = {}
+    for cid in set(owed) | set(invoice_paid) | set(direct_paid):
+        o = owed.get(cid) or Decimal("0")
+        paid = (invoice_paid.get(cid) or Decimal("0")) + (direct_paid.get(cid) or Decimal("0"))
+        out[cid] = {"amount_owed": str(o), "total_paid": str(paid), "remaining": str(o - paid)}
+    return out

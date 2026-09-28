@@ -58,6 +58,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=False, methods=["get"], url_path="balances")
+    def balances(self, request):
+        """GET /customers/balances/ — every customer's REAL balance (all
+        invoices minus ALL payments, including advance / General Collection
+        payments) in one request. The Customer Collection screen uses this
+        so a payment taken off a customer's balance is never ignored."""
+        return Response({"success": True, "balances": services.get_all_customer_balances()})
+
     @action(detail=True, methods=["get"])
     def ledger(self, request, pk=None):
         """GET /customers/{id}/ledger/ — full statement of account: what's

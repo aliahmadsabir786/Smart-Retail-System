@@ -5153,6 +5153,12 @@ function openLedgerEntryModal() {
   }
   if (!id) { toast('Please select a customer account first', 'warning'); return; }
   const entity = _ledgerAccountCache.find(x => x.id === id);
+  // Account lock: a customer with no balance can't be given a manual
+  // advance/credit payment — payments only open up again once a new bill exists.
+  if (Number(entity?.outstanding_balance || 0) <= 0) {
+    showNoPaymentRemaining(entity?.name);
+    return;
+  }
   document.getElementById('le-cust-name').textContent = entity ? entity.name + "'s" : "the customer's";
   document.getElementById('le-date').value = new Date().toISOString().slice(0, 10);
   document.getElementById('le-amount').value = '';
@@ -5181,7 +5187,8 @@ async function saveLedgerEntry() {
     toast('Payment collected and added to ledger', 'success');
     await loadLedgerAccount();
   } catch (err) {
-    toast(err.message || 'Could not collect payment', 'error');
+    if (/no payment remaining|already clear/i.test(err.message || '')) { closeModal('ledger-entry-modal'); showNoPaymentRemaining(); }
+    else toast(err.message || 'Could not collect payment', 'error');
   }
 }
 
@@ -8072,6 +8079,37 @@ function getCustomerBalance(custId, fromDT, toDT) {
   return { totalOrders, payments, balance: totalOrders - payments };
 }
 
+// TRUE remaining balance for a customer across ALL their active invoices
+// (never date-windowed) — this is what decides whether "+ Pay" is allowed.
+// A customer whose invoices are all fully paid has nothing left to collect,
+// no matter which date/username filter the ledger is currently showing.
+function getCustomerTrueDue(custId) {
+  if (!custId) return 0;
+  const due = _colSalesCache
+    .filter(b => b.customer === custId)
+    .reduce((s, b) => s + Math.max(0, Number(b.total_amount) - Number(b.paid_amount)), 0);
+  return Math.max(0, Math.round(due * 100) / 100);
+}
+
+// Shared popup shown any time someone tries to add a payment to an account
+// that is already fully paid (Collection "+ Pay", Ledger "Collect Payment").
+function showNoPaymentRemaining(customerName) {
+  return confirmModal(
+    (customerName ? customerName + ': ' : '') + 'No payment remaining — this account is already clear. A new payment can only be added after a new bill is created.',
+    { title: 'Already Clear', confirmText: 'OK', cancelText: 'Close', danger: false, icon: 'fa-check-circle' }
+  );
+}
+
+// Renders the "+ Pay" button: disabled/locked when the customer's real
+// balance is zero.
+function collectionPayBtn(custId) {
+  const due = getCustomerTrueDue(custId);
+  if (due <= 0) {
+    return `<button class="btn btn-green btn-xs" disabled title="Account already clear — no payment remaining" style="opacity:.45;cursor:not-allowed" onclick="openCollectionPayment(${custId})"><i class="fa fa-lock"></i> Pay</button>`;
+  }
+  return `<button class="btn btn-green btn-xs" onclick="openCollectionPayment(${custId})" title="Record payment"><i class="fa fa-plus"></i> Pay</button>`;
+}
+
 function getTodayOrders(custId) {
   const today = new Date().toISOString().split('T')[0];
   // b.total_amount is already net of returns (see getCustomerBalance above).
@@ -8153,7 +8191,15 @@ async function renderCollection() {
 
   // ── Username view: group by username ──
   if (viewMode === 'username' && usernameQ) {
-    const rows = getUsernameCollectionRows(usernameQ, dateFromDT, dateToDT);
+    let rows = getUsernameCollectionRows(usernameQ, dateFromDT, dateToDT);
+    // Balance Filter must work in this view too (it used to be ignored here,
+    // so "Has Pending" still listed fully-paid customers).
+    rows = rows.filter(r => {
+      if (balFilter === 'pending') return r.pending > 0.009;
+      if (balFilter === 'clear')   return r.pending <= 0.009;
+      if (balFilter === 'overdue') return r.pending > 0.009 && r.customerId && getLastPaymentDate(r.customerId) < thirtyDaysAgo;
+      return true;
+    });
     if (label) label.textContent = rows.length + ' record(s) for "' + usernameQ + '"';
 
     // Update KPIs
@@ -8185,7 +8231,7 @@ async function renderCollection() {
       <td class="fw-700 td-mono text-green">Rs.${(r.received||0).toFixed(2)}</td>
       <td class="fw-700 td-mono" style="color:${r.pending>0?'var(--red)':'var(--green)'}">Rs.${r.pending.toFixed(2)}</td>
       <td><button class="btn btn-ghost btn-xs" onclick="printUsernameCollection('${r.username}')" title="Print"><i class="fa fa-print"></i></button>
-      ${r.customerId ? `<button class="btn btn-green btn-xs" onclick="openCollectionPayment(${r.customerId})" title="Record payment"><i class="fa fa-plus"></i> Pay</button>` : ''}</td>
+      ${r.customerId ? collectionPayBtn(r.customerId) : ''}</td>
     </tr>`).join('');
     return;
   }
@@ -8254,7 +8300,7 @@ async function renderCollection() {
       <td class="fw-700 td-mono" style="color:${remaining<=0?'var(--green)':'var(--red)'}">Rs.${remaining.toFixed(2)}</td>
       <td style="font-size:12px;color:var(--text-secondary)">${r.lastPay}</td>
       <td>
-        <button class="btn btn-green btn-xs" onclick="openCollectionPayment(${r.id})"><i class="fa fa-plus"></i> Pay</button>
+        ${collectionPayBtn(r.id)}
       </td>
     </tr>`;
   }).join('');
@@ -8280,6 +8326,12 @@ async function openCollectionPayment(custId) {
   } catch (err) {
     const bal = getCustomerBalance(custId);
     remaining = Math.max(0, bal.totalOrders - bal.payments);
+  }
+
+  if (remaining <= 0.009) {
+    await showNoPaymentRemaining(c.name);
+    renderCollection();
+    return;
   }
 
   document.getElementById('col-pay-cust-id').value       = custId;
@@ -8320,7 +8372,7 @@ async function saveCollectionPayment() {
     toast(`Only Rs.${trueOutstanding.toFixed(2)} is actually due — part of this was already collected earlier (advance/credit). Collecting Rs.${trueOutstanding.toFixed(2)} instead.`, 'warning');
     amount = trueOutstanding;
   }
-  if (amount <= 0) { toast('This customer has nothing left to pay.', 'success'); closeModal('col-payment-modal'); return; }
+  if (amount <= 0) { closeModal('col-payment-modal'); await showNoPaymentRemaining(c?.name); renderCollection(); return; }
 
   // A "collection payment" is applied across this customer's unpaid sales,
   // oldest first, via the real SalesAPI.pay() endpoint (there's no separate

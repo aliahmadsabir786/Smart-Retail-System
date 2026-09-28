@@ -433,6 +433,15 @@ def add_payment(sale, amount, method, user, reference=""):
     if amount <= 0:
         raise ValueError("Payment amount must be positive.")
 
+    # Account lock: an invoice that is already fully paid can't take another
+    # payment (that would create a manual advance/credit). Payments open up
+    # again only when a new bill is created.
+    if sale.total_amount > 0 and sale.paid_amount >= sale.total_amount:
+        raise ServiceException(
+            "No payment remaining — this invoice is already fully paid.",
+            code="no_payment_remaining",
+        )
+
     payment = Payment.objects.create(
         sale=sale, amount=amount, method=method, reference=reference,
         received_by=user, created_by=user,
@@ -467,6 +476,23 @@ def collect_customer_payment(customer, amount, method, user, reference=""):
     """
     if amount <= 0:
         raise ValueError("Amount must be positive.")
+
+    # Account lock: no manual advance/credit. If the customer has nothing
+    # outstanding, refuse; if they're paying more than is owed, refuse too.
+    # (Payments open up again only once a new bill is created.)
+    from apps.customers.services import get_customer_ledger
+    remaining_due = Decimal(get_customer_ledger(customer)["remaining"])
+    if remaining_due <= 0:
+        raise ServiceException(
+            "No payment remaining — this customer's account is already clear.",
+            code="no_payment_remaining",
+        )
+    if amount > remaining_due:
+        raise ServiceException(
+            f"Only Rs.{remaining_due:.2f} is remaining — payment can't exceed the balance.",
+            code="payment_exceeds_balance",
+        )
+
     payment = Payment.objects.create(
         sale=None, customer=customer, amount=amount, method=method,
         reference=reference, received_by=user,

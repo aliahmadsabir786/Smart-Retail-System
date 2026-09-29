@@ -133,7 +133,8 @@ def get_all_customer_balances():
     Same maths as get_customer_ledger: amount_owed is the sum of active
     invoices (already net of returns), total_paid is every payment against
     those invoices PLUS standalone General Collection / advance payments.
-    `remaining` can be negative (customer has an advance sitting).
+    `remaining` is clamped at 0 — an overpaid account never reports a
+    negative "advance" figure here; it just sits at 0 once fully paid.
     """
     from django.db.models import Sum, Q
     from apps.sales.models import Sale, Payment
@@ -154,5 +155,5 @@ def get_all_customer_balances():
     for cid in set(owed) | set(invoice_paid) | set(direct_paid):
         o = owed.get(cid) or Decimal("0")
         paid = (invoice_paid.get(cid) or Decimal("0")) + (direct_paid.get(cid) or Decimal("0"))
-        out[cid] = {"amount_owed": str(o), "total_paid": str(paid), "remaining": str(o - paid)}
+        out[cid] = {"amount_owed": str(o), "total_paid": str(paid), "remaining": str(max(Decimal("0"), o - paid))}
     return out

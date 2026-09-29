@@ -8096,13 +8096,6 @@ function getCustomerTrueDue(custId) {
   return Math.max(0, Math.round(due * 100) / 100);
 }
 
-// Advance/credit sitting on the account (payments taken that no invoice
-// absorbed yet, e.g. 4500 collected before the bill existed).
-function getCustomerAdvance(custId) {
-  const led = _colBalances[custId];
-  return led ? Math.max(0, -Number(led.remaining)) : 0;
-}
-
 // Shared popup shown any time someone tries to add a payment to an account
 // that is already fully paid (Collection "+ Pay", Ledger "Collect Payment").
 function showNoPaymentRemaining(customerName) {
@@ -8154,21 +8147,15 @@ function getUsernameCollectionRows(username, fromDT, toDT) {
     byCustomer[key].taxAmt   += Number(b.tax_amount);
     byCustomer[key].received += Number(b.paid_amount);
   });
-  return Object.values(byCustomer).map(r => {
-    // Any advance/credit already sitting on this account (e.g. Rs.4500
-    // collected earlier) is taken off what's still pending — otherwise the
-    // full bill shows as owed even though part of it was already paid.
-    const advance = r.customerId ? getCustomerAdvance(r.customerId) : 0;
-    const rawPending = Math.max(0, r.totalBill - r.received);
-    const applied = Math.min(advance, rawPending);
-    return {
-      ...r,
-      received: r.received + applied,
-      invoiceCount: r.invoices.length,
-      pending: rawPending - applied,
-      totalCollection: r.totalBill
-    };
-  });
+  return Object.values(byCustomer).map(r => ({
+    ...r,
+    invoiceCount: r.invoices.length,
+    // Clamped — an overpaid/advance account never shows a negative pending
+    // figure here, and that advance is never carried over onto a different
+    // bill; it simply isn't applied anywhere but stays 0/0 once cleared.
+    pending: Math.max(0, r.totalBill - r.received),
+    totalCollection: r.totalBill
+  }));
 }
 
 async function renderCollection() {

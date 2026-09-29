@@ -41,7 +41,10 @@ def create_sale(customer, warehouse, items, user, discount_amount=Decimal("0"),
     # so it contributes nothing to the ledger's numbers yet.
     if customer:
         from apps.customers.services import get_customer_ledger
-        sale.previous_balance = Decimal(get_customer_ledger(customer)["remaining"])
+        # Any advance/credit on file (a negative "remaining") must NEVER
+        # reduce a new bill on its own — clamp to 0 so only a genuine
+        # amount actually owed carries forward as previous balance.
+        sale.previous_balance = max(Decimal("0"), Decimal(get_customer_ledger(customer)["remaining"]))
         sale.save(update_fields=["previous_balance"])
 
     subtotal = Decimal("0")
@@ -137,7 +140,8 @@ def create_draft_sale(customer, warehouse, items, user, discount_amount=Decimal(
     # print on the invoice later, frozen as of right now.
     if customer:
         from apps.customers.services import get_customer_ledger
-        sale.previous_balance = Decimal(get_customer_ledger(customer)["remaining"])
+        # Same clamp as create_sale — an advance never auto-reduces a bill.
+        sale.previous_balance = max(Decimal("0"), Decimal(get_customer_ledger(customer)["remaining"]))
         sale.save(update_fields=["previous_balance"])
     _set_draft_items(sale, items, discount_amount)
     return sale
@@ -161,7 +165,8 @@ def update_draft_sale(sale, customer, warehouse, items, discount_amount=Decimal(
         # needs retaking against the new customer's own balance.
         if customer:
             from apps.customers.services import get_customer_ledger
-            sale.previous_balance = Decimal(get_customer_ledger(customer)["remaining"])
+            # Same clamp — an advance never auto-reduces a bill.
+            sale.previous_balance = max(Decimal("0"), Decimal(get_customer_ledger(customer)["remaining"]))
         else:
             sale.previous_balance = Decimal("0")
         sale.save(update_fields=["previous_balance"])

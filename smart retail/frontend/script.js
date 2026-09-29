@@ -8472,7 +8472,7 @@ function getCollectionFilters() {
   };
 }
 
-function printTodaysCollectionSheet() {
+function printCollectionSheet() {
   const cf = getCollectionFilters();
   const todayLabel = cf.label;
   const now = new Date().toLocaleString('en-PK');
@@ -8484,18 +8484,15 @@ function printTodaysCollectionSheet() {
     ? `<img src="${logoDataUrl}" style="max-width:44px;max-height:38px;object-fit:contain;vertical-align:middle;margin-right:8px">`
     : `<span style="font-size:22px;line-height:1;vertical-align:middle;margin-right:6px">🏪</span>`;
 
-  // Every bill cut today — cash or credit — grouped by the username who
-  // booked it. Orders booked in the morning are only actually collected
-  // in the evening, so this sheet always shows the FULL bill amount as
-  // due for collection — cash or credit — regardless of whether the
-  // system already recorded an automatic payment at booking time. Once a
-  // bill is physically collected in the evening, record/process that
-  // payment against the customer's account separately; that's what
-  // updates a bill to "Cleared" — not the act of booking it.
-  // Same range the Collection screen is currently filtered to — was
+  // Every bill cut in the period the Collection screen is CURRENTLY
+  // filtered to (whatever date/range the user picked there) — cash or
+  // credit both, grouped by the username who booked it. This used to be
   // hardcoded to the real calendar date, so filtering the screen to
   // yesterday and printing still said "No bills cut today" because it
-  // never looked at yesterday's bills at all.
+  // never looked at yesterday's bills at all. There's no more special
+  // "today" case: no filter picked just falls back to today by default
+  // (see getCollectionFilters), same as before, but any date the user
+  // filters to is what gets printed.
   let todaySales = _colSalesCache.filter(b => {
     const ts = b.created_at || '';
     if (cf.dateFromDT && ts < cf.dateFromDT) return false;
@@ -9088,7 +9085,7 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
       <div class="page-header-actions">
         <button class="btn btn-ghost btn-sm" onclick="exportCollectionReport()"><i class="fa fa-file-csv"></i> Export CSV</button>
-        <button class="btn btn-warning btn-sm" onclick="printTodaysCollectionSheet()"><i class="fa fa-hand-holding-usd"></i> Today's Collection Sheet</button>
+        <button class="btn btn-warning btn-sm" onclick="printCollectionSheet()" title="Prints the period, username and balance filters currently applied above"><i class="fa fa-hand-holding-usd"></i> Print Collection</button>
         <button class="btn btn-accent btn-sm" onclick="printCollectionReport()"><i class="fa fa-print"></i> Print Report</button>
       </div>
     </div>
@@ -9160,6 +9157,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </select>
           </div>
           <button class="btn btn-ghost btn-sm" onclick="clearCollectionFilters()"><i class="fa fa-times"></i> Clear</button>
+          <button class="btn btn-warning btn-sm" onclick="printCollectionSheet()" title="Prints exactly the period, username and balance filters set above"><i class="fa fa-print"></i> Print (this filter)</button>
         </div>
       </div>
     </div>

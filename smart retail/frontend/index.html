@@ -10,7 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260929-2">
   <script src="api.js"></script>
 </head>
 <body>
@@ -33,54 +33,147 @@
   <div class="splash-version">v2.1.0 &nbsp;·&nbsp; SmartRetail Systems</div>
 </div>
 
+<!-- ── SHOP OPENING (shown after sign-in, before the portal) ─── -->
+<div id="shop-open-screen" aria-hidden="true">
+  <div class="so-stage">
+    <div class="so-shop">
+      <div class="so-sign">
+        <div class="so-sign-logo" id="shop-open-logo">🏪</div>
+        <div class="so-sign-name" id="shop-open-name">SmartRetail ERP</div>
+      </div>
+      <div class="so-awning"></div>
+      <div class="so-front">
+        <div class="so-interior">
+          <div class="so-shelf"><i></i><i></i><i></i><i></i></div>
+          <div class="so-shelf"><i></i><i></i><i></i><i></i></div>
+          <div class="so-open-sign">OPEN</div>
+        </div>
+        <div class="so-shutter"><span class="so-handle"></span></div>
+      </div>
+      <div class="so-ground"></div>
+    </div>
+    <div class="so-text">Opening your shop<span class="splash-dot">.</span><span class="splash-dot">.</span><span class="splash-dot">.</span></div>
+  </div>
+</div>
+
+<!-- ── PRINT ANIMATIONS (slips = printer, collection = cash counting, order summary = walking with product) ─── -->
+<div id="print-anim-screen" aria-hidden="true">
+  <div class="pa-stage">
+
+    <!-- 1) PRINTER (Sale Slips) -->
+    <div class="pa-scene pa-printer-scene">
+      <div class="pa-p-in"></div>
+      <div class="pa-p-out">
+        <div class="pa-sheet"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="pa-p-body"><span class="pa-led"></span></div>
+    </div>
+
+    <!-- 2) CASH COUNTING (Collection) -->
+    <div class="pa-scene pa-cash-scene">
+      <div class="pa-stack pa-stack-l"><i class="pa-note"></i><i class="pa-note"></i><i class="pa-note"></i><i class="pa-note"></i></div>
+      <div class="pa-stack pa-stack-r"></div>
+      <i class="pa-note pa-fly" style="--i:0"></i><i class="pa-note pa-fly" style="--i:1"></i>
+      <i class="pa-note pa-fly" style="--i:2"></i><i class="pa-note pa-fly" style="--i:3"></i>
+      <i class="pa-note pa-fly" style="--i:4"></i><i class="pa-note pa-fly" style="--i:5"></i>
+      <i class="pa-note pa-fly" style="--i:6"></i><i class="pa-note pa-fly" style="--i:7"></i>
+      <i class="pa-note pa-fly" style="--i:8"></i><i class="pa-note pa-fly" style="--i:9"></i>
+      <i class="pa-note pa-fly" style="--i:10"></i><i class="pa-note pa-fly" style="--i:11"></i>
+      <div class="pa-count"><b id="pa-count-num">0</b> notes</div>
+      <div class="pa-check"><i class="fa fa-check"></i></div>
+    </div>
+
+    <!-- 3) PERSON CARRYING PRODUCT (Order Summary) -->
+    <div class="pa-scene pa-order-scene">
+      <div class="pa-walker">
+        <svg viewBox="0 0 140 170" width="140" height="170" aria-hidden="true">
+          <ellipse cx="66" cy="160" rx="34" ry="5" fill="rgba(0,0,0,.28)"/>
+          <g class="pa-bob">
+            <g class="pa-leg pa-leg-b"><rect x="53" y="100" width="13" height="52" rx="6" fill="#151d33"/><rect x="53" y="146" width="23" height="9" rx="4.5" fill="#0b0f1a"/></g>
+            <rect x="46" y="48" width="36" height="58" rx="12" fill="#ea6c4d"/>
+            <g class="pa-leg pa-leg-f"><rect x="64" y="100" width="13" height="52" rx="6" fill="#1f2a44"/><rect x="64" y="146" width="23" height="9" rx="4.5" fill="#111827"/></g>
+            <circle cx="64" cy="30" r="15" fill="#f1c7a0"/>
+            <path d="M49 28a15 15 0 0 1 30-4q-8-6-16-2q-8-2-14 6z" fill="#2b1d14"/>
+            <path d="M60 58L84 82" stroke="#d9573a" stroke-width="11" stroke-linecap="round"/>
+            <g>
+              <rect x="72" y="62" width="46" height="36" rx="3" fill="#d9a566" stroke="#b57f3f" stroke-width="2"/>
+              <rect x="91" y="62" width="8" height="36" fill="#f3d9a9"/>
+              <rect x="76" y="82" width="12" height="9" rx="1.5" fill="#fff" opacity=".85"/>
+            </g>
+            <circle cx="80" cy="96" r="5" fill="#f1c7a0"/>
+          </g>
+        </svg>
+      </div>
+      <div class="pa-ground"></div>
+    </div>
+
+    <div class="pa-bar"><i></i></div>
+    <div class="pa-text"><span id="pa-label">Printing</span><span class="splash-dot">.</span><span class="splash-dot">.</span><span class="splash-dot">.</span></div>
+  </div>
+</div>
+
 <!-- ── LOGIN ─── -->
 <div id="login-screen">
   <div class="login-cursor-dot" id="login-cursor-dot"></div>
   <div class="login-cursor-circle" id="login-cursor-circle"></div>
-  <!-- Fixed software identity — deliberately NOT wired to Settings → Company
-       branding (that only affects .login-brand-panel below). This always
-       shows the original SmartRetail ERP mark, regardless of what logo/name
-       a client uploads for their own store. -->
-  <div class="login-top-brand">
-    <div class="login-top-brand-logo">🏪</div>
-    <div class="login-top-brand-name">Smart<span>Retail</span> ERP</div>
-  </div>
   <div class="login-split">
+
+    <!-- Left: brand panel. #login-brand-logo / #login-brand-name are filled
+         from Settings → Company by loadLoginBranding() (falls back to the
+         default SmartRetail mark below). -->
     <div class="login-brand-panel">
       <div class="login-brand-blob login-brand-blob-1"></div>
       <div class="login-brand-blob login-brand-blob-2"></div>
       <div class="login-brand-blob login-brand-blob-3"></div>
       <div class="login-brand-content">
-        <div class="login-brand-logo" id="login-brand-logo">🏪</div>
-        <div class="login-brand-name" id="login-brand-name">Smart<span>Retail</span> ERP</div>
-        <div class="login-brand-version">v2.1.0</div>
+        <div class="login-brand-head">
+          <div class="login-brand-logo" id="login-brand-logo">🏪</div>
+          <div>
+            <div class="login-brand-name" id="login-brand-name">Smart<span>Retail</span> ERP</div>
+            <div class="login-brand-version">v2.1.0</div>
+          </div>
+        </div>
+        <h2 class="login-hero-title">Sell faster.<br>Track everything.</h2>
+        <p class="login-hero-sub">Billing, stock, ledgers and collections — all in one place, built for busy retail and distribution businesses.</p>
+        <ul class="login-features">
+          <li><span class="login-feature-icon"><i class="fa fa-bolt"></i></span><div><b>Fast booking &amp; POS</b><span>Create bills in seconds</span></div></li>
+          <li><span class="login-feature-icon"><i class="fa fa-boxes"></i></span><div><b>Live inventory</b><span>Stock, purchases and returns in sync</span></div></li>
+          <li><span class="login-feature-icon"><i class="fa fa-book"></i></span><div><b>Ledgers &amp; collections</b><span>Know who owes what, instantly</span></div></li>
+          <li><span class="login-feature-icon"><i class="fa fa-chart-line"></i></span><div><b>Reports that matter</b><span>Sales, profit and balance sheet</span></div></li>
+        </ul>
       </div>
       <div class="login-brand-footer">
         © <span id="login-year"></span> All Rights Reserved By Ali Ahmad&nbsp;|&nbsp;Full-Stack Python Django Developer
       </div>
     </div>
+
+    <!-- Right: sign-in form -->
     <div class="login-form-panel">
       <div class="login-box" id="login-view">
         <div class="login-title">Welcome back</div>
         <div class="login-sub">Sign in to manage your retail operations</div>
         <div class="form-group">
-          <label>Email</label>
-          <input class="form-input" id="l-user" type="text" placeholder="Enter email" autocomplete="username">
+          <label for="l-user">Email</label>
+          <div class="input-icon-wrap">
+            <i class="fa fa-envelope input-icon"></i>
+            <input class="form-input" id="l-user" type="text" placeholder="Enter email" autocomplete="username">
+          </div>
         </div>
         <div class="form-group">
-          <label>Password</label>
-          <div class="password-field">
+          <label for="l-pass">Password</label>
+          <div class="password-field input-icon-wrap">
+            <i class="fa fa-lock input-icon"></i>
             <input class="form-input" id="l-pass" type="password" placeholder="Enter password" autocomplete="current-password">
             <button type="button" class="password-toggle" onclick="togglePasswordVisibility('l-pass', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
           </div>
         </div>
+        <div class="login-row">
+          <a href="javascript:void(0)" class="login-link" onclick="showForgotPasswordView()">Forgot password?</a>
+        </div>
         <button class="btn-primary" id="login-btn" onclick="doLogin()">
           <i class="fa fa-sign-in-alt"></i> Sign In
         </button>
-        <div id="login-error" style="color:var(--red,#ef4444);font-size:12px;margin-top:8px;display:none"></div>
-        <div style="text-align:center;margin-top:14px">
-          <a href="javascript:void(0)" onclick="showForgotPasswordView()" style="font-size:13px;color:var(--accent);text-decoration:none">Forgot Password?</a>
-        </div>
+        <div id="login-error" class="login-error" style="display:none"></div>
       </div>
 
       <!-- ── FORGOT PASSWORD: request a reset link by email ── -->
@@ -88,15 +181,18 @@
         <div class="login-title">Forgot Password?</div>
         <div class="login-sub">Enter the email address associated with your account.</div>
         <div class="form-group">
-          <label>Email</label>
-          <input class="form-input" id="fp-email" type="email" placeholder="Enter your account email" autocomplete="username">
+          <label for="fp-email">Email</label>
+          <div class="input-icon-wrap">
+            <i class="fa fa-envelope input-icon"></i>
+            <input class="form-input" id="fp-email" type="email" placeholder="Enter your account email" autocomplete="username">
+          </div>
         </div>
         <button class="btn-primary" id="fp-btn" onclick="submitForgotPassword()">
           <i class="fa fa-paper-plane"></i> Send Reset Link
         </button>
         <div id="fp-message" style="font-size:12px;margin-top:8px;display:none"></div>
-        <div style="text-align:center;margin-top:14px">
-          <a href="javascript:void(0)" onclick="showLoginView()" style="font-size:13px;color:var(--accent);text-decoration:none">← Back to Login</a>
+        <div style="text-align:center;margin-top:18px">
+          <a href="javascript:void(0)" class="login-link" onclick="showLoginView()">← Back to Login</a>
         </div>
       </div>
 
@@ -106,15 +202,17 @@
           <div class="login-title">Reset Password</div>
           <div class="login-sub">Choose a new password for your account.</div>
           <div class="form-group">
-            <label>New Password</label>
-            <div class="password-field">
+            <label for="rp-pass1">New Password</label>
+            <div class="password-field input-icon-wrap">
+              <i class="fa fa-lock input-icon"></i>
               <input class="form-input" id="rp-pass1" type="password" placeholder="Enter new password" autocomplete="new-password">
               <button type="button" class="password-toggle" onclick="togglePasswordVisibility('rp-pass1', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
             </div>
           </div>
           <div class="form-group">
-            <label>Confirm New Password</label>
-            <div class="password-field">
+            <label for="rp-pass2">Confirm New Password</label>
+            <div class="password-field input-icon-wrap">
+              <i class="fa fa-lock input-icon"></i>
               <input class="form-input" id="rp-pass2" type="password" placeholder="Confirm new password" autocomplete="new-password">
               <button type="button" class="password-toggle" onclick="togglePasswordVisibility('rp-pass2', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
             </div>
@@ -143,6 +241,8 @@
           </button>
         </div>
       </div>
+
+      <div class="login-secure"><i class="fa fa-shield-alt"></i> Authorized users only</div>
     </div>
   </div>
 </div>
@@ -152,8 +252,8 @@
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-logo">🏪</div>
-      <div class="sidebar-brand">SmartRetail ERP<span>v2.0 Enterprise</span></div>
+      <div class="sidebar-logo" id="sidebar-logo">🏪</div>
+      <div class="sidebar-brand" id="sidebar-brand-name">SmartRetail ERP<span id="sidebar-brand-version">v2.0 Enterprise</span></div>
     </div>
     <div class="sidebar-user">
       <div class="user-avatar" id="u-avatar">A</div>
@@ -569,7 +669,7 @@
                     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">LOYALTY POINTS</div>
                     <div style="font-size:18px;font-weight:800;color:var(--green)" id="bk-total-purchases">0</div>
                   </div>
-                  <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px">
+                  <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:12px">
                     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">LAST VISIT</div>
                     <div style="font-size:16px;font-weight:700;color:var(--accent)" id="bk-last-visit">—</div>
                   </div>
@@ -1406,7 +1506,7 @@
           <div class="card">
             <div class="card-header"><div class="card-title">🚚 Distributor / Agency Info</div></div>
             <div class="card-body">
-              <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+              <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
                 <i class="fa fa-info-circle" style="color:var(--accent)"></i> This info prints on every A4 invoice as the distribution party.
               </div>
               <div class="form-group-inline"><label>Distributor / Agency Name</label><input class="form-input" id="set-dist-name" placeholder="e.g. City Distributors Co."></div>
@@ -1446,7 +1546,7 @@
         <div class="card" style="margin-top:20px">
           <div class="card-header"><div class="card-title">💾 Backup &amp; Restore</div></div>
           <div class="card-body">
-            <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+            <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
               <i class="fa fa-info-circle" style="color:var(--accent)"></i> A backup is a full export of every bill, customer, product, and stock record — saved as a downloadable .zip. The last 12 backups are kept automatically.
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
@@ -2040,7 +2140,7 @@
             </div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
               <!-- Active username badge -->
-              <div id="os-username-badge" style="display:none;background:var(--accent-glow);border:1px solid rgba(59,130,246,.25);color:var(--accent);font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px;white-space:nowrap"></div>
+              <div id="os-username-badge" style="display:none;background:var(--accent-glow);border:1px solid rgba(234,108,77,.25);color:var(--accent);font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px;white-space:nowrap"></div>
               <div class="search-bar" style="width:220px">
                 <i class="fa fa-search"></i>
                 <input type="text" id="os-search" placeholder="Filter by product or SKU..." oninput="debounced('os-search', renderOrderSummary)">
@@ -2199,7 +2299,7 @@
             <span style="font-size:12px;font-weight:600">Profit Margin</span>
             <span id="prod-calc-margin" style="font-size:14px;font-weight:800;color:var(--green)">0%</span>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
             <span style="font-size:12px;font-weight:600">Profit Amount</span>
             <span id="prod-calc-profit" style="font-size:14px;font-weight:800;color:var(--accent)">$0.00</span>
           </div>
@@ -2579,7 +2679,7 @@
             <div id="adj-current-stock" style="font-size:22px;font-weight:800;color:var(--text-primary)">0</div>
             <div style="font-size:9px;color:var(--text-muted)">units</div>
           </div>
-          <div style="padding:10px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+          <div style="padding:10px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
             <div style="font-size:10px;color:var(--accent);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:700">Adjustment</div>
             <div id="adj-delta-display" style="font-size:22px;font-weight:800;color:var(--accent)">±0</div>
             <div style="font-size:9px;color:var(--accent)">units</div>
@@ -3001,7 +3101,7 @@
       <button class="modal-close" onclick="closeModal('ledger-entry-modal')">✕</button>
     </div>
     <div class="modal-body">
-      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+      <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
         For daily credit collection rounds — this reduces <strong id="le-cust-name" style="color:var(--text-primary)">the customer's</strong> overall balance and isn't tied to one specific invoice. It shows up in the ledger as its own dated row, and any leftover balance carries forward automatically into their next bill.
       </div>
       <div class="form-row">
@@ -3038,7 +3138,7 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="pe-payment-id">
-      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+      <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
         Editing <strong id="pe-ref-label" style="color:var(--text-primary)">—</strong>. This corrects the real payment record — the customer's balance and remaining-due figures recalculate automatically.
       </div>
       <div class="form-row">
@@ -3072,5 +3172,5 @@
 <!-- A4 PRINT AREA (hidden, shown on print) -->
 <div id="print-area"></div>
 
-  <script src="script.js?v=20260914-1"></script>
+  <script src="script.js?v=20260929-2"></script>
 </body>

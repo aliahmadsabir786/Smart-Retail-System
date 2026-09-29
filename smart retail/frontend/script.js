@@ -1,6 +1,17 @@
 // ── SPLASH SCREEN ──────────────────────────────────────
+// The splash covers the page until the app is really ready: if a saved
+// session exists, the portal is opened UNDER the splash first (profile
+// fetched, dashboard rendered) and only then does the splash fade out — so
+// you never see the portal "opening" behind the loader. window.__bootReady
+// is resolved by the session-restore code below.
 (function() {
-  // Hide login & app while splash shows
+  const MIN_MS  = 900;   // shortest the splash ever shows (lets the logo animate)
+  const MAX_MS  = 4000;  // safety: never hold the splash longer than this
+  const SETTLE  = 350;   // portal gets a moment to paint before the splash lifts
+  let resolveBoot;
+  window.__bootReady = new Promise(r => { resolveBoot = r; });
+  window.__bootDone  = () => resolveBoot();
+
   document.addEventListener('DOMContentLoaded', function() {
     // Apply saved theme immediately (before splash fade)
     if (localStorage.getItem('smartretail_theme') === 'light') {
@@ -14,21 +25,21 @@
     login.style.opacity = '0';
     login.style.pointerEvents = 'none';
 
-    // After 1.4s: fade out splash, reveal login
     function hideSplash() {
       if (splash.dataset.hidden) return;
       splash.dataset.hidden = '1';
+      login.style.transition = 'opacity .3s ease';
+      login.style.opacity  = '1';
+      login.style.pointerEvents = '';
       splash.classList.add('hiding');
-      setTimeout(function() {
-        splash.style.display = 'none';
-        login.style.opacity  = '1';
-        login.style.pointerEvents = '';
-        login.style.transition = 'opacity .4s ease';
-      }, 500);
+      setTimeout(function() { splash.style.display = 'none'; }, 400);
     }
-    setTimeout(hideSplash, 1400);
-    // Safety: force-hide after 3s no matter what
-    setTimeout(hideSplash, 3000);
+
+    const minWait = new Promise(r => setTimeout(r, MIN_MS));
+    Promise.all([minWait, window.__bootReady])
+      .then(() => new Promise(r => setTimeout(r, SETTLE)))
+      .then(hideSplash);
+    setTimeout(hideSplash, MAX_MS);
   });
 })();
 
@@ -146,12 +157,13 @@ let charts = {};
 // Shared categorical palette for all charts — from the app's coolors.co
 // palette (092327-0b5351-00a9a5), so every chart in the app feels like one
 // consistent, deliberate design rather than a grab-bag of default colors.
-const CHART_PALETTE = ['#00a9a5', '#0b5351', '#6fe0da', '#d9a441', '#4caf7d', '#e2665c', '#5f8f8c', '#1fcac5'];
+const CHART_PALETTE = ['#ea6c4d', '#f4a26a', '#7fb3d5', '#d9a441', '#4caf7d', '#c65a44', '#8f8f8f', '#f0805f'];
 // A separate, more varied palette for the category pie chart — CHART_PALETTE
-// stays teal-toned throughout (matches the rest of the dashboard's bars/
+// stays coral-toned throughout (matches the rest of the dashboard's bars/
 // bubbles), but a pie chart needs each slice to read as visually distinct
-// at a glance, so this spreads across different hues instead.
-const PIE_PALETTE = ['#00a9a5', '#e2665c', '#d9a441', '#6a5acd', '#4caf7d', '#e0679b', '#3d8fd6', '#f2994a', '#1fcac5', '#8e6bb5'];
+// at a glance, so this spreads across a few different hues instead, coral
+// still leading since it's the theme's primary accent.
+const PIE_PALETTE = ['#ea6c4d', '#f4a26a', '#7fb3d5', '#d9a441', '#4caf7d', '#c65a44', '#8f8f8f', '#f2994a', '#f0805f', '#8e6bb5'];
 
 // Shared CanvasJS color set for the current theme — previously the pie and
 // bubble charts always used dark-theme colors (theme:'dark2', near-white
@@ -186,19 +198,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (_checkPasswordResetLink()) {
     loadLoginBranding();
     initLoginCursor();
+    if (window.__bootDone) window.__bootDone();
     return;
   }
 
-  if (typeof AuthAPI !== 'undefined' && AuthAPI.isLoggedIn()) {
-    try {
-      const user = await AuthAPI.profile();
-      await loginAs(user);
-    } catch (_) {
-      TokenStore.clear();
+  try {
+    if (typeof AuthAPI !== 'undefined' && AuthAPI.isLoggedIn()) {
+      try {
+        const user = await AuthAPI.profile();
+        await loginAs(user);
+      } catch (_) {
+        TokenStore.clear();
+      }
     }
+    // Branding (logo/name) is loaded before the splash lifts so the login
+    // screen never flashes the default mark and then swaps it.
+    await Promise.race([loadLoginBranding(), new Promise(r => setTimeout(r, 1500))]);
+  } finally {
+    initLoginCursor();
+    if (window.__bootDone) window.__bootDone();
   }
-  loadLoginBranding();
-  initLoginCursor();
 });
 
 // ═══════════════════════════════════════════════════════
@@ -375,12 +394,17 @@ async function loadLoginBranding() {
   try {
     const branding = await SettingsAPI.getPublicBranding();
     if (branding.logo) {
+      const logoImg = `<img src="${branding.logo}" alt="Company logo">`;
       const logoEl = document.getElementById('login-brand-logo');
-      if (logoEl) logoEl.innerHTML = `<img src="${branding.logo}" alt="Company logo">`;
+      if (logoEl) logoEl.innerHTML = logoImg;
+      const topLogoEl = document.getElementById('login-top-brand-logo');
+      if (topLogoEl) topLogoEl.innerHTML = logoImg;
     }
     if (branding.name) {
       const nameEl = document.getElementById('login-brand-name');
       if (nameEl) nameEl.textContent = branding.name;
+      const topNameEl = document.getElementById('login-top-brand-name');
+      if (topNameEl) topNameEl.textContent = branding.name;
     }
   } catch (_) {
     // No branding uploaded yet, or the request failed — the default
@@ -389,46 +413,62 @@ async function loadLoginBranding() {
 }
 
 // Trailing cursor on the login screen: the dot snaps straight to the real
-// cursor position every frame, while the ring around it eases toward that
-// same position a little slower — that lag between the two is what makes
-// it read as "following" rather than just a redrawn cursor. Skipped
-// entirely on touch devices (no mouse to trail) and stops itself once the
-// login screen is gone (no point still moving invisible elements).
+// cursor position, while the ring around it eases toward it a little slower.
+// Performance/robustness notes:
+//  - Listeners are attached ONCE (safe to call initLoginCursor() many times).
+//  - The rAF loop starts on demand from mousemove and stops itself once the
+//    ring has caught up, so it never runs (or dies) while the login screen is
+//    hidden. Previously the loop quit forever if it started while the screen
+//    was display:none (e.g. a saved session at page load), so after logout the
+//    ring stayed frozen while only the dot moved.
+//  - No getComputedStyle() per frame (that forced a style recalc every frame
+//    on a very large DOM and was a main cause of the login page hanging).
 function initLoginCursor() {
   const screen = document.getElementById('login-screen');
   const dot = document.getElementById('login-cursor-dot');
   const circle = document.getElementById('login-cursor-circle');
   if (!screen || !dot || !circle) return;
+  if (screen.dataset.cursorInit) return;
   if (window.matchMedia('(hover: none), (pointer: coarse)').matches) return;
+  screen.dataset.cursorInit = '1';
 
   let mouseX = 0, mouseY = 0;
   let circleX = 0, circleY = 0;
   let started = false;
+  let rafId = 0;
+
+  function paint() {
+    dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
+    circle.style.transform = `translate3d(${circleX}px, ${circleY}px, 0) translate(-50%, -50%)`;
+  }
+  function tick() {
+    circleX += (mouseX - circleX) * 0.2;
+    circleY += (mouseY - circleY) * 0.2;
+    paint();
+    if (Math.abs(mouseX - circleX) > 0.3 || Math.abs(mouseY - circleY) > 0.3) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      circleX = mouseX; circleY = mouseY; paint();
+      rafId = 0;
+    }
+  }
+  function kick() { if (!rafId) rafId = requestAnimationFrame(tick); }
 
   screen.addEventListener('mousemove', e => {
     mouseX = e.clientX; mouseY = e.clientY;
     if (!started) { circleX = mouseX; circleY = mouseY; started = true; }
-    dot.style.transform = `translate(${mouseX}px, ${mouseY}px) translate(-50%, -50%)`;
     dot.classList.add('is-visible');
     circle.classList.add('is-visible');
-  });
+    kick();
+  }, { passive: true });
   screen.addEventListener('mouseleave', () => {
     dot.classList.remove('is-visible');
     circle.classList.remove('is-visible');
   });
   screen.addEventListener('mousedown', () => circle.classList.add('is-active'));
-  screen.addEventListener('mouseup', () => circle.classList.remove('is-active'));
-
-  function tick() {
-    // getComputedStyle here (not screen.style.display) because the app
-    // hides the login screen by toggling a class, not an inline style.
-    if (getComputedStyle(screen).display === 'none') return;
-    circleX += (mouseX - circleX) * 0.15;
-    circleY += (mouseY - circleY) * 0.15;
-    circle.style.transform = `translate(${circleX}px, ${circleY}px) translate(-50%, -50%)`;
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
+  window.addEventListener('mouseup', () => circle.classList.remove('is-active'));
+  // When the screen is shown again (after logout) re-sync the ring to the dot
+  document.addEventListener('visibilitychange', () => { if (document.hidden) circle.classList.remove('is-visible'); });
 }
 let _lastOrder = null;
 let _editingBookingId = null;
@@ -441,6 +481,124 @@ let _bookingItems = [];
 // ═══════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════
+// After a manual sign-in the "shop opening" animation plays (awning drops,
+// shutter rolls up, shelves fill, OPEN sign lights up) while the portal loads
+// underneath, then it fades out over the ready portal. The page-load splash
+// (#splash-screen) is untouched. done() guarantees the whole animation plays
+// (minMs) so it never gets cut off; cancel() removes it at once (e.g. on error).
+const SHOP_OPEN_MS = 3400;   // matches the CSS timeline (~3.2s) + a beat
+function beginPortalLoader(minMs = SHOP_OPEN_MS) {
+  const s = document.getElementById('shop-open-screen');
+  if (!s) return { done: async () => {}, cancel: () => {} };
+
+  // Use the real company logo/name (already loaded for the login screen)
+  const srcLogo = document.getElementById('login-brand-logo');
+  const dstLogo = document.getElementById('shop-open-logo');
+  if (srcLogo && dstLogo) dstLogo.innerHTML = srcLogo.innerHTML;
+  const srcName = document.getElementById('login-brand-name');
+  const dstName = document.getElementById('shop-open-name');
+  if (srcName && dstName) dstName.textContent = srcName.textContent;
+
+  // Restart the CSS timeline from the beginning
+  s.classList.remove('hiding', 'play');
+  s.style.display = 'flex';
+  void s.offsetWidth;                 // force reflow so animations restart
+  s.classList.add('play');
+
+  const start = Date.now();
+  let hideTimer = null;
+  function hide() {
+    s.classList.add('hiding');
+    hideTimer = setTimeout(() => {
+      s.style.display = 'none';
+      s.classList.remove('hiding', 'play');
+    }, 450);
+  }
+  return {
+    done: async () => {
+      const wait = Math.max(0, minMs - (Date.now() - start));
+      await new Promise(r => setTimeout(r, wait));
+      hide();
+    },
+    cancel: () => {
+      clearTimeout(hideTimer);
+      s.style.display = 'none';
+      s.classList.remove('hiding', 'play');
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// PRINT ANIMATIONS
+// ═══════════════════════════════════════════════════════
+// Plays a short full-screen animation right before the browser's print
+// dialog opens, styled like the shop-opening screen:
+//   'slip'  → printer loads, paper feeds in, printed slip comes out  (Sale Slips)
+//   'cash'  → banknotes are counted from one stack to the other      (Collection)
+//   'order' → a person walks across carrying a product carton        (Order Summary)
+const PRINT_ANIM = {
+  slip:  { ms: 3000, label: [[0, 'Loading printer'],   [1000, 'Printing slips']] },
+  cash:  { ms: 3200, label: [[0, 'Counting cash'],     [2700, 'Opening print']] },
+  order: { ms: 2800, label: [[0, 'Carrying your order'], [2200, 'Opening print']] },
+};
+let _printAnimBusy = false;
+function playPrintAnim(kind) {
+  const cfg = PRINT_ANIM[kind];
+  const s = document.getElementById('print-anim-screen');
+  if (!cfg || !s) return Promise.resolve();
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ms = reduce ? 500 : cfg.ms;
+  const timers = [];
+  const label = document.getElementById('pa-label');
+  const countEl = document.getElementById('pa-count-num');
+
+  s.classList.remove('hiding', 'k-slip', 'k-cash', 'k-order');
+  s.classList.add('k-' + kind);
+  s.style.setProperty('--pa-ms', ms + 'ms');
+  s.style.display = '';                 // let .show control it
+  s.classList.remove('show');
+  void s.offsetWidth;                   // restart every CSS animation
+  s.classList.add('show');
+
+  cfg.label.forEach(([t, txt]) => timers.push(setTimeout(() => { if (label) label.textContent = txt; }, reduce ? 0 : t)));
+  if (label) label.textContent = cfg.label[0][1];
+
+  // cash: the "notes counted" ticker follows each note landing on the right stack
+  if (kind === 'cash' && countEl) {
+    countEl.textContent = '0';
+    for (let i = 0; i < 12; i++) {
+      timers.push(setTimeout(() => { countEl.textContent = String(i + 1); }, 1000 + i * 180));
+    }
+  }
+
+  return new Promise(resolve => {
+    timers.push(setTimeout(() => {
+      s.classList.add('hiding');
+      timers.push(setTimeout(() => {
+        s.classList.remove('show', 'hiding', 'k-slip', 'k-cash', 'k-order');
+        resolve();
+      }, 350));
+    }, ms));
+  });
+}
+
+// Runs the animation, then shows the print area and opens the print dialog.
+// Returns false (and does nothing) if an animation is already running, so a
+// double-click can't open the print dialog twice.
+async function animatedPrint(kind, area) {
+  if (_printAnimBusy) return false;
+  _printAnimBusy = true;
+  try {
+    if (area) area.style.display = 'none';
+    await playPrintAnim(kind);
+    if (area) area.style.display = 'block';
+    await new Promise(r => setTimeout(r, 150));   // let the print layout render
+    window.print();
+    return true;
+  } finally {
+    _printAnimBusy = false;
+  }
+}
 async function doLogin() {
   const email = document.getElementById('l-user').value.trim();
   const password = document.getElementById('l-pass').value.trim();
@@ -449,10 +607,15 @@ async function doLogin() {
   errorBox.style.display = 'none';
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Signing in...';
+  let loader = null;
   try {
     const user = await AuthAPI.login(email, password);
+    loader = beginPortalLoader();
     await loginAs(user);
+    await loader.done();
+    loader = null;
   } catch (err) {
+    if (loader) { loader.cancel(); loader = null; }
     errorBox.textContent = err.message || 'Invalid email or password';
     errorBox.style.display = 'block';
     toast(err.message || 'Login failed', 'error');
@@ -506,13 +669,40 @@ async function loginAs(user) {
   currentUser = user;
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').classList.add('visible');
+  // Sidebar user row — the actual logged-in person's name + role (Manager,
+  // Cashier, Salesperson, whatever their account is set to), never a fixed
+  // placeholder.
   document.getElementById('u-name').textContent = user.full_name || user.email;
   document.getElementById('u-role').textContent = (user.role || '').replace(/_/g, ' ');
   document.getElementById('u-avatar').textContent = (user.full_name || user.email)[0].toUpperCase();
   document.getElementById('dash-user').textContent = (user.full_name || user.email).split(' ')[0];
+  // Sidebar top logo/name — was always the hardcoded "SmartRetail ERP"
+  // mark regardless of what company logo/name is uploaded in Settings.
+  // Now it shows the real uploaded branding once logged in, same as the
+  // login screen and printed invoices already do.
+  SettingsAPI.getPublicBranding().then(branding => {
+    if (branding.logo) {
+      const logoEl = document.getElementById('sidebar-logo');
+      if (logoEl) logoEl.innerHTML = `<img src="${branding.logo}" alt="Company logo" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">`;
+    }
+    if (branding.name) {
+      const nameEl = document.getElementById('sidebar-brand-name');
+      const verEl = document.getElementById('sidebar-brand-version');
+      if (nameEl && verEl) nameEl.innerHTML = `${branding.name}<span id="sidebar-brand-version">${verEl.textContent}</span>`;
+    }
+  }).catch(() => {
+    // No branding uploaded, or the request failed — the default
+    // "SmartRetail ERP" logo/name already in the HTML stays as-is.
+  });
 
   const landingPage = _applyRoleNav(user.role);
-  initApp(landingPage);
+  const landingReady = initApp(landingPage);
+  // Resolve only once the landing page has loaded its data (never longer than
+  // 2.5s), so whatever loader is covering the screen lifts on a finished portal.
+  await Promise.race([
+    Promise.resolve(landingReady).catch(() => {}),
+    new Promise(r => setTimeout(r, 2500)),
+  ]);
 }
 async function doLogout() {
   const ok = await confirmModal('You will be signed out of SmartRetail ERP.', {
@@ -522,6 +712,7 @@ async function doLogout() {
     await AuthAPI.logout();
     document.getElementById('app').classList.remove('visible');
     document.getElementById('login-screen').style.display = 'flex';
+    initLoginCursor();
     currentUser = null;
     document.getElementById('admin-nav').style.display = '';
     document.querySelectorAll('.nav-item').forEach(e => e.style.display = '');
@@ -599,7 +790,10 @@ function navigate(page) {
     purchasereturn: renderPurchaseReturns,
     settings: renderSettings,
   };
-  if (renders[page]) renders[page]();
+  // Keep the render's promise (if it returns one) so callers like loginAs can
+  // wait until the page has really loaded its data. Existing callers ignore it.
+  let _renderResult = null;
+  try { if (renders[page]) _renderResult = renders[page](); } catch (e) { console.error(e); }
   // Wires the modern date/time picker onto any of its known field-ids that
   // exist on whichever page just rendered (booking, saleslips, salereturn,
   // etc.) — a no-op for pages that don't have any of those ids, and safe
@@ -609,6 +803,7 @@ function navigate(page) {
   document.getElementById('notif-panel').classList.add('hidden');
   // Close sidebar on mobile after navigation
   closeSidebarMobile();
+  return _renderResult;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -616,7 +811,7 @@ function navigate(page) {
 // ═══════════════════════════════════════════════════════
 function initApp(landingPage) {
   initTheme();
-  navigate(landingPage || 'dashboard');
+  const landing = navigate(landingPage || 'dashboard');
   setInterval(updateClock, 1000);
   updateClock();
   updatePosCustomers();
@@ -625,6 +820,7 @@ function initApp(landingPage) {
   // Keep the bell reasonably fresh without the person needing to reload —
   // re-checks every 2 minutes while the app is open.
   setInterval(renderNotifications, 120000);
+  return landing;
 }
 function updateClock() {
   const now = new Date();
@@ -757,14 +953,17 @@ async function renderDashboard() {
   // Top products (real, from backend aggregation)
   const tp = document.getElementById('top-products-list');
   const maxQty = Math.max(1, ...summary.top_selling_products.map(p=>p.total_quantity));
-  tp.innerHTML = summary.top_selling_products.map(p => `
-    <div style="margin-bottom:14px">
-      <div class="flex-between" style="margin-bottom:5px">
-        <span style="font-size:13px;font-weight:600">${p.product__name}</span>
-        <span style="font-size:12px;color:var(--text-secondary)">${p.total_quantity} units sold</span>
+  tp.innerHTML = summary.top_selling_products.map((p, i) => `
+    <div style="margin-bottom:16px;opacity:0;animation:fadeUp .45s cubic-bezier(.22,1,.36,1) ${i * .06}s both">
+      <div class="flex-between" style="margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;background:var(--accent-glow);color:var(--accent);font-size:10px;font-weight:800;flex-shrink:0">${i + 1}</span>
+          ${p.product__name}
+        </span>
+        <span style="font-size:12px;color:var(--text-secondary);font-weight:600;flex-shrink:0">${p.total_quantity} units sold</span>
       </div>
       <div class="progress-bar">
-        <div class="progress-fill" style="width:${(p.total_quantity/maxQty*100).toFixed(0)}%;background:var(--accent)"></div>
+        <div class="progress-fill" style="width:${(p.total_quantity/maxQty*100).toFixed(0)}%"></div>
       </div>
     </div>`).join('') || '<div style="color:var(--text-muted);font-size:13px">No sales in the last 30 days</div>';
 
@@ -835,7 +1034,7 @@ async function renderCharts(summary) {
         type: 'bubble',
         showInLegend: true,
         legendText: 'Bubble size = orders that day',
-        legendMarkerType: 'circle', legendMarkerColor: '#00a9a5',
+        legendMarkerType: 'circle', legendMarkerColor: CHART_PALETTE[0],
         toolTipContent: '<b>{name}</b><br/>Revenue: Rs. {y}<br/>Orders: {z}',
         dataPoints,
       }]
@@ -2608,7 +2807,7 @@ async function renderReports() {
           <span style="font-size:13px;font-weight:600">📉 Total Expenses</span>
           <span style="font-size:16px;font-weight:800;color:var(--red)">Rs.${Number(pl.expenses).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
-        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
           <span style="font-size:13px;font-weight:600">📊 Cost of Goods Sold</span>
           <span style="font-size:16px;font-weight:800;color:var(--accent)">Rs.${Number(pl.cost_of_goods_sold).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
@@ -2673,7 +2872,7 @@ async function renderProductBubbleChart() {
       type: 'bubble',
       showInLegend: true,
       legendText: 'Bubble size = Stock Value (Rs.)',
-      legendMarkerType: 'circle', legendMarkerColor: '#00a9a5',
+      legendMarkerType: 'circle', legendMarkerColor: CHART_PALETTE[0],
       toolTipContent: '<b>{name}</b><br/>Price: Rs. {x}<br/>Stock: {y} units<br/>Stock Value: Rs. {z}',
       dataPoints,
     }]
@@ -4458,14 +4657,11 @@ async function printSingleSlipA4(id) {
   if (!b) { toast('Booking not found','error'); return; }
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = buildSlipA4Html(b);
-  printArea.style.display = 'block';
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => { printArea.style.display = 'none'; }, 1200);
-  }, 250);
+  await animatedPrint('slip', printArea);
+  setTimeout(() => { printArea.style.display = 'none'; }, 1200);
 }
 
-function printAllSlipsA4(mode) {
+async function printAllSlipsA4(mode) {
   const dateFilter     = document.getElementById('ss-date')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
@@ -4603,7 +4799,6 @@ function printAllSlipsA4(mode) {
 
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;
-  printArea.style.display = 'block';
 
   // @page is a global, page-level rule — it can't be scoped with a class
   // selector like normal CSS, so switching just this one print to
@@ -4618,15 +4813,13 @@ function printAllSlipsA4(mode) {
     document.head.appendChild(landscapeStyleTag);
   }
 
-  // Allow browser to fully render all slip HTML before triggering print dialog
+  // Printer animation plays first (it also gives the browser time to fully
+  // render all slip HTML), then the print dialog opens.
+  await animatedPrint('slip', printArea);
   setTimeout(() => {
-    window.print();
-    setTimeout(() => {
-      printArea.style.display = 'none';
-      if (landscapeStyleTag) landscapeStyleTag.remove();
-    }, 1500);
-  }, 350);
-  toast(`Preparing ${slips.length} slip${slips.length!==1?'s':''}... Print dialog will open shortly.`, 'success');
+    printArea.style.display = 'none';
+    if (landscapeStyleTag) landscapeStyleTag.remove();
+  }, 1500);
 }
 
 // ── Sample booking data for demo ─────────────────────────
@@ -6456,7 +6649,7 @@ function renderCalendarGrid() {
         const todayDate = new Date(); todayDate.setHours(0,0,0,0);
         const isToday = cellDate.getTime() === todayDate.getTime();
         const isFuture = cellDate.getTime() > todayDate.getTime();
-        html += `<div style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);background:${isToday&&active?'rgba(59,130,246,.06)':''}">
+        html += `<div style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);background:${isToday&&active?'rgba(234,108,77,.06)':''}">
           ${active
             ? (isFuture
                 ? `<div style="background:var(--yellow-glow);border:1px solid rgba(245,158,11,.4);border-radius:6px;padding:4px 8px;text-align:center;width:90%">
@@ -7122,7 +7315,7 @@ function exportOrderSummaryCsv() {
   toast('Order summary exported!', 'success');
 }
 
-function printOrderSummary() {
+async function printOrderSummary() {
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
 
   // Column list in DOM order (mirrors OS_COLUMN_MAP) — filtered by osSettings
@@ -7190,8 +7383,7 @@ function printOrderSummary() {
   </div>`;
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;
-  printArea.style.display = 'block';
-  window.print();
+  await animatedPrint('order', printArea);
   setTimeout(() => { printArea.style.display = 'none'; }, 1000);
 }
 
@@ -8459,7 +8651,7 @@ function getCollectionFilters() {
   };
 }
 
-function printCollectionSheet() {
+async function printCollectionSheet() {
   const cf = getCollectionFilters();
   const todayLabel = cf.label;
   const now = new Date().toLocaleString('en-PK');
@@ -8603,12 +8795,11 @@ function printCollectionSheet() {
 
   const pa = document.getElementById('print-area');
   pa.innerHTML = html;
-  pa.style.display = 'block';
-  window.print();
+  await animatedPrint('cash', pa);
   setTimeout(() => { pa.style.display = 'none'; }, 1400);
 }
 
-function printCollectionReport() {
+async function printCollectionReport() {
   // Print exactly what the Collection screen is currently filtered to
   // (date/period, search, username, Has Pending / Cleared / Overdue) —
   // was ignoring every filter and always dumping every single customer.
@@ -8743,7 +8934,7 @@ function printCollectionReport() {
       <tfoot>
         <tr style="background:#f1f5f9;border-top:2px solid #94a3b8">
           <td colspan="4" style="padding:9px 10px;font-size:12px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.04em">Sub-Totals</td>
-          <td style="padding:9px 10px;text-align:right;font-weight:800;color:#1e40af">Rs.${grandTotalOrders.toFixed(2)}</td>
+          <td style="padding:9px 10px;text-align:right;font-weight:800;color:#c65a3f">Rs.${grandTotalOrders.toFixed(2)}</td>
           <td style="padding:9px 10px;text-align:right;font-weight:800;color:#15803d">Rs.${grandTotalReceived.toFixed(2)}</td>
           <td style="padding:9px 10px;text-align:right;font-weight:800;color:#dc2626">Rs.${grandTotalPending.toFixed(2)}</td>
           <td colspan="2"></td>
@@ -8773,12 +8964,11 @@ function printCollectionReport() {
 
   const pa = document.getElementById('print-area');
   pa.innerHTML = html;
-  pa.style.display = 'block';
-  window.print();
+  await animatedPrint('cash', pa);
   setTimeout(() => { pa.style.display = 'none'; }, 1400);
 }
 
-function printUsernameCollection(username) {
+async function printUsernameCollection(username) {
   const rows = getUsernameCollectionRows(username);
   const grandTotal = rows.reduce((s,r)=>s+r.totalCollection,0);
   const grandPending = rows.reduce((s,r)=>s+r.pending,0);
@@ -8810,8 +9000,8 @@ function printUsernameCollection(username) {
     </table>
   </div>`;
   const pa=document.getElementById('print-area');
-  pa.innerHTML=html; pa.style.display='block';
-  window.print();
+  pa.innerHTML=html;
+  await animatedPrint('cash', pa);
   setTimeout(()=>{ pa.style.display='none'; },1200);
 }
 
@@ -9182,7 +9372,7 @@ document.addEventListener('DOMContentLoaded', function() {
     .stat-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,.45); }
     /* ── Button effects ── */
     .btn { transition: all .15s cubic-bezier(.4,0,.2,1); }
-    .btn-accent:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(59,130,246,.35); }
+    .btn-accent:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(234,108,77,.35); }
     .btn-green:hover  { transform:translateY(-1px); box-shadow:0 4px 16px rgba(16,185,129,.35); }
     .btn-ghost:hover  { transform:translateY(-1px); }
     /* ── Table row hover ── */
@@ -9740,3 +9930,247 @@ function togglePasswordVisibility(inputId, btn) {
   }
   btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
 }
+
+// ═══════════════════════════════════════════════════════
+// THEMED SELECT
+// The browser/OS draws a native <select>'s popup itself (that's the default
+// blue highlight bar) and CSS can't touch it. This swaps every <select> for a
+// custom dropdown styled with the app theme. The real <select> stays in the
+// DOM (hidden), so all existing code — .value reads/writes, onchange="",
+// options rebuilt with innerHTML — keeps working exactly as before.
+// Opt a select out with the data-native attribute.
+// ═══════════════════════════════════════════════════════
+(function initThemedSelects() {
+  const vDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  const iDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+  const LAYOUT_RE = /^(width|min-width|max-width|flex(-|$)|margin(-|$)|grid-column|align-self|justify-self)/;
+  let current = null; // the one open dropdown: { select, close }
+
+  function enhance(select) {
+    if (select._cs || select.multiple || select.size > 1 || select.hasAttribute('data-native')) return;
+    select._cs = true;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'cs-wrap';
+    const trig = document.createElement('button');
+    trig.type = 'button';
+    trig.className = (select.className + ' cs-trigger').trim();
+    trig.setAttribute('aria-haspopup', 'listbox');
+    trig.innerHTML = '<span class="cs-label"></span><i class="fa fa-chevron-down cs-caret"></i>';
+    const label = trig.firstChild;
+
+    // Inline layout styles (width/flex/margin) go on the wrapper so the
+    // dropdown sits in the page exactly where the select did; the rest
+    // (padding, font-size, colours…) go on the trigger so it looks the same.
+    for (let i = 0; i < select.style.length; i++) {
+      const p = select.style[i];
+      if (p === 'display') continue;
+      const v = select.style.getPropertyValue(p), pr = select.style.getPropertyPriority(p);
+      (LAYOUT_RE.test(p) ? wrap : trig).style.setProperty(p, v, pr);
+    }
+
+    select.parentNode.insertBefore(wrap, select);
+    wrap.appendChild(trig);
+    wrap.appendChild(select);
+    select.classList.add('cs-native');
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+    select.focus = () => trig.focus();
+
+    function sync() {
+      const opt = select.options[select.selectedIndex];
+      label.textContent = opt ? opt.text : '';
+      label.classList.toggle('cs-placeholder', !opt || (opt.disabled && opt.value === ''));
+      trig.disabled = select.disabled;
+      wrap.style.display = (select.style.display === 'none' || select.hidden) ? 'none' : '';
+    }
+
+    // Programmatic `select.value = x` / `select.selectedIndex = n` fire no
+    // event, so intercept the setters on this instance to keep the label right.
+    Object.defineProperty(select, 'value', {
+      configurable: true,
+      get() { return vDesc.get.call(this); },
+      set(v) { vDesc.set.call(this, v); sync(); }
+    });
+    Object.defineProperty(select, 'selectedIndex', {
+      configurable: true,
+      get() { return iDesc.get.call(this); },
+      set(v) { iDesc.set.call(this, v); sync(); }
+    });
+    select.addEventListener('change', sync);
+    new MutationObserver(() => {
+      sync();
+      if (current && current.select === select) current.close();
+    }).observe(select, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'style', 'hidden'] });
+    sync();
+
+    // ── dropdown panel ──
+    function open() {
+      if (select.disabled) return;
+      if (current) current.close();
+      sync();
+
+      const panel = document.createElement('div');
+      panel.className = 'cs-panel';
+      panel.setAttribute('role', 'listbox');
+      const list = document.createElement('div');
+      list.className = 'cs-list';
+      const items = [], groups = [];
+      let activeItem = null;
+
+      function addOption(o, group) {
+        const isSel = o.index === select.selectedIndex;
+        const el = document.createElement('div');
+        el.className = 'cs-opt' + (o.disabled ? ' disabled' : '') + (isSel ? ' selected' : '');
+        el.setAttribute('role', 'option');
+        el.innerHTML = '<span></span>' + (isSel ? '<i class="fa fa-check cs-check"></i>' : '');
+        el.firstChild.textContent = o.text;
+        const item = { el, option: o, text: o.text.toLowerCase(), visible: true, group };
+        el.addEventListener('mousedown', e => e.preventDefault());
+        el.addEventListener('mousemove', () => { if (!o.disabled) setActive(item); });
+        el.addEventListener('click', () => { if (!o.disabled) choose(o); });
+        list.appendChild(el);
+        items.push(item);
+        if (group) group.items.push(item);
+        return item;
+      }
+      Array.from(select.children).forEach(ch => {
+        if (ch.tagName === 'OPTGROUP') {
+          const gl = document.createElement('div');
+          gl.className = 'cs-group';
+          gl.textContent = ch.label;
+          list.appendChild(gl);
+          const g = { labelEl: gl, items: [] };
+          groups.push(g);
+          Array.from(ch.children).forEach(o => addOption(o, g));
+        } else if (ch.tagName === 'OPTION') {
+          addOption(ch, null);
+        }
+      });
+      if (!items.length) {
+        list.innerHTML = '<div class="cs-empty">No options</div>';
+      }
+
+      let search = null;
+      if (items.length > 8) {
+        search = document.createElement('input');
+        search.type = 'text';
+        search.className = 'cs-search';
+        search.placeholder = 'Search…';
+        search.autocomplete = 'off';
+        panel.appendChild(search);
+        search.addEventListener('input', () => {
+          const q = search.value.trim().toLowerCase();
+          items.forEach(it => { it.visible = !q || it.text.includes(q); it.el.style.display = it.visible ? '' : 'none'; });
+          groups.forEach(g => { g.labelEl.style.display = g.items.some(i => i.visible) ? '' : 'none'; });
+          const first = items.find(i => i.visible && !i.option.disabled);
+          setActive(first || null);
+        });
+      }
+      panel.appendChild(list);
+
+      function setActive(item) {
+        if (activeItem) activeItem.el.classList.remove('active');
+        activeItem = item;
+        if (item) { item.el.classList.add('active'); item.el.scrollIntoView({ block: 'nearest' }); }
+      }
+      function move(dir) {
+        const nav = items.filter(i => i.visible && !i.option.disabled);
+        if (!nav.length) return;
+        let idx = nav.indexOf(activeItem);
+        idx = idx === -1 ? (dir > 0 ? 0 : nav.length - 1) : (idx + dir + nav.length) % nav.length;
+        setActive(nav[idx]);
+      }
+      function choose(o) {
+        const changed = select.selectedIndex !== o.index;
+        iDesc.set.call(select, o.index);
+        sync();
+        close();
+        trig.focus();
+        if (changed) {
+          select.dispatchEvent(new Event('input', { bubbles: true }));
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); trig.focus(); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+        else if (e.key === 'Enter' || (e.key === ' ' && !search)) { e.preventDefault(); if (activeItem) choose(activeItem.option); }
+        else if (e.key === 'Tab') close();
+      }
+      function onDocDown(e) { if (!panel.contains(e.target) && !trig.contains(e.target)) close(); }
+      let ready = false;
+      function onScroll(e) { if (ready && !panel.contains(e.target)) close(); }
+      function onResize() { close(); }
+
+      function close() {
+        if (!panel.isConnected && current !== api) return;
+        panel.remove();
+        trig.classList.remove('open');
+        document.removeEventListener('mousedown', onDocDown, true);
+        document.removeEventListener('scroll', onScroll, true);
+        window.removeEventListener('resize', onResize);
+        trig.removeEventListener('keydown', onKey);
+        if (current === api) current = null;
+      }
+      const api = { select, close };
+      current = api;
+
+      document.body.appendChild(panel);
+      trig.classList.add('open');
+
+      // Position under the trigger (or above if there's more room there).
+      const r = trig.getBoundingClientRect();
+      panel.style.minWidth = r.width + 'px';
+      panel.style.maxWidth = Math.max(r.width, 360) + 'px';
+      const searchH = search ? 44 : 0;
+      const wanted = Math.min(list.scrollHeight + searchH + 14, 300);
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const goUp = below < Math.min(wanted, 200) && above > below;
+      const room = Math.max(120, goUp ? above : below);
+      list.style.maxHeight = Math.max(80, Math.min(300, room) - searchH - 14) + 'px';
+      const pw = panel.offsetWidth;
+      panel.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pw - 8)) + 'px';
+      if (goUp) { panel.classList.add('cs-up'); panel.style.bottom = (window.innerHeight - r.top + 6) + 'px'; }
+      else      { panel.style.top = (r.bottom + 6) + 'px'; }
+
+      const selItem = items.find(i => i.option.index === select.selectedIndex && !i.option.disabled);
+      setActive(selItem || items.find(i => !i.option.disabled) || null);
+      if (selItem) selItem.el.scrollIntoView({ block: 'center' });
+
+      document.addEventListener('mousedown', onDocDown, true);
+      document.addEventListener('scroll', onScroll, true);
+      window.addEventListener('resize', onResize);
+      trig.addEventListener('keydown', onKey);
+      if (search) { search.addEventListener('keydown', onKey); search.focus(); }
+      requestAnimationFrame(() => { ready = true; });
+    }
+
+    trig.addEventListener('click', () => {
+      if (current && current.select === select) current.close(); else open();
+    });
+    trig.addEventListener('keydown', e => {
+      if (current && current.select === select) return; // handled by the open panel
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault(); open();
+      }
+    });
+  }
+
+  function scan(root) {
+    if (root.tagName === 'SELECT') enhance(root);
+    if (root.querySelectorAll) root.querySelectorAll('select').forEach(enhance);
+  }
+  function start() {
+    scan(document);
+    // Selects created later (modals/tables built with innerHTML) get enhanced too.
+    new MutationObserver(muts => {
+      for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) scan(n);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();

@@ -8039,6 +8039,9 @@ if (!DB.purchaseReturns)  DB.purchaseReturns = [];
 
 let _colCustomerCache = [];
 let _colSalesCache = [];
+// {customerId: {amount_owed,total_paid,remaining}} straight from the ledger maths —
+// nets EVERY payment (invoice-specific + advance/General Collection).
+let _colBalances = {};
 
 function _custBookings(custId, fromDT, toDT) {
   let list = _colSalesCache.filter(b => b.customer === custId);
@@ -8085,10 +8088,19 @@ function getCustomerBalance(custId, fromDT, toDT) {
 // no matter which date/username filter the ledger is currently showing.
 function getCustomerTrueDue(custId) {
   if (!custId) return 0;
+  const led = _colBalances[custId];
+  if (led) return Math.max(0, Math.round(Number(led.remaining) * 100) / 100);
   const due = _colSalesCache
     .filter(b => b.customer === custId)
     .reduce((s, b) => s + Math.max(0, Number(b.total_amount) - Number(b.paid_amount)), 0);
   return Math.max(0, Math.round(due * 100) / 100);
+}
+
+// Advance/credit sitting on the account (payments taken that no invoice
+// absorbed yet, e.g. 4500 collected before the bill existed).
+function getCustomerAdvance(custId) {
+  const led = _colBalances[custId];
+  return led ? Math.max(0, -Number(led.remaining)) : 0;
 }
 
 // Shared popup shown any time someone tries to add a payment to an account
@@ -8142,12 +8154,21 @@ function getUsernameCollectionRows(username, fromDT, toDT) {
     byCustomer[key].taxAmt   += Number(b.tax_amount);
     byCustomer[key].received += Number(b.paid_amount);
   });
-  return Object.values(byCustomer).map(r => ({
-    ...r,
-    invoiceCount: r.invoices.length,
-    pending: Math.max(0, r.totalBill - r.received),
-    totalCollection: r.totalBill
-  }));
+  return Object.values(byCustomer).map(r => {
+    // Any advance/credit already sitting on this account (e.g. Rs.4500
+    // collected earlier) is taken off what's still pending — otherwise the
+    // full bill shows as owed even though part of it was already paid.
+    const advance = r.customerId ? getCustomerAdvance(r.customerId) : 0;
+    const rawPending = Math.max(0, r.totalBill - r.received);
+    const applied = Math.min(advance, rawPending);
+    return {
+      ...r,
+      received: r.received + applied,
+      invoiceCount: r.invoices.length,
+      pending: rawPending - applied,
+      totalCollection: r.totalBill
+    };
+  });
 }
 
 async function renderCollection() {
@@ -8155,9 +8176,11 @@ async function renderCollection() {
   // the first 500 customers/sales (same class of bug as the earlier order
   // booking fix: a hardcoded page_size below max_page_size hides everything
   // past the cut). See apps/core/pagination.py — max_page_size is 2000.
-  const [custData, salesData] = await Promise.all([
+  const [custData, salesData, balData] = await Promise.all([
     CustomersAPI.list({ page_size: 2000 }), SalesAPI.list({ page_size: 2000 }),
+    CustomersAPI.balances().catch(() => null),
   ]);
+  _colBalances = (balData && balData.balances) || {};
   _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: 'ACC-'+String(c.id).padStart(4,'0') }));
   // Exclude both cancelled AND fully-returned sales — a bill that was voided
   // (e.g. edited from cash to credit, which cancels/returns the old invoice
@@ -8247,7 +8270,11 @@ async function renderCollection() {
     const bal = getCustomerBalance(c.id, dateFromDT, dateToDT);
     const todayOrders = getTodayOrders(c.id);
     const lastPay     = getLastPaymentDate(c.id);
-    const totalPending = bal.totalOrders - bal.payments;
+    // Real balance = bills minus EVERY payment (incl. advance/General Collection),
+    // straight from the ledger — never the raw bill total.
+    const led = _colBalances[c.id];
+    const totalPending = led ? Number(led.remaining) : (bal.totalOrders - bal.payments);
+    if (led && !(dateFromDT || dateToDT)) { bal.payments = Number(led.total_paid); }
     return { ...c, ...bal, todayOrders, lastPay, totalPending };
   });
 
@@ -8414,10 +8441,41 @@ function clearCollectionFilters() {
 // actually owe money, the exact amount to collect, and a signature line —
 // deliberately simpler than the full Collection Ledger so there's no
 // ambiguity about what to collect or from whom.
+// Reads the SAME date/time/search/balance/username filters the Collection
+// table itself is currently using, so every print action on this screen
+// (Today's/Period's Collection Sheet, Print Report) shows exactly what's
+// filtered on screen right now — never a hardcoded "today", never "all
+// customers regardless of filter".
+function getCollectionFilters() {
+  const dateFrom = document.getElementById('col-date-from')?.value || '';
+  const dateTo   = document.getElementById('col-date-to')?.value   || '';
+  const timeFrom = document.getElementById('col-time-from')?.value || '';
+  const timeTo   = document.getElementById('col-time-to')?.value   || '';
+  const todayISO = new Date().toISOString().split('T')[0];
+  // No date filter picked at all -> same default as before: just today.
+  const hasRange = !!(dateFrom || dateTo);
+  const fromISO  = dateFrom || (hasRange ? '' : todayISO);
+  const toISO    = dateTo   || (hasRange ? '' : todayISO);
+  return {
+    dateFrom: fromISO, dateTo: toISO,
+    dateFromDT: fromISO ? `${fromISO}T${timeFrom || '00:00'}` : '',
+    dateToDT:   toISO   ? `${toISO}T${timeTo   || '23:59'}` : '',
+    q:          (document.getElementById('col-search')?.value || '').toLowerCase(),
+    balFilter:  document.getElementById('col-balance-filter')?.value || '',
+    usernameQ:  (document.getElementById('col-username-filter')?.value || '').toLowerCase().trim(),
+    viewMode:   document.getElementById('col-view-mode')?.value || 'customer',
+    // Human label for the header of the printed sheet — "Today", a single
+    // chosen date, or a from–to range.
+    label: !hasRange ? 'Today (' + new Date().toLocaleDateString('en-PK') + ')'
+         : (dateFrom && dateTo && dateFrom === dateTo) ? new Date(dateFrom).toLocaleDateString('en-PK')
+         : `${dateFrom ? new Date(dateFrom).toLocaleDateString('en-PK') : 'Start'} – ${dateTo ? new Date(dateTo).toLocaleDateString('en-PK') : 'Now'}`,
+  };
+}
+
 function printTodaysCollectionSheet() {
-  const todayLabel = new Date().toLocaleDateString('en-PK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const cf = getCollectionFilters();
+  const todayLabel = cf.label;
   const now = new Date().toLocaleString('en-PK');
-  const today = new Date().toISOString().split('T')[0];
 
   const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
   const storeName = s.company_name || 'SmartRetail Store';
@@ -8434,7 +8492,16 @@ function printTodaysCollectionSheet() {
   // bill is physically collected in the evening, record/process that
   // payment against the customer's account separately; that's what
   // updates a bill to "Cleared" — not the act of booking it.
-  let todaySales = _colSalesCache.filter(b => (b.created_at || '').slice(0, 10) === today);
+  // Same range the Collection screen is currently filtered to — was
+  // hardcoded to the real calendar date, so filtering the screen to
+  // yesterday and printing still said "No bills cut today" because it
+  // never looked at yesterday's bills at all.
+  let todaySales = _colSalesCache.filter(b => {
+    const ts = b.created_at || '';
+    if (cf.dateFromDT && ts < cf.dateFromDT) return false;
+    if (cf.dateToDT   && ts > cf.dateToDT)   return false;
+    return true;
+  });
 
   // Respect the same username filter used on the Collection page itself —
   // if the user has typed something in there, print ONLY that user's
@@ -8446,7 +8513,7 @@ function printTodaysCollectionSheet() {
   }
 
   if (!todaySales.length) {
-    toast(usernameFilter ? `No bills cut today by "${usernameFilter}".` : 'No bills cut today.', 'success');
+    toast(usernameFilter ? `No bills cut on ${todayLabel} by "${usernameFilter}".` : `No bills cut on ${todayLabel}.`, 'success');
     return;
   }
 
@@ -8518,12 +8585,12 @@ function printTodaysCollectionSheet() {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:14px">
       <div>
         <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">${logoBlock}${storeName}</div>
-        <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Today's Collection Sheet${usernameFilter ? ` — ${usernames[0]}` : ''}</div>
-        <div style="font-size:11px;color:#666;margin-top:2px">Date: ${todayLabel}</div>
+        <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Customer Collection Sheet${usernameFilter ? ` — ${usernames[0]}` : ''}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px">Period: ${todayLabel}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:11px;color:#555">Booked by ${usernames.length} user${usernames.length !== 1 ? 's' : ''} today</div>
-        <div style="font-size:11px;color:#555;margin-top:4px">Total bills today: <strong>${todaySales.length}</strong></div>
+        <div style="font-size:11px;color:#555">Booked by ${usernames.length} user${usernames.length !== 1 ? 's' : ''} in this period</div>
+        <div style="font-size:11px;color:#555;margin-top:4px">Total bills: <strong>${todaySales.length}</strong></div>
       </div>
     </div>
 
@@ -8532,20 +8599,20 @@ function printTodaysCollectionSheet() {
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px">
       <tfoot>
         <tr style="background:#d9d9d9 !important;color:#000 !important">
-          <td style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL COLLECTION EXPECTED TODAY — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'}</td>
+          <td style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL COLLECTION EXPECTED — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'}</td>
           <td style="padding:11px 10px;text-align:right;font-size:18px;font-weight:900;color:#f87171">Rs.${grandTotal.toFixed(2)}</td>
         </tr>
       </tfoot>
     </table>
 
     <div style="margin-top:14px;font-size:10.5px;color:#555;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;background:#fefce8">
-      ⚠ This sheet lists the full amount to be collected for every bill cut today — cash and credit both — grouped by the user who booked it.
+      ⚠ This sheet lists the full amount to be collected for every bill cut in this period — cash and credit both — grouped by the user who booked it.
       Cash bills are shown as due here too, since actual collection happens in the evening, not at the moment of booking.
       Once a bill is physically collected, process that payment against the customer's account in the app so it's marked received.
     </div>
 
     <div style="margin-top:10px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between">
-      <span>${storeName} — Today's Collection Sheet</span>
+      <span>${storeName} — Customer Collection Sheet</span>
       <span>Printed: ${now} by ${currentUser?.full_name || 'Admin'}</span>
     </div>
   </div>`;
@@ -8558,20 +8625,54 @@ function printTodaysCollectionSheet() {
 }
 
 function printCollectionReport() {
+  // Print exactly what the Collection screen is currently filtered to
+  // (date/period, search, username, Has Pending / Cleared / Overdue) —
+  // was ignoring every filter and always dumping every single customer.
+  const cf = getCollectionFilters();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const rows = [];
-  _colCustomerCache.forEach(c => {
-    const bal = getCustomerBalance(c.id);
-    const lastPay = getLastPaymentDate(c.id);
-    rows.push({
-      name:        c.name,
-      phone:       c.phone || '—',
-      acct:        c.accountNo || '—',
-      totalOrders: bal.totalOrders,
-      payments:    bal.payments,
-      balance:     Math.max(0, bal.totalOrders - bal.payments),
-      lastPay,
+
+  if (cf.viewMode === 'username' && cf.usernameQ) {
+    // Mirrors the username-view table on screen.
+    let uRows = getUsernameCollectionRows(cf.usernameQ, cf.dateFromDT, cf.dateToDT);
+    uRows = uRows.filter(r => {
+      if (cf.balFilter === 'pending') return r.pending > 0.009;
+      if (cf.balFilter === 'clear')   return r.pending <= 0.009;
+      if (cf.balFilter === 'overdue') return r.pending > 0.009 && r.customerId && getLastPaymentDate(r.customerId) < thirtyDaysAgo;
+      return true;
     });
-  });
+    uRows.forEach(r => rows.push({
+      name: r.customerName, phone: '—', acct: r.accountNo,
+      totalOrders: r.totalBill, payments: r.received || 0,
+      balance: Math.max(0, r.pending),
+      lastPay: r.customerId ? getLastPaymentDate(r.customerId) : '—',
+    }));
+  } else {
+    _colCustomerCache.forEach(c => {
+      const bal = getCustomerBalance(c.id, cf.dateFromDT, cf.dateToDT);
+      const lastPay = getLastPaymentDate(c.id);
+      const led = _colBalances[c.id];
+      const balance = Math.max(0, led ? Number(led.remaining) : (bal.totalOrders - bal.payments));
+      const payments = (led && !(cf.dateFromDT || cf.dateToDT)) ? Number(led.total_paid) : bal.payments;
+      if (cf.q && !(c.name||'').toLowerCase().includes(cf.q) && !(c.phone||'').toLowerCase().includes(cf.q) && !(c.accountNo||'').toLowerCase().includes(cf.q)) return;
+      if (cf.usernameQ) {
+        const hasBk = _custBookings(c.id).some(b => (b.served_by_name||'').toLowerCase().includes(cf.usernameQ));
+        if (!hasBk) return;
+      }
+      if (cf.balFilter === 'pending' && balance <= 0) return;
+      if (cf.balFilter === 'clear'   && balance > 0) return;
+      if (cf.balFilter === 'overdue' && (lastPay > thirtyDaysAgo || balance <= 0)) return;
+      rows.push({
+        name:        c.name,
+        phone:       c.phone || '—',
+        acct:        c.accountNo || '—',
+        totalOrders: bal.totalOrders,
+        payments,
+        balance,
+        lastPay,
+      });
+    });
+  }
 
   // Sort: outstanding first, then cleared
   rows.sort((a, b) => b.balance - a.balance);
@@ -8592,7 +8693,7 @@ function printCollectionReport() {
       <div>
         <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">🏪 SmartRetail ERP</div>
         <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Customer Collection Report</div>
-        <div style="font-size:11px;color:#666;margin-top:2px">Date: ${today} &nbsp;|&nbsp; Printed: ${now}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px">Period: ${cf.label} &nbsp;|&nbsp; Printed: ${now}</div>
       </div>
       <div style="text-align:right">
         <div style="font-size:11px;color:#555">Printed by: <strong>${currentUser?.full_name||'Admin'}</strong></div>

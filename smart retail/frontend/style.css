@@ -2739,3 +2739,109 @@ body.light-mode .pa-count { color: #6b6560; }
 @keyframes paStepB { from { transform: rotate(26deg); } to { transform: rotate(-26deg); } }
 .pa-ground { position: absolute; left: 0; right: 0; bottom: 12px; height: 3px; border-radius: 99px; background: rgba(255,255,255,.14); }
 body.light-mode .pa-ground { background: rgba(0,0,0,.12); }
+
+/* ── CATEGORY POLAR-AREA DONUT (dashboard) ─────────────────────
+   Drawn by renderCategoryPolarPie(). One 620x440 viewBox for the SVG; the
+   HTML call-outs are positioned in % of the same box, so everything scales
+   together. Slot colours (crimson / coral / amber / plum) are fixed, ring and
+   core follow the theme. */
+.rpie-host { width: 100%; }
+.rpie {
+  --c0: #e94560; --c1: #ea6c4d; --c2: #f7c56e; --c3: #a83a5c;
+  --t0: #e94560; --t1: #ea6c4d; --t2: #d99a2b; --t3: #b0406a;   /* call-out title colours (readable on the card) */
+  --ring: #5c2247; --lead: #5c2247; --core: #f5f2f0; --core-txt: #3a2a33; --core-sub: #8a7a82;
+  position: relative; width: 100%; max-width: 640px; margin: 0 auto;
+  aspect-ratio: 620 / 440; container-type: inline-size;
+}
+body:not(.light-mode) .rpie {
+  --t2: #f7c56e; --t0: #ff6f88; --t3: #d26a92;
+  --ring: #7a3160; --lead: #c592ae; --core: #2a2126; --core-txt: #f3e9ee; --core-sub: #a99aa2;
+}
+.rpie-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+.rpie-slice { cursor: pointer; transition: transform .22s ease, opacity .2s ease; }
+.rpie-slice.c0 .rpie-shape { fill: var(--c0); }
+.rpie-slice.c1 .rpie-shape { fill: var(--c1); }
+.rpie-slice.c2 .rpie-shape { fill: var(--c2); }
+.rpie-slice.c3 .rpie-shape { fill: var(--c3); }
+.rpie-shape {
+  stroke: var(--bg-card, #fff); stroke-width: 2; stroke-linejoin: round;
+  transform-box: view-box; transform-origin: 310px 220px;
+  animation: rpieIn .75s cubic-bezier(.22, 1, .36, 1) both; animation-delay: calc(var(--i) * 90ms);
+}
+.rpie-pct {
+  font-family: var(--font); font-weight: 800; pointer-events: none;
+  animation: rpieFade .5s ease both; animation-delay: calc(var(--i) * 90ms + 420ms);
+}
+.rpie-ring { fill: var(--ring); }
+.rpie-core { fill: var(--core); }
+.rpie-total { font-family: var(--font); font-size: 19px; font-weight: 800; fill: var(--core-txt); }
+.rpie-total-lbl { font-family: var(--font); font-size: 7.5px; font-weight: 700; letter-spacing: .14em; fill: var(--core-sub); }
+
+.rpie-lead polyline { fill: none; stroke: var(--lead); stroke-width: 1.4; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: rpieDraw .6s ease forwards; animation-delay: calc(var(--i) * 90ms + 500ms); }
+.rpie-lead circle { fill: var(--ring); stroke: #fff; stroke-width: 1.5; opacity: 0;
+  animation: rpieFade .3s ease forwards; animation-delay: calc(var(--i) * 90ms + 450ms); }
+
+.rpie-co {
+  position: absolute; display: flex; align-items: flex-start; gap: 6px; box-sizing: border-box;
+  font-size: clamp(9.5px, 1.95cqw, 12px); line-height: 1.35; cursor: default;
+  animation: rpieFade .5s ease both; animation-delay: calc(var(--i) * 90ms + 650ms);
+  transition: opacity .2s ease;
+}
+.rpie-co.l { flex-direction: row-reverse; text-align: right; }
+.rpie-ico {
+  flex: 0 0 auto; width: 2.1em; height: 2.1em; border-radius: 50%; margin-top: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-size: .95em;
+}
+.rpie-co.c0 .rpie-ico { background: var(--c0); } .rpie-co.c1 .rpie-ico { background: var(--c1); }
+.rpie-co.c2 .rpie-ico { background: var(--c2); color: #5c2247; } .rpie-co.c3 .rpie-ico { background: var(--c3); }
+.rpie-txt { min-width: 0; display: flex; flex-direction: column; }
+.rpie-name {
+  font-size: 1.02em; font-weight: 800; letter-spacing: .03em; text-transform: uppercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: .2em;
+}
+.rpie-co.c0 .rpie-name { color: var(--t0); } .rpie-co.c1 .rpie-name { color: var(--t1); }
+.rpie-co.c2 .rpie-name { color: var(--t2); } .rpie-co.c3 .rpie-name { color: var(--t3); }
+.rpie-desc { color: var(--text-secondary); font-size: .92em; }
+
+/* hover: pop the slice, dim the rest */
+.rpie.has-hover .rpie-slice:not(.is-hover), .rpie.has-hover .rpie-co:not(.is-hover) { opacity: .38; }
+.rpie-slice.is-hover { transform: translate(var(--dx), var(--dy)); }
+.rpie-slice.is-hover .rpie-shape { filter: brightness(1.06); }
+
+.rpie-tip {
+  position: absolute; z-index: 5; pointer-events: none; padding: 7px 10px; border-radius: 8px;
+  background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-lg); font-size: 12px; line-height: 1.4; white-space: nowrap;
+}
+.rpie-tip[hidden] { display: none; }
+
+.rpie-empty {
+  min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; text-align: center; color: var(--text-muted); font-size: 13px; padding: 20px;
+}
+.rpie-empty i { font-size: 38px; color: var(--accent); opacity: .5; }
+
+/* narrow cards: drop the description lines, keep icon + name */
+@container (max-width: 470px) { .rpie-desc { display: none; } .rpie-co { align-items: center; } .rpie-name { padding-top: 0; } }
+@container (max-width: 330px) { .rpie-co { display: none; } .rpie-lead { display: none; } }
+
+@keyframes rpieIn   { from { opacity: 0; transform: scale(.3) rotate(-30deg); } to { opacity: 1; transform: none; } }
+@keyframes rpieFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rpieDraw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .rpie-shape, .rpie-pct, .rpie-lead polyline, .rpie-lead circle, .rpie-co { animation: none; }
+  .rpie-lead polyline { stroke-dashoffset: 0; } .rpie-lead circle { opacity: 1; }
+}
+
+
+/* ── Forgot / reset password extras ── */
+.login-hint { margin-top: 7px; font-size: 11.5px; line-height: 1.45; color: #a8a099; }
+.login-hint.is-bad  { color: #b4233f; }
+.login-hint.is-good { color: #1f9d6b; }
+#fp-message { line-height: 1.55; padding: 10px 12px; border-radius: 10px; }
+#fp-message.is-ok  { background: rgba(31,157,107,.09); border: 1px solid rgba(31,157,107,.28); color: #167a53 !important; }
+#fp-message.is-err { background: rgba(225,29,72,.07);  border: 1px solid rgba(225,29,72,.22);  color: #b4233f !important; }
+#fp-btn:disabled, #rp-btn:disabled { opacity: .7; cursor: not-allowed; }

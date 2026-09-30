@@ -10,7 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="style.css?v=20260929-2">
+  <link rel="stylesheet" href="style.css?v=20260930-1">
   <script src="api.js"></script>
 </head>
 <body>
@@ -208,6 +208,7 @@
               <input class="form-input" id="rp-pass1" type="password" placeholder="Enter new password" autocomplete="new-password">
               <button type="button" class="password-toggle" onclick="togglePasswordVisibility('rp-pass1', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
             </div>
+            <div class="login-hint" id="rp-hint">At least 8 characters. Avoid common passwords and all-digit passwords.</div>
           </div>
           <div class="form-group">
             <label for="rp-pass2">Confirm New Password</label>
@@ -235,9 +236,9 @@
         <!-- Shown after a successful reset -->
         <div id="reset-success-wrap" style="display:none;text-align:center">
           <div class="login-title" style="color:var(--green,#10b981)"><i class="fa fa-check-circle"></i> Password Reset Successful</div>
-          <div class="login-sub">Your password has been changed. You can now log in.</div>
-          <button class="btn-primary" onclick="showLoginView()">
-            <i class="fa fa-sign-in-alt"></i> Return to Login
+          <div class="login-sub">Your password has been changed and you have been signed out everywhere else. Sign in with your new password.</div>
+          <button class="btn-primary" onclick="showLoginAfterReset()">
+            <i class="fa fa-sign-in-alt"></i> Sign in with new password
           </button>
         </div>
       </div>
@@ -470,18 +471,19 @@
               </div>
             </div>
             <div class="card-body">
-              <div class="chart-container" id="salesChart" style="height:340px"></div>
+              <div class="chart-container" id="salesChart" style="height:380px"></div>
             </div>
           </div>
           <div class="card">
             <div class="card-header">
               <div>
-                <div class="card-title">Revenue by Category</div>
-                <div class="card-subtitle">This month</div>
+                <div class="card-title">Category Breakdown</div>
+                <div class="card-subtitle">Products by category</div>
               </div>
             </div>
             <div class="card-body">
-              <div class="chart-container" id="categoryChart" style="height:340px"></div>
+              <!-- Filled by renderCategoryPolarPie() in script.js -->
+              <div class="rpie-host" id="categoryChart"></div>
             </div>
           </div>
         </div>
@@ -3172,5 +3174,5 @@
 <!-- A4 PRINT AREA (hidden, shown on print) -->
 <div id="print-area"></div>
 
-  <script src="script.js?v=20260929-2"></script>
+  <script src="script.js?v=20260930-1"></script>
 </body>

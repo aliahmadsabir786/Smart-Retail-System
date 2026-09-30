@@ -21,7 +21,8 @@ from .serializers import (
     build_uid_token_link,
 )
 from .tokens import email_verification_token
-from .tasks import send_verification_email, send_password_reset_email
+from .tasks import send_verification_email
+from .emailing import dispatch_password_reset_email
 
 logger = logging.getLogger("apps")
 
@@ -160,10 +161,14 @@ class PasswordResetRequestView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
 
-        user = User.objects.filter(email=email).first()
+        # Case-insensitive, and only accounts that can actually sign in.
+        # Whether or not one matches, the response below is identical.
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
         if user:
             _, _, link = build_uid_token_link(user, "reset-password")
-            _queue_email(send_password_reset_email, user.id, link)
+            dispatch_password_reset_email(user, link)
+        else:
+            logger.info("Password reset requested for an unknown/inactive email — no mail sent.")
 
         return Response({
             "success": True,
@@ -181,7 +186,21 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         _log_activity(user, UserActivityLog.Action.PASSWORD_RESET, request)
-        return Response({"success": True, "message": "Password has been reset. You can now log in."})
+
+        # A reset should sign the account out everywhere: revoke every refresh
+        # token issued before the new password existed.
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+            for outstanding in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=outstanding)
+        except Exception:
+            logger.exception("Could not revoke old sessions after password reset for user %s", user.pk)
+
+        return Response({
+            "success": True,
+            "message": "Password has been reset. You can now log in.",
+            "email": user.email,   # lets the login screen pre-fill the address
+        })
 
 
 class EmailVerificationConfirmView(generics.GenericAPIView):

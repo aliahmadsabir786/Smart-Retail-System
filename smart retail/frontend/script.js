@@ -225,6 +225,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ═══════════════════════════════════════════════════════
 let _resetUid = null;
 let _resetToken = null;
+let _resetEmail = null;   // returned by the confirm call; used to pre-fill the login form
 
 function _checkPasswordResetLink() {
   const params = new URLSearchParams(window.location.search);
@@ -245,7 +246,7 @@ function _checkPasswordResetLink() {
   return true;
 }
 
-function showLoginView() {
+function showLoginView(prefillEmail) {
   document.getElementById('login-view').style.display = '';
   document.getElementById('forgot-view').style.display = 'none';
   document.getElementById('reset-view').style.display = 'none';
@@ -254,8 +255,23 @@ function showLoginView() {
   const fpMsg = document.getElementById('fp-message');
   if (fpEmail) fpEmail.value = '';
   if (fpMsg) fpMsg.style.display = 'none';
+  _stopResendCooldown();
+  const err = document.getElementById('login-error');
+  if (err) err.style.display = 'none';
+  if (typeof prefillEmail === 'string' && prefillEmail) {
+    const u = document.getElementById('l-user');
+    const p = document.getElementById('l-pass');
+    if (u) u.value = prefillEmail;
+    if (p) { p.value = ''; setTimeout(() => p.focus(), 60); }
+  }
 }
-
+// "Sign in with new password" after a successful reset: back to the login form
+// with the account's email already filled in and the cursor in the password box.
+function showLoginAfterReset() {
+  const email = _resetEmail;
+  _resetEmail = null;
+  showLoginView(email || '');
+}
 function showForgotPasswordView() {
   document.getElementById('login-view').style.display = 'none';
   document.getElementById('forgot-view').style.display = '';
@@ -288,6 +304,36 @@ function _showResetSuccess() {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+let _resendTimer = null;
+function _stopResendCooldown() {
+  if (_resendTimer) { clearInterval(_resendTimer); _resendTimer = null; }
+  const btn = document.getElementById('fp-btn');
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Reset Link'; }
+}
+function _startResendCooldown(seconds) {
+  const btn = document.getElementById('fp-btn');
+  if (!btn) return;
+  let left = seconds;
+  btn.disabled = true;
+  const paint = () => { btn.innerHTML = `<i class="fa fa-clock"></i> Resend link in ${left}s`; };
+  paint();
+  if (_resendTimer) clearInterval(_resendTimer);
+  _resendTimer = setInterval(() => {
+    left -= 1;
+    if (left <= 0) {
+      _stopResendCooldown();
+      btn.innerHTML = '<i class="fa fa-redo"></i> Resend Reset Link';
+    } else paint();
+  }, 1000);
+}
+function _fpShow(msgEl, text, kind) {
+  msgEl.textContent = text;
+  msgEl.classList.toggle('is-ok', kind === 'ok');
+  msgEl.classList.toggle('is-err', kind === 'err');
+  msgEl.style.color = '';
+  msgEl.style.display = '';
+}
+
 async function submitForgotPassword() {
   const emailEl = document.getElementById('fp-email');
   const msgEl = document.getElementById('fp-message');
@@ -295,42 +341,31 @@ async function submitForgotPassword() {
   const email = (emailEl.value || '').trim();
 
   msgEl.style.display = 'none';
-  if (!email) {
-    msgEl.textContent = 'Please enter your email address.';
-    msgEl.style.color = 'var(--red,#ef4444)';
-    msgEl.style.display = '';
-    return;
-  }
-  if (!EMAIL_RE.test(email)) {
-    msgEl.textContent = 'Please enter a valid email address.';
-    msgEl.style.color = 'var(--red,#ef4444)';
-    msgEl.style.display = '';
-    return;
-  }
+  if (!email) { _fpShow(msgEl, 'Please enter your email address.', 'err'); return; }
+  if (!EMAIL_RE.test(email)) { _fpShow(msgEl, 'Please enter a valid email address.', 'err'); return; }
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...';
   try {
-    // The backend always returns this same generic response whether or not
-    // the email is actually registered — deliberately, so this screen can
-    // never be used to check which emails have accounts.
+    // The backend always returns the same generic response whether or not the
+    // email is registered — deliberately, so this screen can never be used to
+    // check which emails have accounts.
     await AuthAPI.forgotPassword(email);
-    msgEl.textContent = 'If an account with this email exists, a password reset link has been sent.';
-    msgEl.style.color = 'var(--green,#10b981)';
-    msgEl.style.display = '';
-    emailEl.value = '';
+    _fpShow(msgEl,
+      `If ${email} belongs to an account, a password reset link is on its way. ` +
+      `It usually arrives within a minute — check your Spam/Junk folder too. The link works once and expires in 1 hour.`,
+      'ok');
+    _startResendCooldown(30);
   } catch (err) {
-    // Only real request failures (network error, malformed input the
-    // backend itself rejected) land here — "email not found" never does.
-    msgEl.textContent = err.message || 'Something went wrong — please try again.';
-    msgEl.style.color = 'var(--red,#ef4444)';
-    msgEl.style.display = '';
-  } finally {
+    _fpShow(msgEl,
+      err.status === 429
+        ? 'Too many reset requests. Please wait a while before trying again.'
+        : (err.message || 'Something went wrong — please try again.'),
+      'err');
     btn.disabled = false;
     btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Reset Link';
   }
 }
-
 async function submitPasswordReset() {
   const p1 = document.getElementById('rp-pass1').value;
   const p2 = document.getElementById('rp-pass2').value;
@@ -356,10 +391,14 @@ async function submitPasswordReset() {
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Resetting...';
   try {
-    await AuthAPI.resetPasswordConfirm({
+    const done = await AuthAPI.resetPasswordConfirm({
       uid: _resetUid, token: _resetToken,
       new_password: p1, new_password_confirm: p2,
     });
+    _resetEmail = (done && done.email) || null;
+    // The server just revoked every old session for this account — drop any
+    // stale tokens this browser still holds so it can't try to reuse them.
+    try { TokenStore.clear(); } catch (_) {}
     document.getElementById('rp-pass1').value = '';
     document.getElementById('rp-pass2').value = '';
     _resetUid = null; _resetToken = null;
@@ -371,7 +410,12 @@ async function submitPasswordReset() {
     // retry with the same link can't succeed either way. A weak new
     // password or a mismatch the backend itself catches still shows as a
     // normal inline message so the person can just fix it and resubmit.
-    const badLink = err.data && (err.data.uid || err.data.token);
+    // Every API error arrives wrapped as {success:false, error:{message, details:{field:[…]}}}
+    // (apps/core/exceptions.py), so the per-field errors live under error.details —
+    // reading err.data.token directly never matched, and an expired link kept
+    // showing a raw inline error instead of the "Invalid or Expired Link" screen.
+    const fields = (err.data && err.data.error && err.data.error.details) || err.data || {};
+    const badLink = !!(fields && (fields.uid || fields.token));
     if (badLink) {
       _showResetInvalid();
     } else {
@@ -1042,55 +1086,167 @@ async function renderCharts(summary) {
     charts.sales.render();
   }
 
-  // Category donut — product count per category (catalog composition, not sales)
-  // Rebuilt as a CanvasJS pie chart (per the requested "State Operating
-  // Funds" style): click any legend item to pop that slice out.
+  // Category breakdown — product count per category (catalog composition, not
+  // sales), drawn as a polar-area donut with side call-outs. Plain SVG + HTML,
+  // so it needs no chart library and follows the light/dark theme through CSS.
+  if (charts.cat && typeof charts.cat.destroy === 'function') { try { charts.cat.destroy(); } catch (e) {} }
+  charts.cat = null;
   const cc = document.getElementById('categoryChart');
-  if (cc && typeof CanvasJS !== 'undefined') {
+  if (cc) {
     const prodData = await ProductsAPI.list({ page_size: 500 });
     const products = prodData.results || prodData;
     const catCounts = {};
-    products.forEach(p => { catCounts[p.category_name||'Uncategorized'] = (catCounts[p.category_name||'Uncategorized']||0)+1; });
-    const catTotal = Object.values(catCounts).reduce((a, b) => a + b, 0);
-    const palette = PIE_PALETTE;
-
-    const dataPoints = Object.entries(catCounts).map(([name, count], i) => ({
-      name, y: catTotal ? Number(((count / catTotal) * 100).toFixed(1)) : 0,
-      count, color: palette[i % palette.length],
-    }));
-    // Largest slice starts exploded, exactly like the reference chart.
-    if (dataPoints.length) {
-      dataPoints.reduce((a, b) => a.y >= b.y ? a : b).exploded = true;
-    }
-    const ck = _ckTheme();
-
-    charts.cat = new CanvasJS.Chart('categoryChart', {
-      backgroundColor: 'transparent',
-      animationEnabled: true,
-      theme: ck.theme,
-      legend: {
-        cursor: 'pointer', itemclick: explodeCategoryPie,
-        fontColor: ck.text, fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12,
-      },
-      data: [{
-        type: 'pie',
-        showInLegend: true,
-        toolTipContent: '<b>{name}</b>: {count} products ({y}%)',
-        indexLabel: '{name} - {y}%',
-        indexLabelFontColor: ck.indexLabel, indexLabelFontSize: 11,
-        indexLabelFontFamily: "'Plus Jakarta Sans', sans-serif",
-        indexLabelLineColor: ck.indexLabelLine,
-        dataPoints,
-      }]
-    });
-    charts.cat.render();
+    products.forEach(p => { const k = p.category_name || 'Uncategorized'; catCounts[k] = (catCounts[k] || 0) + 1; });
+    renderCategoryPolarPie(cc, catCounts);
   }
 }
 
-function explodeCategoryPie(e) {
-  const dp = e.dataSeries.dataPoints[e.dataPointIndex];
-  dp.exploded = !dp.exploded;
-  e.chart.render();
+// ═══════════════════════════════════════════════════════
+// CATEGORY POLAR-AREA DONUT
+// Equal-angle slices whose LENGTH (radius) is the category's share, around a
+// dark ring and light core that shows the total. Up to 4 slices: the top 3
+// categories + "Others" when there are more. Each slice gets a call-out (icon,
+// name, count) tied to it with a leader line. All sizes live in one 620x440
+// viewBox, and the call-outs are positioned in % of it, so it scales as one piece.
+// ═══════════════════════════════════════════════════════
+function renderCategoryPolarPie(host, catCounts) {
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const W = 620, H = 440, CX = 310, CY = 220;
+  const R_RING = 60, R_CORE = 44, R_MAX = 142;
+
+  let entries = Object.entries(catCounts).filter(([, n]) => n > 0).sort((x, y) => y[1] - x[1]);
+  const total = entries.reduce((s, [, n]) => s + n, 0);
+  if (!total) {
+    host.innerHTML = '<div class="rpie-empty"><i class="fa fa-chart-pie"></i><span>No products yet — add products to see the category breakdown</span></div>';
+    return;
+  }
+  if (entries.length > 4) {
+    const rest = entries.slice(3).reduce((s, [, n]) => s + n, 0);
+    entries = entries.slice(0, 3).concat([['Others', rest]]);
+  }
+  const N = entries.length;
+  const maxCount = Math.max(...entries.map(e => e[1]));
+  const span = 360 / N;
+
+  // Fixed colours per slot (crimson, coral-orange, amber, plum) + icon per slot.
+  const SLOTS = [
+    { cls: 'c0', icon: 'fa-boxes-stacked', pct: '#fff' },
+    { cls: 'c1', icon: 'fa-tags',          pct: '#fff' },
+    { cls: 'c2', icon: 'fa-layer-group',   pct: '#5c2247' },
+    { cls: 'c3', icon: 'fa-ellipsis',      pct: '#fff' },
+  ];
+  // Corners: angle of each (clockwise from 12 o'clock), and which side/half.
+  const CORNERS = [
+    { ang: 45,  sx: 1,  sy: -1 }, { ang: 135, sx: 1,  sy: 1 },
+    { ang: 225, sx: -1, sy: 1 },  { ang: 315, sx: -1, sy: -1 },
+  ];
+  const rad = d => d * Math.PI / 180;
+  const pt = (r, ang) => [CX + r * Math.sin(rad(ang)), CY - r * Math.cos(rad(ang))];
+  const angDist = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+
+  // Assign each slice the nearest free corner for its call-out.
+  const free = CORNERS.slice();
+  const slices = entries.map(([name, count], i) => {
+    const a0 = i * span, a1 = (i + 1) * span, mid = (a0 + a1) / 2;
+    const share = count / total;
+    const r1 = R_RING + (R_MAX - R_RING) * (0.32 + 0.68 * (count / maxCount));
+    let bi = 0;
+    free.forEach((c, k) => { if (angDist(c.ang, mid) < angDist(free[bi].ang, mid)) bi = k; });
+    const corner = free.splice(bi, 1)[0];
+    return { name, count, share, a0, a1, mid, r1, corner, slot: SLOTS[i % SLOTS.length], i };
+  });
+
+  const sector = (r0, r1, a0, a1) => {
+    const full = a1 - a0 >= 359.99;
+    if (full) {
+      const [x0, y0] = pt(r1, 0), [x1, y1] = pt(r1, 180), [ix0, iy0] = pt(r0, 0), [ix1, iy1] = pt(r0, 180);
+      return `M${x0},${y0} A${r1},${r1} 0 1 1 ${x1},${y1} A${r1},${r1} 0 1 1 ${x0},${y0} Z M${ix0},${iy0} A${r0},${r0} 0 1 0 ${ix1},${iy1} A${r0},${r0} 0 1 0 ${ix0},${iy0} Z`;
+    }
+    const large = (a1 - a0) > 180 ? 1 : 0;
+    const [ox0, oy0] = pt(r1, a0), [ox1, oy1] = pt(r1, a1), [ix1, iy1] = pt(r0, a1), [ix0, iy0] = pt(r0, a0);
+    return `M${ox0},${oy0} A${r1},${r1} 0 ${large} 1 ${ox1},${oy1} L${ix1},${iy1} A${r0},${r0} 0 ${large} 0 ${ix0},${iy0} Z`;
+  };
+  const pctText = s => { const v = s * 100; return v > 0 && v < 1 ? '<1%' : Math.round(v) + '%'; };
+  const fmt = n => Number(n).toLocaleString('en-US');
+
+  let svg = `<svg class="rpie-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Products by category">`;
+  svg += `<defs><filter id="rpieShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000" flood-opacity=".22"/></filter></defs>`;
+
+  // slices (+ % label inside each)
+  slices.forEach(s => {
+    const [tx, ty] = pt(R_RING + (s.r1 - R_RING) * 0.42, s.mid);
+    const fs = Math.max(10.5, Math.min(22, (s.r1 - R_RING) * 0.3));
+    const [ox, oy] = pt(7, s.mid);                        // hover pop-out direction
+    svg += `<g class="rpie-slice ${s.slot.cls}" data-i="${s.i}" style="--i:${s.i};--dx:${(ox - CX).toFixed(1)}px;--dy:${(oy - CY).toFixed(1)}px">
+      <path class="rpie-shape" d="${sector(R_RING, s.r1, s.a0, s.a1)}" fill-rule="evenodd"/>
+      <text class="rpie-pct" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" fill="${s.slot.pct}" font-size="${fs.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${pctText(s.share)}</text>
+    </g>`;
+  });
+
+  // ring + core
+  svg += `<circle class="rpie-ring" cx="${CX}" cy="${CY}" r="${R_RING}" filter="url(#rpieShadow)"/>
+          <circle class="rpie-core" cx="${CX}" cy="${CY}" r="${R_CORE}"/>
+          <text class="rpie-total" x="${CX}" y="${CY - 3}" text-anchor="middle" dominant-baseline="central">${esc(fmt(total))}</text>
+          <text class="rpie-total-lbl" x="${CX}" y="${CY + 15}" text-anchor="middle" dominant-baseline="central">PRODUCTS</text>`;
+
+  // leader lines: dot inside the slice -> 45° knee -> horizontal to the call-out icon
+  const AX = 162;                                    // call-out inner edge, distance from centre
+  slices.forEach(s => {
+    const c = s.corner;
+    const ly = CY + c.sy * (R_MAX + 8);              // just beyond the longest possible slice: the horizontal run never crosses one
+    let dAng = s.mid + Math.max(-1, Math.min(1, (((c.ang - s.mid + 540) % 360) - 180) / 90)) * Math.min(span * 0.28, 28);
+    dAng = Math.max(s.a0 + 6, Math.min(s.a1 - 6, dAng));
+    const [px, py] = pt(Math.max(R_RING + 16, s.r1 - 9), dAng);
+    const ax = CX + c.sx * AX;
+    let kx = px + c.sx * Math.abs(ly - py);
+    if (c.sx * (ax - kx) < 12) kx = ax - c.sx * 12;
+    s.lead = { ly, ax, px, py };
+    svg += `<g class="rpie-lead ${s.slot.cls}" style="--i:${s.i}">
+      <polyline pathLength="1" points="${px.toFixed(1)},${py.toFixed(1)} ${kx.toFixed(1)},${ly.toFixed(1)} ${ax.toFixed(1)},${ly.toFixed(1)}"/>
+      <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4"/>
+    </g>`;
+  });
+  svg += '</svg>';
+
+  // call-outs (HTML, positioned in % of the viewBox so text stays crisp)
+  let co = '';
+  slices.forEach(s => {
+    const c = s.corner, { ly, ax } = s.lead;
+    const w = 140, gap = 4;
+    const left = c.sx > 0 ? ax + gap : ax - gap - w;
+    co += `<div class="rpie-co ${s.slot.cls} ${c.sx > 0 ? 'r' : 'l'}" data-i="${s.i}" style="--i:${s.i};left:${(left / W * 100).toFixed(2)}%;top:${((ly - 13) / H * 100).toFixed(2)}%;width:${(w / W * 100).toFixed(2)}%">
+      <span class="rpie-ico"><i class="fa ${s.slot.icon}"></i></span>
+      <span class="rpie-txt">
+        <b class="rpie-name" title="${esc(s.name)}">${esc(s.name)}</b>
+        <span class="rpie-desc">${fmt(s.count)} product${s.count === 1 ? '' : 's'} · ${pctText(s.share)} of catalog</span>
+      </span>
+    </div>`;
+  });
+
+  host.innerHTML = `<div class="rpie">${svg}${co}<div class="rpie-tip" hidden></div></div>`;
+
+  // hover: pop the slice, dim the rest, show a tooltip; hovering a call-out does the same
+  const root = host.querySelector('.rpie'), tip = root.querySelector('.rpie-tip');
+  const setHover = i => {
+    root.classList.toggle('has-hover', i !== null);
+    root.querySelectorAll('[data-i]').forEach(el => el.classList.toggle('is-hover', String(i) === el.dataset.i));
+  };
+  root.addEventListener('mouseover', e => {
+    const t = e.target.closest('[data-i]'); if (!t) return;
+    const s = slices[+t.dataset.i]; setHover(s.i);
+    tip.innerHTML = `<b>${esc(s.name)}</b><br>${fmt(s.count)} of ${fmt(total)} products (${pctText(s.share)})`;
+    tip.hidden = false;
+  });
+  root.addEventListener('mousemove', e => {
+    if (tip.hidden) return;
+    const r = root.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 4) + 'px';
+    tip.style.top  = Math.max(e.clientY - r.top - tip.offsetHeight - 10, 2) + 'px';
+  });
+  root.addEventListener('mouseout', e => {
+    if (e.relatedTarget && root.contains(e.relatedTarget) && e.relatedTarget.closest && e.relatedTarget.closest('[data-i]')) return;
+    setHover(null); tip.hidden = true;
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -10174,3 +10330,24 @@ function togglePasswordVisibility(inputId, btn) {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
+
+// Live hint under "New Password" on the reset screen.
+document.addEventListener('DOMContentLoaded', () => {
+  const p1 = document.getElementById('rp-pass1');
+  const p2 = document.getElementById('rp-pass2');
+  const hint = document.getElementById('rp-hint');
+  if (!p1 || !hint) return;
+  const BASE = 'At least 8 characters. Avoid common passwords and all-digit passwords.';
+  function update() {
+    const v = p1.value;
+    hint.classList.remove('is-bad', 'is-good');
+    if (!v) { hint.textContent = BASE; return; }
+    if (v.length < 8) { hint.textContent = `Too short — ${8 - v.length} more character${8 - v.length === 1 ? '' : 's'} needed.`; hint.classList.add('is-bad'); return; }
+    if (/^\d+$/.test(v)) { hint.textContent = 'Passwords made only of digits are not allowed.'; hint.classList.add('is-bad'); return; }
+    if (p2 && p2.value && p2.value !== v) { hint.textContent = 'The two passwords do not match yet.'; hint.classList.add('is-bad'); return; }
+    hint.textContent = p2 && p2.value ? 'Looks good.' : 'Good length — now confirm it below.';
+    hint.classList.add('is-good');
+  }
+  p1.addEventListener('input', update);
+  if (p2) p2.addEventListener('input', update);
+});

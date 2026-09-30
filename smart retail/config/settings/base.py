@@ -291,7 +291,14 @@ CELERY_TIMEZONE = TIME_ZONE
 # ------------------------------------------------------------------
 # Email
 # ------------------------------------------------------------------
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_BACKEND = config("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+# Never let an unreachable/slow SMTP server hang a sender forever.
+EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=15, cast=int)
+# False (default): password-reset emails are sent straight from the Django
+# process in a background thread, so forgot-password works without Redis or a
+# Celery worker. True: queue them through Celery (falls back to the thread if
+# the broker is unreachable).
+EMAIL_SEND_VIA_CELERY = config("EMAIL_SEND_VIA_CELERY", default=False, cast=bool)
 EMAIL_HOST = config("EMAIL_HOST", default="smtp.gmail.com")
 EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)

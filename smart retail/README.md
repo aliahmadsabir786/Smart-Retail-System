@@ -160,6 +160,36 @@ Same URL: **http://localhost:8000/**
 > `/style.css` are served alongside it) and in `config/views.py`. There is no
 > separate frontend server or build step.
 
+## Forgot Password (email reset)
+
+Flow: login screen → **Forgot password?** → enter the account email → open the emailed link →
+choose a new password → **Sign in with new password**. Links are single-use and expire after
+`PASSWORD_RESET_TIMEOUT` seconds (default 3600 = 1 hour). A successful reset also signs the
+account out of every other device.
+
+**Sending the email — pick one:**
+
+1. *Just trying it locally:* leave `EMAIL_HOST_USER` empty in `.env`. In development the whole
+   email (including the reset link) is printed in the `runserver` terminal — copy the link into the browser.
+2. *Real delivery (Gmail):* turn on 2-Step Verification, create an **App password**
+   (Google Account → Security → App passwords), then set in `.env`:
+
+   ```
+   EMAIL_HOST=smtp.gmail.com
+   EMAIL_PORT=587
+   EMAIL_USE_TLS=True
+   EMAIL_HOST_USER=you@gmail.com
+   EMAIL_HOST_PASSWORD=<the 16-character app password>
+   DEFAULT_FROM_EMAIL=SmartRetail ERP <you@gmail.com>
+   FRONTEND_URL=http://localhost:8000
+   ```
+
+   `FRONTEND_URL` must be the address you open the app at — it is what the emailed link points to.
+
+No Redis / Celery worker is needed: the email is sent from the Django process in a background
+thread. Set `EMAIL_SEND_VIA_CELERY=True` only if you run a worker and want it queued.
+If mail doesn't arrive, check the server log for `Password reset email ... FAILED` — it names the SMTP problem.
+
 ## Demo Accounts (`seed_data`)
 | Role | Email | Password |
 |---|---|---|

@@ -447,6 +447,77 @@ let _bookingItems = [];
 // ═══════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// PRINT ANIMATIONS
+// ═══════════════════════════════════════════════════════
+// Plays a short full-screen animation right before the browser's print
+// dialog opens, styled like the shop-opening screen:
+//   'slip'  → printer loads, paper feeds in, printed slip comes out  (Sale Slips)
+//   'cash'  → banknotes are counted from one stack to the other      (Collection)
+//   'order' → a person walks across carrying a product carton        (Order Summary)
+const PRINT_ANIM = {
+  slip:  { ms: 3000, label: [[0, 'Loading printer'],   [1000, 'Printing slips']] },
+  cash:  { ms: 3200, label: [[0, 'Counting cash'],     [2700, 'Opening print']] },
+  order: { ms: 2800, label: [[0, 'Carrying your order'], [2200, 'Opening print']] },
+};
+let _printAnimBusy = false;
+function playPrintAnim(kind) {
+  const cfg = PRINT_ANIM[kind];
+  const s = document.getElementById('print-anim-screen');
+  if (!cfg || !s) return Promise.resolve();
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ms = reduce ? 500 : cfg.ms;
+  const timers = [];
+  const label = document.getElementById('pa-label');
+  const countEl = document.getElementById('pa-count-num');
+
+  s.classList.remove('hiding', 'k-slip', 'k-cash', 'k-order');
+  s.classList.add('k-' + kind);
+  s.style.setProperty('--pa-ms', ms + 'ms');
+  s.style.display = '';                 // let .show control it
+  s.classList.remove('show');
+  void s.offsetWidth;                   // restart every CSS animation
+  s.classList.add('show');
+
+  cfg.label.forEach(([t, txt]) => timers.push(setTimeout(() => { if (label) label.textContent = txt; }, reduce ? 0 : t)));
+  if (label) label.textContent = cfg.label[0][1];
+
+  // cash: the "notes counted" ticker follows each note landing on the right stack
+  if (kind === 'cash' && countEl) {
+    countEl.textContent = '0';
+    for (let i = 0; i < 12; i++) {
+      timers.push(setTimeout(() => { countEl.textContent = String(i + 1); }, 1000 + i * 180));
+    }
+  }
+
+  return new Promise(resolve => {
+    timers.push(setTimeout(() => {
+      s.classList.add('hiding');
+      timers.push(setTimeout(() => {
+        s.classList.remove('show', 'hiding', 'k-slip', 'k-cash', 'k-order');
+        resolve();
+      }, 350));
+    }, ms));
+  });
+}
+
+// Runs the animation, then shows the print area and opens the print dialog.
+// Returns false (and does nothing) if an animation is already running, so a
+// double-click can't open the print dialog twice.
+async function animatedPrint(kind, area) {
+  if (_printAnimBusy) return false;
+  _printAnimBusy = true;
+  try {
+    if (area) area.style.display = 'none';
+    await playPrintAnim(kind);
+    if (area) area.style.display = 'block';
+    await new Promise(r => setTimeout(r, 150));   // let the print layout render
+    window.print();
+    return true;
+  } finally {
+    _printAnimBusy = false;
+  }
+}
 async function doLogin() {
   const email = document.getElementById('l-user').value.trim();
   const password = document.getElementById('l-pass').value.trim();
@@ -966,60 +1037,140 @@ async function renderCharts(summary) {
     charts.sales.render();
   }
 
-  // Category donut — product count per category (catalog composition, not sales)
-  // Rebuilt as a CanvasJS pie chart (per the requested "State Operating
-  // Funds" style): click any legend item to pop that slice out.
+  // Category chart — product count per category, drawn as the infographic
+  // polar-area donut (renderCategoryPolarPie, styles under ".rpie").
   const cc = document.getElementById('categoryChart');
-  if (cc && typeof CanvasJS !== 'undefined') {
+  if (cc) {
+    if (charts.cat && charts.cat.destroy) { try { charts.cat.destroy(); } catch (e) {} }
+    charts.cat = null;
     const prodData = await ProductsAPI.list({ page_size: 500 });
     const products = prodData.results || prodData;
     const catCounts = {};
-    products.forEach(p => { catCounts[p.category_name||'Uncategorized'] = (catCounts[p.category_name||'Uncategorized']||0)+1; });
-    const catTotal = Object.values(catCounts).reduce((a, b) => a + b, 0);
-    const palette = PIE_PALETTE;
-
-    const dataPoints = Object.entries(catCounts).map(([name, count], i) => ({
-      name, y: catTotal ? Number(((count / catTotal) * 100).toFixed(1)) : 0,
-      count, color: palette[i % palette.length],
-    }));
-    // Largest slice starts exploded, exactly like the reference chart.
-    if (dataPoints.length) {
-      dataPoints.reduce((a, b) => a.y >= b.y ? a : b).exploded = true;
-    }
-    const ck = _ckTheme();
-
-    charts.cat = new CanvasJS.Chart('categoryChart', {
-      backgroundColor: 'transparent',
-      animationEnabled: true,
-      animationDuration: 900,
-      theme: ck.theme,
-      legend: {
-        cursor: 'pointer', itemclick: explodeCategoryPie,
-        fontColor: ck.text, fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12,
-      },
-      data: [{
-        // Doughnut — a big open center like the reference infographic,
-        // instead of a solid pie wedge fan.
-        type: 'doughnut',
-        innerRadius: '48%',
-        radius: '88%',
-        lineColor: document.body.classList.contains('light-mode') ? '#ffffff' : '#141820',
-        strokeThickness: 3,
-        showInLegend: true,
-        toolTipContent: '<b>{name}</b>: {count} products ({y}%)',
-        // Big bold "50%"-style number on the slice itself, name kept in
-        // the legend/tooltip instead of crowding the label.
-        indexLabel: '{y}%',
-        indexLabelPlacement: 'inside',
-        indexLabelFontColor: '#ffffff',
-        indexLabelFontWeight: 700,
-        indexLabelFontSize: 15,
-        indexLabelFontFamily: "'Plus Jakarta Sans', sans-serif",
-        dataPoints,
-      }]
-    });
-    charts.cat.render();
+    products.forEach(p => { const n = p.category_name || 'Uncategorized'; catCounts[n] = (catCounts[n] || 0) + 1; });
+    renderCategoryPolarPie(cc, Object.entries(catCounts).map(([name, count]) => ({ name, count })));
   }
+}
+
+
+// ═══════════════════════════════════════════════════════
+// CATEGORY POLAR-AREA DONUT (dashboard "Revenue by Category" card)
+// Infographic style: a dark ring + light core in the middle, one wedge per
+// category whose LENGTH grows with its share, big % on each wedge and a
+// call-out (icon + name + detail) joined by a leader line. Styles live in
+// style.css under ".rpie". Shows the top 3 categories + "Others" when there
+// are more than 4. Hover a wedge or a call-out to pop it and dim the rest.
+// ═══════════════════════════════════════════════════════
+function renderCategoryPolarPie(host, rawItems) {
+  if (!host) return;
+  host.classList.add('rpie-host');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+  let items = (rawItems || []).filter(i => i.count > 0).sort((a, b) => b.count - a.count);
+  const total = items.reduce((s, i) => s + i.count, 0);
+  if (!total) {
+    host.innerHTML = '<div class="rpie-empty"><i class="fa fa-chart-pie"></i><div>No products yet — add some to see the category split.</div></div>';
+    return;
+  }
+  if (items.length > 4) {
+    const rest = items.slice(3);
+    items = items.slice(0, 3).concat([{ name: 'Others', count: rest.reduce((s, i) => s + i.count, 0), groupCount: rest.length }]);
+  }
+
+  // whole-number percentages that add up to exactly 100 (largest remainder)
+  const raw = items.map(i => i.count / total * 100);
+  const pct = raw.map(Math.floor);
+  let left = 100 - pct.reduce((a, b) => a + b, 0);
+  raw.map((r, i) => [r - pct[i], i]).sort((a, b) => b[0] - a[0]).slice(0, left).forEach(([, i]) => pct[i]++);
+
+  const CX = 310, CY = 220, RING = 66, CORE = 46, RMIN = 100, RMAX = 145, GAP = 70;
+  const ICONS = ['fa-tags', 'fa-box-open', 'fa-shopping-basket', 'fa-layer-group'];
+  const vmax = Math.max(...items.map(i => i.count));
+  const P = (a, r) => [CX + r * Math.cos(a), CY + r * Math.sin(a)];
+  const f = n => n.toFixed(1);
+
+  let a0 = -Math.PI / 2;                       // start at 12 o'clock, clockwise
+  const sides = { l: [], r: [] };
+  const slices = items.map((it, k) => {
+    const sweep = Math.min(it.count / total * Math.PI * 2, Math.PI * 2 - 0.0001);
+    const a1 = a0 + sweep, am = a0 + sweep / 2;
+    const ro = RMIN + (RMAX - RMIN) * (it.count / vmax);
+    const large = sweep > Math.PI ? 1 : 0;
+    const [x1o, y1o] = P(a0, ro), [x2o, y2o] = P(a1, ro), [x1i, y1i] = P(a0, RING), [x2i, y2i] = P(a1, RING);
+    const d = `M${f(x1o)} ${f(y1o)}A${f(ro)} ${f(ro)} 0 ${large} 1 ${f(x2o)} ${f(y2o)}L${f(x2i)} ${f(y2i)}A${RING} ${RING} 0 ${large} 0 ${f(x1i)} ${f(y1i)}Z`;
+    const [tx, ty] = P(am, RING + (ro - RING) * 0.4);   // % sits inner, leader dot sits at the outer edge
+    const [dotX, dotY] = P(am, ro - 8);
+    const [elbX, elbY] = P(am, ro + 14);
+    const side = Math.cos(am) >= 0 ? 'r' : 'l';
+    const s = { k, it, d, am, ro, tx, ty, dotX, dotY, elbX, elbY, side, sweep,
+                dx: Math.cos(am) * 7, dy: Math.sin(am) * 7, y: elbY };
+    sides[side].push(s);
+    a0 = a1;
+    return s;
+  });
+
+  // keep call-outs on the same side from overlapping
+  ['l', 'r'].forEach(sd => {
+    const arr = sides[sd].sort((a, b) => a.y - b.y);
+    arr.forEach((s, i) => { s.y = Math.max(s.y, i ? arr[i - 1].y + GAP : 40); });
+    for (let i = arr.length - 1; i >= 0; i--) arr[i].y = Math.min(arr[i].y, 400 - (arr.length - 1 - i) * GAP);
+  });
+
+  const EDGE_L = 143, EDGE_R = 477;
+  let svg = '';
+  slices.forEach(s => {
+    const lbl = pct[s.k] || '<1';
+    svg += `<g class="rpie-slice c${s.k}" data-k="${s.k}" style="--i:${s.k};--dx:${f(s.dx)}px;--dy:${f(s.dy)}px">
+      <path class="rpie-shape" d="${s.d}"/>
+      ${s.sweep > 0.24 ? `<text class="rpie-pct" x="${f(s.tx)}" y="${f(s.ty)}" text-anchor="middle" dominant-baseline="central" font-size="${s.sweep > 0.6 ? 19 : 13}" fill="${s.k === 2 ? '#5c2247' : '#fff'}">${lbl}%</text>` : ''}
+    </g>`;
+  });
+  svg += `<circle class="rpie-ring" cx="${CX}" cy="${CY}" r="${RING}" style="filter:drop-shadow(0 4px 7px rgba(0,0,0,.28))"/>
+    <circle class="rpie-core" cx="${CX}" cy="${CY}" r="${CORE}"/>
+    <text class="rpie-total" x="${CX}" y="${CY - 1}" text-anchor="middle" dominant-baseline="central">${total.toLocaleString()}</text>
+    <text class="rpie-total-lbl" x="${CX}" y="${CY + 15}" text-anchor="middle">PRODUCTS</text>`;
+  slices.forEach(s => {
+    const ex = s.side === 'r' ? EDGE_R : EDGE_L;
+    svg += `<g class="rpie-lead" style="--i:${s.k}">
+      <polyline pathLength="1" points="${f(s.dotX)},${f(s.dotY)} ${f(s.elbX)},${f(s.y)} ${ex},${f(s.y)}"/>
+      <circle cx="${f(s.dotX)}" cy="${f(s.dotY)}" r="5"/>
+    </g>`;
+  });
+
+  const cos = slices.map(s => {
+    const it = s.it;
+    const detail = it.groupCount
+      ? `${it.count} products · ${it.groupCount} categories`
+      : `${it.count} product${it.count === 1 ? '' : 's'} · ${pct[s.k] || '<1'}% of catalog`;
+    return `<div class="rpie-co c${s.k} ${s.side}" data-k="${s.k}" style="--i:${s.k};left:${s.side === 'r' ? '77%' : '0'};width:23%;top:${((s.y - 16) / 440 * 100).toFixed(2)}%">
+      <span class="rpie-ico"><i class="fa ${ICONS[s.k % ICONS.length]}"></i></span>
+      <div class="rpie-txt"><div class="rpie-name" title="${esc(it.name)}">${esc(it.name)}</div><div class="rpie-desc">${esc(detail)}</div></div>
+    </div>`;
+  }).join('');
+
+  host.innerHTML = `<div class="rpie">
+    <svg class="rpie-svg" viewBox="0 0 620 440" role="img" aria-label="Products by category">${svg}</svg>
+    ${cos}<div class="rpie-tip" hidden></div></div>`;
+
+  // hover: pop the slice + its call-out, dim the rest, follow the pointer with a tooltip
+  const root = host.querySelector('.rpie'), tip = root.querySelector('.rpie-tip');
+  const setHover = (k, on) => {
+    root.classList.toggle('has-hover', on);
+    root.querySelectorAll(`[data-k="${k}"]`).forEach(el => el.classList.toggle('is-hover', on));
+  };
+  root.querySelectorAll('.rpie-slice, .rpie-co').forEach(el => {
+    const k = +el.dataset.k, s = slices[k];
+    el.addEventListener('mouseenter', () => {
+      setHover(k, true);
+      tip.innerHTML = `<b>${esc(s.it.name)}</b><br>${s.it.count} product${s.it.count === 1 ? '' : 's'} (${(s.it.count / total * 100).toFixed(1)}%)`;
+      tip.hidden = false;
+    });
+    el.addEventListener('mousemove', e => {
+      const r = root.getBoundingClientRect();
+      tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 4) + 'px';
+      tip.style.top = Math.max(e.clientY - r.top - tip.offsetHeight - 10, 0) + 'px';
+    });
+    el.addEventListener('mouseleave', () => { setHover(k, false); tip.hidden = true; });
+  });
 }
 
 function explodeCategoryPie(e) {
@@ -3493,20 +3644,31 @@ async function onBookingCustomerChange() {
 // ── Customer search-as-you-type (Order Booking) ───────────────────
 // Same UX as the product search box: type any part of the name or phone
 // number and matching customers drop down below the field.
-function _bkCustDropRows(list) {
-  return list.map(c => {
+function _bkEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+// Escapes text and wraps the part matching the typed query in <mark>.
+function _bkHilite(text, lc) {
+  const t = String(text == null ? '' : text);
+  const i = lc ? t.toLowerCase().indexOf(lc) : -1;
+  if (i < 0) return _bkEsc(t);
+  return _bkEsc(t.slice(0, i)) +
+    '<mark style="background:var(--accent-glow);color:var(--accent);border-radius:3px;padding:0 1px">' + _bkEsc(t.slice(i, i + lc.length)) + '</mark>' +
+    _bkEsc(t.slice(i + lc.length));
+}
+function _bkCustDropRows(list, lc) {
+  return list.map((c, idx) => {
     const acc = 'ACC-'+String(c.id).padStart(4,'0');
     const bal = Number(c.outstanding_balance)||0;
     const balColor = bal>0 ? 'var(--red)' : 'var(--green)';
-    // Area/address under the name — makes it easy to tell apart two shops
-    // with similar or identical names when picking one from the list.
+    // Area/address under the name — tells apart two shops with similar names.
     const area = [c.address, c.city].filter(Boolean).join(', ');
-    return `<div onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
+    return `<div class="bk-cust-row" data-idx="${idx}" data-id="${c.id}" onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="bkCustHover(${idx})">
       <span style="font-size:18px;flex-shrink:0">👤</span>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
-        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${acc}${c.phone ? ' · '+c.phone : ''}</div>
-        ${area ? `<div style="font-size:10px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px"><i class="fa fa-map-marker-alt" style="opacity:.6"></i> ${area}</div>` : ''}
+        <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_bkHilite(c.name, lc)}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_bkHilite(acc, lc)}${c.phone ? ' · '+_bkHilite(c.phone, lc) : ''}</div>
+        ${area ? `<div style="font-size:10px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px"><i class="fa fa-map-marker-alt" style="opacity:.6"></i> ${_bkHilite(area, lc)}</div>` : ''}
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:800;color:${balColor}">Rs.${bal.toFixed(2)}</div>
@@ -3516,72 +3678,101 @@ function _bkCustDropRows(list) {
   }).join('');
 }
 
+// ── Customer dropdown: ranking, highlight, keyboard ──────────────────
+// Rank: 0 = name starts with the text, 1 = a word in the name starts with it,
+//       2 = name contains it, 3 = phone / email / account no. contains it.
+function _bkCustRank(c, lc) {
+  const name = (c.name||'').toLowerCase();
+  if (name.startsWith(lc)) return 0;
+  if (name.split(/[\s.\-_]+/).some(w => w.startsWith(lc))) return 1;
+  if (name.includes(lc)) return 2;
+  const phone = (c.phone||'').toLowerCase(), email = (c.email||'').toLowerCase();
+  const acc = 'acc-'+String(c.id).padStart(4,'0');
+  const area = ((c.address||'') + ' ' + (c.city||'')).toLowerCase();
+  if (phone.includes(lc) || email.includes(lc) || acc.includes(lc) || area.includes(lc)) return 3;
+  return -1;
+}
+let _bkCustShown = [];   // customers currently listed in the dropdown
+let _bkCustActive = -1;  // keyboard-highlighted row
+let _bkCustReq = 0;      // latest search id — ignores slow, out-of-date replies
+
+function _bkCustPaint(lc) {
+  const drop = document.getElementById('bk-cust-drop');
+  if (!drop) return;
+  const results = _bkCustomerCache
+    .map(c => ({ c, r: _bkCustRank(c, lc) }))
+    .filter(x => x.r >= 0)
+    .sort((a, b) => a.r - b.r || (a.c.name||'').localeCompare(b.c.name||''))
+    .slice(0, 30)
+    .map(x => x.c);
+  _bkCustShown = results;
+  _bkCustActive = results.length ? 0 : -1;
+  drop.style.display = 'block';
+  drop.innerHTML = results.length ? _bkCustDropRows(results, lc) : '';
+  _bkCustHover(_bkCustActive, false);
+  return results.length;
+}
+function _bkCustHover(idx, scroll) {
+  const drop = document.getElementById('bk-cust-drop');
+  if (!drop) return;
+  _bkCustActive = idx;
+  drop.querySelectorAll('.bk-cust-row').forEach(el => {
+    const on = Number(el.dataset.idx) === idx;
+    el.style.background = on ? 'var(--bg-secondary)' : '';
+    if (on && scroll) el.scrollIntoView({ block: 'nearest' });
+  });
+}
+function bkCustHover(idx) { _bkCustHover(idx, false); }
+function bkCustKey(e) {
+  const drop = document.getElementById('bk-cust-drop');
+  if (!drop || drop.style.display === 'none' || !_bkCustShown.length) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); _bkCustHover((_bkCustActive + 1) % _bkCustShown.length, true); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _bkCustHover((_bkCustActive - 1 + _bkCustShown.length) % _bkCustShown.length, true); }
+  else if (e.key === 'Enter') { e.preventDefault(); const c = _bkCustShown[_bkCustActive]; if (c) bkCustSelect(c.id); }
+  else if (e.key === 'Escape') { bkCustDropClose(); }
+}
+
 function bkCustSearch(q) {
   const drop = document.getElementById('bk-cust-drop');
   if (!drop) return;
   const lc = (q||'').toLowerCase().trim();
-  if (!lc) { drop.style.display='none'; return; }
-  const rank = (c) => {
-    const name = (c.name||'').toLowerCase();
-    const phone = (c.phone||'').toLowerCase(), email = (c.email||'').toLowerCase();
-    const acc = ('acc-'+String(c.id).padStart(4,'0'));
-    if (name.startsWith(lc)) return 0;   // starts-with → top of the list
-    if (name.includes(lc) || phone.includes(lc) || email.includes(lc) || acc.includes(lc)) return 1;
-    return -1; // no match
-  };
-  const localResults = _bkCustomerCache
-    .map(c => ({ c, r: rank(c) }))
-    .filter(x => x.r >= 0)
-    .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name))
-    .slice(0, 20)
-    .map(x => x.c);
+  if (!lc) { drop.style.display='none'; _bkCustShown = []; return; }
+  const reqId = ++_bkCustReq;
 
-  drop.style.display='';
-  drop.innerHTML = localResults.length
-    ? _bkCustDropRows(localResults)
-    : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
+  // 1) Instant results from the customers already loaded.
+  const found = _bkCustPaint(lc);
+  if (!found) {
+    drop.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
+  }
 
-  // _bkCustomerCache only ever holds the first batch of customers loaded
-  // when the form opened (capped at 500, alphabetical by name — see
-  // Customer.Meta.ordering) — with more customers than that, anyone whose
-  // name sorts past that cutoff (e.g. starts with a later letter) was
-  // invisible to this search even though they exist and show up fine on
-  // the Customers page, which searches the server live with no cap. A
-  // live search here closes that gap for good, regardless of how many
-  // customers exist — the local list above is just the instant preview
-  // while this resolves.
+  // 2) Ask the server too — the local list only holds the first 500 customers.
+  //    The server's answer is MERGED into the local list and everything is
+  //    ranked together. (Before, the server's first-20 alphabetical matches —
+  //    names containing the letter anywhere — replaced the local starts-with
+  //    matches, so the right customers vanished after a moment.)
   debounced('bk-cust-live-search', async () => {
     let serverResults = [];
     try {
-      const data = await CustomersAPI.list({ search: q, page_size: 20 });
+      const data = await CustomersAPI.list({ search: q.trim(), page_size: 100 });
       serverResults = data.results || data;
     } catch (err) {
-      return; // offline/server error — leave the local preview as-is
+      serverResults = [];   // offline/server error — keep what we have
     }
-    // Merge any customer the server found but the local cache doesn't
-    // have yet, so picking them from the dropdown (bkCustSelect →
-    // onBookingCustomerChange, which looks them up by id) still works.
     serverResults.forEach(sc => {
       if (!_bkCustomerCache.some(c => c.id === sc.id)) _bkCustomerCache.push(sc);
     });
-    // Only repaint if the user hasn't since changed what they're typing.
+    // Ignore if the user has typed something newer since.
+    if (reqId !== _bkCustReq) return;
     if ((document.getElementById('bk-customer-search')?.value||'').toLowerCase().trim() !== lc) return;
-    // The server just returns matches in its default (alphabetical) order —
-    // for a short/partial query like "g" that can bury the customer whose
-    // name actually STARTS with what was typed under a page of unrelated
-    // names that merely contain a "g" somewhere. That's what made a
-    // correct-looking suggestion seem to "vanish" a moment after typing:
-    // the local instant preview (ranked below) showed it fine, then this
-    // server response silently replaced it with a differently-ordered
-    // list. Re-rank the server results the exact same way before using
-    // them, so the closest match never gets pushed out of the top 20.
-    serverResults = serverResults.map(c => ({ c, r: rank(c) })).filter(x => x.r >= 0)
-      .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name)).map(x => x.c);
-    const finalResults = serverResults.length ? serverResults : localResults;
-    drop.innerHTML = finalResults.length
-      ? _bkCustDropRows(finalResults.slice(0, 20))
-      : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
-  }, 250);
+    const keepActive = _bkCustShown[_bkCustActive]?.id;
+    const n = _bkCustPaint(lc);
+    if (!n) {
+      drop.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
+    } else if (keepActive != null) {
+      const i = _bkCustShown.findIndex(c => c.id === keepActive);
+      if (i >= 0) _bkCustHover(i, false);
+    }
+  }, 200);
 }
 
 function bkCustSearchFocus() {
@@ -3590,8 +3781,11 @@ function bkCustSearchFocus() {
   if (!inp.value.trim()) {
     const drop = document.getElementById('bk-cust-drop');
     if (!drop || !_bkCustomerCache.length) return;
-    drop.style.display='';
-    drop.innerHTML = _bkCustDropRows(_bkCustomerCache.slice(0, 20));
+    _bkCustShown = _bkCustomerCache.slice(0, 20);
+    _bkCustActive = 0;
+    drop.style.display = 'block';
+    drop.innerHTML = _bkCustDropRows(_bkCustShown, '');
+    _bkCustHover(0, false);
   } else {
     bkCustSearch(inp.value);
   }
@@ -4614,14 +4808,11 @@ async function printSingleSlipA4(id) {
   if (!b) { toast('Booking not found','error'); return; }
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = buildSlipA4Html(b);
-  printArea.style.display = 'block';
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => { printArea.style.display = 'none'; }, 1200);
-  }, 250);
+  await animatedPrint('slip', printArea);
+  setTimeout(() => { printArea.style.display = 'none'; }, 1200);
 }
 
-function printAllSlipsA4(mode) {
+async function printAllSlipsA4(mode) {
   const dateFilter     = document.getElementById('ss-date')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
@@ -4759,7 +4950,6 @@ function printAllSlipsA4(mode) {
 
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;
-  printArea.style.display = 'block';
 
   // @page is a global, page-level rule — it can't be scoped with a class
   // selector like normal CSS, so switching just this one print to
@@ -4774,15 +4964,13 @@ function printAllSlipsA4(mode) {
     document.head.appendChild(landscapeStyleTag);
   }
 
-  // Allow browser to fully render all slip HTML before triggering print dialog
+  // Printer animation plays first (it also gives the browser time to fully
+  // render all slip HTML), then the print dialog opens.
+  await animatedPrint('slip', printArea);
   setTimeout(() => {
-    window.print();
-    setTimeout(() => {
-      printArea.style.display = 'none';
-      if (landscapeStyleTag) landscapeStyleTag.remove();
-    }, 1500);
-  }, 350);
-  toast(`Preparing ${slips.length} slip${slips.length!==1?'s':''}... Print dialog will open shortly.`, 'success');
+    printArea.style.display = 'none';
+    if (landscapeStyleTag) landscapeStyleTag.remove();
+  }, 1500);
 }
 
 // ── Sample booking data for demo ─────────────────────────
@@ -7278,7 +7466,7 @@ function exportOrderSummaryCsv() {
   toast('Order summary exported!', 'success');
 }
 
-function printOrderSummary() {
+async function printOrderSummary() {
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
 
   // Column list in DOM order (mirrors OS_COLUMN_MAP) — filtered by osSettings
@@ -7346,8 +7534,7 @@ function printOrderSummary() {
   </div>`;
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;
-  printArea.style.display = 'block';
-  window.print();
+  await animatedPrint('order', printArea);
   setTimeout(() => { printArea.style.display = 'none'; }, 1000);
 }
 
@@ -8615,7 +8802,7 @@ function getCollectionFilters() {
   };
 }
 
-function printCollectionSheet() {
+async function printCollectionSheet() {
   const cf = getCollectionFilters();
   const todayLabel = cf.label;
   const now = new Date().toLocaleString('en-PK');
@@ -8759,12 +8946,11 @@ function printCollectionSheet() {
 
   const pa = document.getElementById('print-area');
   pa.innerHTML = html;
-  pa.style.display = 'block';
-  window.print();
+  await animatedPrint('cash', pa);
   setTimeout(() => { pa.style.display = 'none'; }, 1400);
 }
 
-function printCollectionReport() {
+async function printCollectionReport() {
   // Print exactly what the Collection screen is currently filtered to
   // (date/period, search, username, Has Pending / Cleared / Overdue) —
   // was ignoring every filter and always dumping every single customer.
@@ -8929,12 +9115,11 @@ function printCollectionReport() {
 
   const pa = document.getElementById('print-area');
   pa.innerHTML = html;
-  pa.style.display = 'block';
-  window.print();
+  await animatedPrint('cash', pa);
   setTimeout(() => { pa.style.display = 'none'; }, 1400);
 }
 
-function printUsernameCollection(username) {
+async function printUsernameCollection(username) {
   const rows = getUsernameCollectionRows(username);
   const grandTotal = rows.reduce((s,r)=>s+r.totalCollection,0);
   const grandPending = rows.reduce((s,r)=>s+r.pending,0);
@@ -8966,8 +9151,8 @@ function printUsernameCollection(username) {
     </table>
   </div>`;
   const pa=document.getElementById('print-area');
-  pa.innerHTML=html; pa.style.display='block';
-  window.print();
+  pa.innerHTML=html;
+  await animatedPrint('cash', pa);
   setTimeout(()=>{ pa.style.display='none'; },1200);
 }
 

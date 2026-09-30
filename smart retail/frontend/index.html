@@ -10,7 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260930-1">
   <script src="api.js"></script>
 </head>
 <body>
@@ -31,6 +31,62 @@
     </div>
   </div>
   <div class="splash-version">v2.1.0 &nbsp;·&nbsp; SmartRetail Systems</div>
+</div>
+
+<!-- ── PRINT ANIMATIONS (slips = printer, collection = cash counting, order summary = walking with product) ─── -->
+<div id="print-anim-screen" aria-hidden="true">
+  <div class="pa-stage">
+
+    <!-- 1) PRINTER (Sale Slips) -->
+    <div class="pa-scene pa-printer-scene">
+      <div class="pa-p-in"></div>
+      <div class="pa-p-out">
+        <div class="pa-sheet"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="pa-p-body"><span class="pa-led"></span></div>
+    </div>
+
+    <!-- 2) CASH COUNTING (Collection) -->
+    <div class="pa-scene pa-cash-scene">
+      <div class="pa-stack pa-stack-l"><i class="pa-note"></i><i class="pa-note"></i><i class="pa-note"></i><i class="pa-note"></i></div>
+      <div class="pa-stack pa-stack-r"></div>
+      <i class="pa-note pa-fly" style="--i:0"></i><i class="pa-note pa-fly" style="--i:1"></i>
+      <i class="pa-note pa-fly" style="--i:2"></i><i class="pa-note pa-fly" style="--i:3"></i>
+      <i class="pa-note pa-fly" style="--i:4"></i><i class="pa-note pa-fly" style="--i:5"></i>
+      <i class="pa-note pa-fly" style="--i:6"></i><i class="pa-note pa-fly" style="--i:7"></i>
+      <i class="pa-note pa-fly" style="--i:8"></i><i class="pa-note pa-fly" style="--i:9"></i>
+      <i class="pa-note pa-fly" style="--i:10"></i><i class="pa-note pa-fly" style="--i:11"></i>
+      <div class="pa-count"><b id="pa-count-num">0</b> notes</div>
+      <div class="pa-check"><i class="fa fa-check"></i></div>
+    </div>
+
+    <!-- 3) PERSON CARRYING PRODUCT (Order Summary) -->
+    <div class="pa-scene pa-order-scene">
+      <div class="pa-walker">
+        <svg viewBox="0 0 140 170" width="140" height="170" aria-hidden="true">
+          <ellipse cx="66" cy="160" rx="34" ry="5" fill="rgba(0,0,0,.28)"/>
+          <g class="pa-bob">
+            <g class="pa-leg pa-leg-b"><rect x="53" y="100" width="13" height="52" rx="6" fill="#151d33"/><rect x="53" y="146" width="23" height="9" rx="4.5" fill="#0b0f1a"/></g>
+            <rect x="46" y="48" width="36" height="58" rx="12" fill="#ea6c4d"/>
+            <g class="pa-leg pa-leg-f"><rect x="64" y="100" width="13" height="52" rx="6" fill="#1f2a44"/><rect x="64" y="146" width="23" height="9" rx="4.5" fill="#111827"/></g>
+            <circle cx="64" cy="30" r="15" fill="#f1c7a0"/>
+            <path d="M49 28a15 15 0 0 1 30-4q-8-6-16-2q-8-2-14 6z" fill="#2b1d14"/>
+            <path d="M60 58L84 82" stroke="#d9573a" stroke-width="11" stroke-linecap="round"/>
+            <g>
+              <rect x="72" y="62" width="46" height="36" rx="3" fill="#d9a566" stroke="#b57f3f" stroke-width="2"/>
+              <rect x="91" y="62" width="8" height="36" fill="#f3d9a9"/>
+              <rect x="76" y="82" width="12" height="9" rx="1.5" fill="#fff" opacity=".85"/>
+            </g>
+            <circle cx="80" cy="96" r="5" fill="#f1c7a0"/>
+          </g>
+        </svg>
+      </div>
+      <div class="pa-ground"></div>
+    </div>
+
+    <div class="pa-bar"><i></i></div>
+    <div class="pa-text"><span id="pa-label">Printing</span><span class="splash-dot">.</span><span class="splash-dot">.</span><span class="splash-dot">.</span></div>
+  </div>
 </div>
 
 <!-- ── LOGIN ─── -->
@@ -381,7 +437,7 @@
               </div>
             </div>
             <div class="card-body">
-              <div class="chart-container" id="categoryChart" style="height:340px"></div>
+              <div class="rpie-host" id="categoryChart"></div>
             </div>
           </div>
         </div>
@@ -543,6 +599,7 @@
                       placeholder="&#x1F50D; Search customer by name or phone..."
                       autocomplete="off" style="padding:9px 12px;width:100%"
                       oninput="bkCustSearch(this.value)"
+                      onkeydown="bkCustKey(event)"
                       onfocus="bkCustSearchFocus()"
                       onblur="setTimeout(bkCustDropClose,180)">
                     <div id="bk-cust-drop"
@@ -3068,5 +3125,5 @@
 <!-- A4 PRINT AREA (hidden, shown on print) -->
 <div id="print-area"></div>
 
-  <script src="script.js?v=20260914-1"></script>
+  <script src="script.js?v=20260930-2"></script>
 </body>

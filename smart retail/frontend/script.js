@@ -1,17 +1,6 @@
 // ── SPLASH SCREEN ──────────────────────────────────────
-// The splash covers the page until the app is really ready: if a saved
-// session exists, the portal is opened UNDER the splash first (profile
-// fetched, dashboard rendered) and only then does the splash fade out — so
-// you never see the portal "opening" behind the loader. window.__bootReady
-// is resolved by the session-restore code below.
 (function() {
-  const MIN_MS  = 900;   // shortest the splash ever shows (lets the logo animate)
-  const MAX_MS  = 4000;  // safety: never hold the splash longer than this
-  const SETTLE  = 350;   // portal gets a moment to paint before the splash lifts
-  let resolveBoot;
-  window.__bootReady = new Promise(r => { resolveBoot = r; });
-  window.__bootDone  = () => resolveBoot();
-
+  // Hide login & app while splash shows
   document.addEventListener('DOMContentLoaded', function() {
     // Apply saved theme immediately (before splash fade)
     if (localStorage.getItem('smartretail_theme') === 'light') {
@@ -25,21 +14,21 @@
     login.style.opacity = '0';
     login.style.pointerEvents = 'none';
 
+    // After 1.4s: fade out splash, reveal login
     function hideSplash() {
       if (splash.dataset.hidden) return;
       splash.dataset.hidden = '1';
-      login.style.transition = 'opacity .3s ease';
-      login.style.opacity  = '1';
-      login.style.pointerEvents = '';
       splash.classList.add('hiding');
-      setTimeout(function() { splash.style.display = 'none'; }, 400);
+      setTimeout(function() {
+        splash.style.display = 'none';
+        login.style.opacity  = '1';
+        login.style.pointerEvents = '';
+        login.style.transition = 'opacity .4s ease';
+      }, 500);
     }
-
-    const minWait = new Promise(r => setTimeout(r, MIN_MS));
-    Promise.all([minWait, window.__bootReady])
-      .then(() => new Promise(r => setTimeout(r, SETTLE)))
-      .then(hideSplash);
-    setTimeout(hideSplash, MAX_MS);
+    setTimeout(hideSplash, 1400);
+    // Safety: force-hide after 3s no matter what
+    setTimeout(hideSplash, 3000);
   });
 })();
 
@@ -198,26 +187,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (_checkPasswordResetLink()) {
     loadLoginBranding();
     initLoginCursor();
-    if (window.__bootDone) window.__bootDone();
     return;
   }
 
-  try {
-    if (typeof AuthAPI !== 'undefined' && AuthAPI.isLoggedIn()) {
-      try {
-        const user = await AuthAPI.profile();
-        await loginAs(user);
-      } catch (_) {
-        TokenStore.clear();
-      }
+  if (typeof AuthAPI !== 'undefined' && AuthAPI.isLoggedIn()) {
+    try {
+      const user = await AuthAPI.profile();
+      await loginAs(user);
+    } catch (_) {
+      TokenStore.clear();
     }
-    // Branding (logo/name) is loaded before the splash lifts so the login
-    // screen never flashes the default mark and then swaps it.
-    await Promise.race([loadLoginBranding(), new Promise(r => setTimeout(r, 1500))]);
-  } finally {
-    initLoginCursor();
-    if (window.__bootDone) window.__bootDone();
   }
+  loadLoginBranding();
+  initLoginCursor();
 });
 
 // ═══════════════════════════════════════════════════════
@@ -225,7 +207,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ═══════════════════════════════════════════════════════
 let _resetUid = null;
 let _resetToken = null;
-let _resetEmail = null;   // returned by the confirm call; used to pre-fill the login form
 
 function _checkPasswordResetLink() {
   const params = new URLSearchParams(window.location.search);
@@ -246,7 +227,7 @@ function _checkPasswordResetLink() {
   return true;
 }
 
-function showLoginView(prefillEmail) {
+function showLoginView() {
   document.getElementById('login-view').style.display = '';
   document.getElementById('forgot-view').style.display = 'none';
   document.getElementById('reset-view').style.display = 'none';
@@ -255,23 +236,8 @@ function showLoginView(prefillEmail) {
   const fpMsg = document.getElementById('fp-message');
   if (fpEmail) fpEmail.value = '';
   if (fpMsg) fpMsg.style.display = 'none';
-  _stopResendCooldown();
-  const err = document.getElementById('login-error');
-  if (err) err.style.display = 'none';
-  if (typeof prefillEmail === 'string' && prefillEmail) {
-    const u = document.getElementById('l-user');
-    const p = document.getElementById('l-pass');
-    if (u) u.value = prefillEmail;
-    if (p) { p.value = ''; setTimeout(() => p.focus(), 60); }
-  }
 }
-// "Sign in with new password" after a successful reset: back to the login form
-// with the account's email already filled in and the cursor in the password box.
-function showLoginAfterReset() {
-  const email = _resetEmail;
-  _resetEmail = null;
-  showLoginView(email || '');
-}
+
 function showForgotPasswordView() {
   document.getElementById('login-view').style.display = 'none';
   document.getElementById('forgot-view').style.display = '';
@@ -304,36 +270,6 @@ function _showResetSuccess() {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-let _resendTimer = null;
-function _stopResendCooldown() {
-  if (_resendTimer) { clearInterval(_resendTimer); _resendTimer = null; }
-  const btn = document.getElementById('fp-btn');
-  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Reset Link'; }
-}
-function _startResendCooldown(seconds) {
-  const btn = document.getElementById('fp-btn');
-  if (!btn) return;
-  let left = seconds;
-  btn.disabled = true;
-  const paint = () => { btn.innerHTML = `<i class="fa fa-clock"></i> Resend link in ${left}s`; };
-  paint();
-  if (_resendTimer) clearInterval(_resendTimer);
-  _resendTimer = setInterval(() => {
-    left -= 1;
-    if (left <= 0) {
-      _stopResendCooldown();
-      btn.innerHTML = '<i class="fa fa-redo"></i> Resend Reset Link';
-    } else paint();
-  }, 1000);
-}
-function _fpShow(msgEl, text, kind) {
-  msgEl.textContent = text;
-  msgEl.classList.toggle('is-ok', kind === 'ok');
-  msgEl.classList.toggle('is-err', kind === 'err');
-  msgEl.style.color = '';
-  msgEl.style.display = '';
-}
-
 async function submitForgotPassword() {
   const emailEl = document.getElementById('fp-email');
   const msgEl = document.getElementById('fp-message');
@@ -341,31 +277,42 @@ async function submitForgotPassword() {
   const email = (emailEl.value || '').trim();
 
   msgEl.style.display = 'none';
-  if (!email) { _fpShow(msgEl, 'Please enter your email address.', 'err'); return; }
-  if (!EMAIL_RE.test(email)) { _fpShow(msgEl, 'Please enter a valid email address.', 'err'); return; }
+  if (!email) {
+    msgEl.textContent = 'Please enter your email address.';
+    msgEl.style.color = 'var(--red,#ef4444)';
+    msgEl.style.display = '';
+    return;
+  }
+  if (!EMAIL_RE.test(email)) {
+    msgEl.textContent = 'Please enter a valid email address.';
+    msgEl.style.color = 'var(--red,#ef4444)';
+    msgEl.style.display = '';
+    return;
+  }
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...';
   try {
-    // The backend always returns the same generic response whether or not the
-    // email is registered — deliberately, so this screen can never be used to
-    // check which emails have accounts.
+    // The backend always returns this same generic response whether or not
+    // the email is actually registered — deliberately, so this screen can
+    // never be used to check which emails have accounts.
     await AuthAPI.forgotPassword(email);
-    _fpShow(msgEl,
-      `If ${email} belongs to an account, a password reset link is on its way. ` +
-      `It usually arrives within a minute — check your Spam/Junk folder too. The link works once and expires in 1 hour.`,
-      'ok');
-    _startResendCooldown(30);
+    msgEl.textContent = 'If an account with this email exists, a password reset link has been sent.';
+    msgEl.style.color = 'var(--green,#10b981)';
+    msgEl.style.display = '';
+    emailEl.value = '';
   } catch (err) {
-    _fpShow(msgEl,
-      err.status === 429
-        ? 'Too many reset requests. Please wait a while before trying again.'
-        : (err.message || 'Something went wrong — please try again.'),
-      'err');
+    // Only real request failures (network error, malformed input the
+    // backend itself rejected) land here — "email not found" never does.
+    msgEl.textContent = err.message || 'Something went wrong — please try again.';
+    msgEl.style.color = 'var(--red,#ef4444)';
+    msgEl.style.display = '';
+  } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Reset Link';
   }
 }
+
 async function submitPasswordReset() {
   const p1 = document.getElementById('rp-pass1').value;
   const p2 = document.getElementById('rp-pass2').value;
@@ -391,14 +338,10 @@ async function submitPasswordReset() {
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Resetting...';
   try {
-    const done = await AuthAPI.resetPasswordConfirm({
+    await AuthAPI.resetPasswordConfirm({
       uid: _resetUid, token: _resetToken,
       new_password: p1, new_password_confirm: p2,
     });
-    _resetEmail = (done && done.email) || null;
-    // The server just revoked every old session for this account — drop any
-    // stale tokens this browser still holds so it can't try to reuse them.
-    try { TokenStore.clear(); } catch (_) {}
     document.getElementById('rp-pass1').value = '';
     document.getElementById('rp-pass2').value = '';
     _resetUid = null; _resetToken = null;
@@ -410,12 +353,7 @@ async function submitPasswordReset() {
     // retry with the same link can't succeed either way. A weak new
     // password or a mismatch the backend itself catches still shows as a
     // normal inline message so the person can just fix it and resubmit.
-    // Every API error arrives wrapped as {success:false, error:{message, details:{field:[…]}}}
-    // (apps/core/exceptions.py), so the per-field errors live under error.details —
-    // reading err.data.token directly never matched, and an expired link kept
-    // showing a raw inline error instead of the "Invalid or Expired Link" screen.
-    const fields = (err.data && err.data.error && err.data.error.details) || err.data || {};
-    const badLink = !!(fields && (fields.uid || fields.token));
+    const badLink = err.data && (err.data.uid || err.data.token);
     if (badLink) {
       _showResetInvalid();
     } else {
@@ -457,62 +395,46 @@ async function loadLoginBranding() {
 }
 
 // Trailing cursor on the login screen: the dot snaps straight to the real
-// cursor position, while the ring around it eases toward it a little slower.
-// Performance/robustness notes:
-//  - Listeners are attached ONCE (safe to call initLoginCursor() many times).
-//  - The rAF loop starts on demand from mousemove and stops itself once the
-//    ring has caught up, so it never runs (or dies) while the login screen is
-//    hidden. Previously the loop quit forever if it started while the screen
-//    was display:none (e.g. a saved session at page load), so after logout the
-//    ring stayed frozen while only the dot moved.
-//  - No getComputedStyle() per frame (that forced a style recalc every frame
-//    on a very large DOM and was a main cause of the login page hanging).
+// cursor position every frame, while the ring around it eases toward that
+// same position a little slower — that lag between the two is what makes
+// it read as "following" rather than just a redrawn cursor. Skipped
+// entirely on touch devices (no mouse to trail) and stops itself once the
+// login screen is gone (no point still moving invisible elements).
 function initLoginCursor() {
   const screen = document.getElementById('login-screen');
   const dot = document.getElementById('login-cursor-dot');
   const circle = document.getElementById('login-cursor-circle');
   if (!screen || !dot || !circle) return;
-  if (screen.dataset.cursorInit) return;
   if (window.matchMedia('(hover: none), (pointer: coarse)').matches) return;
-  screen.dataset.cursorInit = '1';
 
   let mouseX = 0, mouseY = 0;
   let circleX = 0, circleY = 0;
   let started = false;
-  let rafId = 0;
-
-  function paint() {
-    dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
-    circle.style.transform = `translate3d(${circleX}px, ${circleY}px, 0) translate(-50%, -50%)`;
-  }
-  function tick() {
-    circleX += (mouseX - circleX) * 0.2;
-    circleY += (mouseY - circleY) * 0.2;
-    paint();
-    if (Math.abs(mouseX - circleX) > 0.3 || Math.abs(mouseY - circleY) > 0.3) {
-      rafId = requestAnimationFrame(tick);
-    } else {
-      circleX = mouseX; circleY = mouseY; paint();
-      rafId = 0;
-    }
-  }
-  function kick() { if (!rafId) rafId = requestAnimationFrame(tick); }
 
   screen.addEventListener('mousemove', e => {
     mouseX = e.clientX; mouseY = e.clientY;
     if (!started) { circleX = mouseX; circleY = mouseY; started = true; }
+    dot.style.transform = `translate(${mouseX}px, ${mouseY}px) translate(-50%, -50%)`;
     dot.classList.add('is-visible');
     circle.classList.add('is-visible');
-    kick();
-  }, { passive: true });
+  });
   screen.addEventListener('mouseleave', () => {
     dot.classList.remove('is-visible');
     circle.classList.remove('is-visible');
   });
   screen.addEventListener('mousedown', () => circle.classList.add('is-active'));
-  window.addEventListener('mouseup', () => circle.classList.remove('is-active'));
-  // When the screen is shown again (after logout) re-sync the ring to the dot
-  document.addEventListener('visibilitychange', () => { if (document.hidden) circle.classList.remove('is-visible'); });
+  screen.addEventListener('mouseup', () => circle.classList.remove('is-active'));
+
+  function tick() {
+    // getComputedStyle here (not screen.style.display) because the app
+    // hides the login screen by toggling a class, not an inline style.
+    if (getComputedStyle(screen).display === 'none') return;
+    circleX += (mouseX - circleX) * 0.15;
+    circleY += (mouseY - circleY) * 0.15;
+    circle.style.transform = `translate(${circleX}px, ${circleY}px) translate(-50%, -50%)`;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 }
 let _lastOrder = null;
 let _editingBookingId = null;
@@ -525,124 +447,6 @@ let _bookingItems = [];
 // ═══════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════
-// After a manual sign-in the "shop opening" animation plays (awning drops,
-// shutter rolls up, shelves fill, OPEN sign lights up) while the portal loads
-// underneath, then it fades out over the ready portal. The page-load splash
-// (#splash-screen) is untouched. done() guarantees the whole animation plays
-// (minMs) so it never gets cut off; cancel() removes it at once (e.g. on error).
-const SHOP_OPEN_MS = 3400;   // matches the CSS timeline (~3.2s) + a beat
-function beginPortalLoader(minMs = SHOP_OPEN_MS) {
-  const s = document.getElementById('shop-open-screen');
-  if (!s) return { done: async () => {}, cancel: () => {} };
-
-  // Use the real company logo/name (already loaded for the login screen)
-  const srcLogo = document.getElementById('login-brand-logo');
-  const dstLogo = document.getElementById('shop-open-logo');
-  if (srcLogo && dstLogo) dstLogo.innerHTML = srcLogo.innerHTML;
-  const srcName = document.getElementById('login-brand-name');
-  const dstName = document.getElementById('shop-open-name');
-  if (srcName && dstName) dstName.textContent = srcName.textContent;
-
-  // Restart the CSS timeline from the beginning
-  s.classList.remove('hiding', 'play');
-  s.style.display = 'flex';
-  void s.offsetWidth;                 // force reflow so animations restart
-  s.classList.add('play');
-
-  const start = Date.now();
-  let hideTimer = null;
-  function hide() {
-    s.classList.add('hiding');
-    hideTimer = setTimeout(() => {
-      s.style.display = 'none';
-      s.classList.remove('hiding', 'play');
-    }, 450);
-  }
-  return {
-    done: async () => {
-      const wait = Math.max(0, minMs - (Date.now() - start));
-      await new Promise(r => setTimeout(r, wait));
-      hide();
-    },
-    cancel: () => {
-      clearTimeout(hideTimer);
-      s.style.display = 'none';
-      s.classList.remove('hiding', 'play');
-    },
-  };
-}
-
-// ═══════════════════════════════════════════════════════
-// PRINT ANIMATIONS
-// ═══════════════════════════════════════════════════════
-// Plays a short full-screen animation right before the browser's print
-// dialog opens, styled like the shop-opening screen:
-//   'slip'  → printer loads, paper feeds in, printed slip comes out  (Sale Slips)
-//   'cash'  → banknotes are counted from one stack to the other      (Collection)
-//   'order' → a person walks across carrying a product carton        (Order Summary)
-const PRINT_ANIM = {
-  slip:  { ms: 3000, label: [[0, 'Loading printer'],   [1000, 'Printing slips']] },
-  cash:  { ms: 3200, label: [[0, 'Counting cash'],     [2700, 'Opening print']] },
-  order: { ms: 2800, label: [[0, 'Carrying your order'], [2200, 'Opening print']] },
-};
-let _printAnimBusy = false;
-function playPrintAnim(kind) {
-  const cfg = PRINT_ANIM[kind];
-  const s = document.getElementById('print-anim-screen');
-  if (!cfg || !s) return Promise.resolve();
-  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const ms = reduce ? 500 : cfg.ms;
-  const timers = [];
-  const label = document.getElementById('pa-label');
-  const countEl = document.getElementById('pa-count-num');
-
-  s.classList.remove('hiding', 'k-slip', 'k-cash', 'k-order');
-  s.classList.add('k-' + kind);
-  s.style.setProperty('--pa-ms', ms + 'ms');
-  s.style.display = '';                 // let .show control it
-  s.classList.remove('show');
-  void s.offsetWidth;                   // restart every CSS animation
-  s.classList.add('show');
-
-  cfg.label.forEach(([t, txt]) => timers.push(setTimeout(() => { if (label) label.textContent = txt; }, reduce ? 0 : t)));
-  if (label) label.textContent = cfg.label[0][1];
-
-  // cash: the "notes counted" ticker follows each note landing on the right stack
-  if (kind === 'cash' && countEl) {
-    countEl.textContent = '0';
-    for (let i = 0; i < 12; i++) {
-      timers.push(setTimeout(() => { countEl.textContent = String(i + 1); }, 1000 + i * 180));
-    }
-  }
-
-  return new Promise(resolve => {
-    timers.push(setTimeout(() => {
-      s.classList.add('hiding');
-      timers.push(setTimeout(() => {
-        s.classList.remove('show', 'hiding', 'k-slip', 'k-cash', 'k-order');
-        resolve();
-      }, 350));
-    }, ms));
-  });
-}
-
-// Runs the animation, then shows the print area and opens the print dialog.
-// Returns false (and does nothing) if an animation is already running, so a
-// double-click can't open the print dialog twice.
-async function animatedPrint(kind, area) {
-  if (_printAnimBusy) return false;
-  _printAnimBusy = true;
-  try {
-    if (area) area.style.display = 'none';
-    await playPrintAnim(kind);
-    if (area) area.style.display = 'block';
-    await new Promise(r => setTimeout(r, 150));   // let the print layout render
-    window.print();
-    return true;
-  } finally {
-    _printAnimBusy = false;
-  }
-}
 async function doLogin() {
   const email = document.getElementById('l-user').value.trim();
   const password = document.getElementById('l-pass').value.trim();
@@ -651,15 +455,10 @@ async function doLogin() {
   errorBox.style.display = 'none';
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Signing in...';
-  let loader = null;
   try {
     const user = await AuthAPI.login(email, password);
-    loader = beginPortalLoader();
     await loginAs(user);
-    await loader.done();
-    loader = null;
   } catch (err) {
-    if (loader) { loader.cancel(); loader = null; }
     errorBox.textContent = err.message || 'Invalid email or password';
     errorBox.style.display = 'block';
     toast(err.message || 'Login failed', 'error');
@@ -740,13 +539,7 @@ async function loginAs(user) {
   });
 
   const landingPage = _applyRoleNav(user.role);
-  const landingReady = initApp(landingPage);
-  // Resolve only once the landing page has loaded its data (never longer than
-  // 2.5s), so whatever loader is covering the screen lifts on a finished portal.
-  await Promise.race([
-    Promise.resolve(landingReady).catch(() => {}),
-    new Promise(r => setTimeout(r, 2500)),
-  ]);
+  initApp(landingPage);
 }
 async function doLogout() {
   const ok = await confirmModal('You will be signed out of SmartRetail ERP.', {
@@ -756,7 +549,6 @@ async function doLogout() {
     await AuthAPI.logout();
     document.getElementById('app').classList.remove('visible');
     document.getElementById('login-screen').style.display = 'flex';
-    initLoginCursor();
     currentUser = null;
     document.getElementById('admin-nav').style.display = '';
     document.querySelectorAll('.nav-item').forEach(e => e.style.display = '');
@@ -834,10 +626,7 @@ function navigate(page) {
     purchasereturn: renderPurchaseReturns,
     settings: renderSettings,
   };
-  // Keep the render's promise (if it returns one) so callers like loginAs can
-  // wait until the page has really loaded its data. Existing callers ignore it.
-  let _renderResult = null;
-  try { if (renders[page]) _renderResult = renders[page](); } catch (e) { console.error(e); }
+  if (renders[page]) renders[page]();
   // Wires the modern date/time picker onto any of its known field-ids that
   // exist on whichever page just rendered (booking, saleslips, salereturn,
   // etc.) — a no-op for pages that don't have any of those ids, and safe
@@ -847,7 +636,6 @@ function navigate(page) {
   document.getElementById('notif-panel').classList.add('hidden');
   // Close sidebar on mobile after navigation
   closeSidebarMobile();
-  return _renderResult;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -855,7 +643,7 @@ function navigate(page) {
 // ═══════════════════════════════════════════════════════
 function initApp(landingPage) {
   initTheme();
-  const landing = navigate(landingPage || 'dashboard');
+  navigate(landingPage || 'dashboard');
   setInterval(updateClock, 1000);
   updateClock();
   updatePosCustomers();
@@ -864,7 +652,99 @@ function initApp(landingPage) {
   // Keep the bell reasonably fresh without the person needing to reload —
   // re-checks every 2 minutes while the app is open.
   setInterval(renderNotifications, 120000);
-  return landing;
+  initThemedSelects();
+}
+
+// Progressively enhances every <select class="themed-select"> (the
+// "Status Filter" dropdowns) into a fully custom-drawn dropdown list, so
+// the highlighted option is always coral — a plain <select>'s own list is
+// drawn by the OS/browser and can't be reliably recolored (Windows always
+// painted it system-blue regardless of any CSS). The real <select> stays
+// in the DOM, just visually hidden, so every existing onchange="..."
+// keeps firing exactly as before; this only replaces how it LOOKS.
+function initThemedSelects() {
+  document.querySelectorAll('select.themed-select').forEach(sel => {
+    if (sel.dataset.tselDone) return;
+    sel.dataset.tselDone = '1';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'tsel-wrap';
+    // Copy the select's own size/spacing (width, padding, font-size —
+    // whatever inline style it already had) onto the wrap so the visible
+    // button ends up exactly the same box the plain select used to be.
+    wrap.setAttribute('style', sel.getAttribute('style') || '');
+    sel.removeAttribute('style');
+
+    const btn = document.createElement('div');
+    btn.className = 'form-input tsel-btn';
+    btn.innerHTML = `<span class="tsel-btn-label"></span><i class="fa fa-chevron-down"></i>`;
+
+    const list = document.createElement('div');
+    list.className = 'tsel-list';
+
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    wrap.appendChild(btn);
+    wrap.appendChild(list);
+
+    const label = btn.querySelector('.tsel-btn-label');
+
+    function buildList() {
+      list.innerHTML = '';
+      Array.from(sel.options).forEach((opt, i) => {
+        const row = document.createElement('div');
+        row.className = 'tsel-option' + (opt.selected ? ' tsel-selected' : '');
+        row.textContent = opt.textContent;
+        row.dataset.i = i;
+        row.addEventListener('click', () => {
+          sel.selectedIndex = i;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          sync();
+          close();
+        });
+        list.appendChild(row);
+      });
+    }
+    // Keeps the button label + highlighted option in sync with the real
+    // select's current value — called on our own clicks, and also on the
+    // select's own 'change' event in case something else in the app ever
+    // sets its value programmatically.
+    function sync() {
+      label.textContent = sel.options[sel.selectedIndex]?.textContent || '';
+      list.querySelectorAll('.tsel-option').forEach(row => {
+        row.classList.toggle('tsel-selected', Number(row.dataset.i) === sel.selectedIndex);
+      });
+    }
+    function open() {
+      document.querySelectorAll('.tsel-wrap.open').forEach(w => { if (w !== wrap) w.classList.remove('open'); });
+      buildList(); sync();
+      wrap.classList.add('open');
+      const sel_ = list.querySelector('.tsel-selected');
+      if (sel_) sel_.scrollIntoView({ block: 'nearest' });
+    }
+    function close() { wrap.classList.remove('open'); }
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      wrap.classList.contains('open') ? close() : open();
+    });
+    sel.addEventListener('change', sync);
+    buildList(); sync();
+  });
+
+  // One shared outside-click / Escape handler for every themed-select on
+  // the page, registered once regardless of how many selects get enhanced.
+  if (!window._tselGlobalHandlersBound) {
+    window._tselGlobalHandlersBound = true;
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.tsel-wrap')) {
+        document.querySelectorAll('.tsel-wrap.open').forEach(w => w.classList.remove('open'));
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') document.querySelectorAll('.tsel-wrap.open').forEach(w => w.classList.remove('open'));
+    });
+  }
 }
 function updateClock() {
   const now = new Date();
@@ -1086,167 +966,66 @@ async function renderCharts(summary) {
     charts.sales.render();
   }
 
-  // Category breakdown — product count per category (catalog composition, not
-  // sales), drawn as a polar-area donut with side call-outs. Plain SVG + HTML,
-  // so it needs no chart library and follows the light/dark theme through CSS.
-  if (charts.cat && typeof charts.cat.destroy === 'function') { try { charts.cat.destroy(); } catch (e) {} }
-  charts.cat = null;
+  // Category donut — product count per category (catalog composition, not sales)
+  // Rebuilt as a CanvasJS pie chart (per the requested "State Operating
+  // Funds" style): click any legend item to pop that slice out.
   const cc = document.getElementById('categoryChart');
-  if (cc) {
+  if (cc && typeof CanvasJS !== 'undefined') {
     const prodData = await ProductsAPI.list({ page_size: 500 });
     const products = prodData.results || prodData;
     const catCounts = {};
-    products.forEach(p => { const k = p.category_name || 'Uncategorized'; catCounts[k] = (catCounts[k] || 0) + 1; });
-    renderCategoryPolarPie(cc, catCounts);
+    products.forEach(p => { catCounts[p.category_name||'Uncategorized'] = (catCounts[p.category_name||'Uncategorized']||0)+1; });
+    const catTotal = Object.values(catCounts).reduce((a, b) => a + b, 0);
+    const palette = PIE_PALETTE;
+
+    const dataPoints = Object.entries(catCounts).map(([name, count], i) => ({
+      name, y: catTotal ? Number(((count / catTotal) * 100).toFixed(1)) : 0,
+      count, color: palette[i % palette.length],
+    }));
+    // Largest slice starts exploded, exactly like the reference chart.
+    if (dataPoints.length) {
+      dataPoints.reduce((a, b) => a.y >= b.y ? a : b).exploded = true;
+    }
+    const ck = _ckTheme();
+
+    charts.cat = new CanvasJS.Chart('categoryChart', {
+      backgroundColor: 'transparent',
+      animationEnabled: true,
+      animationDuration: 900,
+      theme: ck.theme,
+      legend: {
+        cursor: 'pointer', itemclick: explodeCategoryPie,
+        fontColor: ck.text, fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12,
+      },
+      data: [{
+        // Doughnut — a big open center like the reference infographic,
+        // instead of a solid pie wedge fan.
+        type: 'doughnut',
+        innerRadius: '48%',
+        radius: '88%',
+        lineColor: document.body.classList.contains('light-mode') ? '#ffffff' : '#141820',
+        strokeThickness: 3,
+        showInLegend: true,
+        toolTipContent: '<b>{name}</b>: {count} products ({y}%)',
+        // Big bold "50%"-style number on the slice itself, name kept in
+        // the legend/tooltip instead of crowding the label.
+        indexLabel: '{y}%',
+        indexLabelPlacement: 'inside',
+        indexLabelFontColor: '#ffffff',
+        indexLabelFontWeight: 700,
+        indexLabelFontSize: 15,
+        indexLabelFontFamily: "'Plus Jakarta Sans', sans-serif",
+        dataPoints,
+      }]
+    });
+    charts.cat.render();
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// CATEGORY POLAR-AREA DONUT
-// Equal-angle slices whose LENGTH (radius) is the category's share, around a
-// dark ring and light core that shows the total. Up to 4 slices: the top 3
-// categories + "Others" when there are more. Each slice gets a call-out (icon,
-// name, count) tied to it with a leader line. All sizes live in one 620x440
-// viewBox, and the call-outs are positioned in % of it, so it scales as one piece.
-// ═══════════════════════════════════════════════════════
-function renderCategoryPolarPie(host, catCounts) {
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const W = 620, H = 440, CX = 310, CY = 220;
-  const R_RING = 60, R_CORE = 44, R_MAX = 142;
-
-  let entries = Object.entries(catCounts).filter(([, n]) => n > 0).sort((x, y) => y[1] - x[1]);
-  const total = entries.reduce((s, [, n]) => s + n, 0);
-  if (!total) {
-    host.innerHTML = '<div class="rpie-empty"><i class="fa fa-chart-pie"></i><span>No products yet — add products to see the category breakdown</span></div>';
-    return;
-  }
-  if (entries.length > 4) {
-    const rest = entries.slice(3).reduce((s, [, n]) => s + n, 0);
-    entries = entries.slice(0, 3).concat([['Others', rest]]);
-  }
-  const N = entries.length;
-  const maxCount = Math.max(...entries.map(e => e[1]));
-  const span = 360 / N;
-
-  // Fixed colours per slot (crimson, coral-orange, amber, plum) + icon per slot.
-  const SLOTS = [
-    { cls: 'c0', icon: 'fa-boxes-stacked', pct: '#fff' },
-    { cls: 'c1', icon: 'fa-tags',          pct: '#fff' },
-    { cls: 'c2', icon: 'fa-layer-group',   pct: '#5c2247' },
-    { cls: 'c3', icon: 'fa-ellipsis',      pct: '#fff' },
-  ];
-  // Corners: angle of each (clockwise from 12 o'clock), and which side/half.
-  const CORNERS = [
-    { ang: 45,  sx: 1,  sy: -1 }, { ang: 135, sx: 1,  sy: 1 },
-    { ang: 225, sx: -1, sy: 1 },  { ang: 315, sx: -1, sy: -1 },
-  ];
-  const rad = d => d * Math.PI / 180;
-  const pt = (r, ang) => [CX + r * Math.sin(rad(ang)), CY - r * Math.cos(rad(ang))];
-  const angDist = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
-
-  // Assign each slice the nearest free corner for its call-out.
-  const free = CORNERS.slice();
-  const slices = entries.map(([name, count], i) => {
-    const a0 = i * span, a1 = (i + 1) * span, mid = (a0 + a1) / 2;
-    const share = count / total;
-    const r1 = R_RING + (R_MAX - R_RING) * (0.32 + 0.68 * (count / maxCount));
-    let bi = 0;
-    free.forEach((c, k) => { if (angDist(c.ang, mid) < angDist(free[bi].ang, mid)) bi = k; });
-    const corner = free.splice(bi, 1)[0];
-    return { name, count, share, a0, a1, mid, r1, corner, slot: SLOTS[i % SLOTS.length], i };
-  });
-
-  const sector = (r0, r1, a0, a1) => {
-    const full = a1 - a0 >= 359.99;
-    if (full) {
-      const [x0, y0] = pt(r1, 0), [x1, y1] = pt(r1, 180), [ix0, iy0] = pt(r0, 0), [ix1, iy1] = pt(r0, 180);
-      return `M${x0},${y0} A${r1},${r1} 0 1 1 ${x1},${y1} A${r1},${r1} 0 1 1 ${x0},${y0} Z M${ix0},${iy0} A${r0},${r0} 0 1 0 ${ix1},${iy1} A${r0},${r0} 0 1 0 ${ix0},${iy0} Z`;
-    }
-    const large = (a1 - a0) > 180 ? 1 : 0;
-    const [ox0, oy0] = pt(r1, a0), [ox1, oy1] = pt(r1, a1), [ix1, iy1] = pt(r0, a1), [ix0, iy0] = pt(r0, a0);
-    return `M${ox0},${oy0} A${r1},${r1} 0 ${large} 1 ${ox1},${oy1} L${ix1},${iy1} A${r0},${r0} 0 ${large} 0 ${ix0},${iy0} Z`;
-  };
-  const pctText = s => { const v = s * 100; return v > 0 && v < 1 ? '<1%' : Math.round(v) + '%'; };
-  const fmt = n => Number(n).toLocaleString('en-US');
-
-  let svg = `<svg class="rpie-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Products by category">`;
-  svg += `<defs><filter id="rpieShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000" flood-opacity=".22"/></filter></defs>`;
-
-  // slices (+ % label inside each)
-  slices.forEach(s => {
-    const [tx, ty] = pt(R_RING + (s.r1 - R_RING) * 0.42, s.mid);
-    const fs = Math.max(10.5, Math.min(22, (s.r1 - R_RING) * 0.3));
-    const [ox, oy] = pt(7, s.mid);                        // hover pop-out direction
-    svg += `<g class="rpie-slice ${s.slot.cls}" data-i="${s.i}" style="--i:${s.i};--dx:${(ox - CX).toFixed(1)}px;--dy:${(oy - CY).toFixed(1)}px">
-      <path class="rpie-shape" d="${sector(R_RING, s.r1, s.a0, s.a1)}" fill-rule="evenodd"/>
-      <text class="rpie-pct" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" fill="${s.slot.pct}" font-size="${fs.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${pctText(s.share)}</text>
-    </g>`;
-  });
-
-  // ring + core
-  svg += `<circle class="rpie-ring" cx="${CX}" cy="${CY}" r="${R_RING}" filter="url(#rpieShadow)"/>
-          <circle class="rpie-core" cx="${CX}" cy="${CY}" r="${R_CORE}"/>
-          <text class="rpie-total" x="${CX}" y="${CY - 3}" text-anchor="middle" dominant-baseline="central">${esc(fmt(total))}</text>
-          <text class="rpie-total-lbl" x="${CX}" y="${CY + 15}" text-anchor="middle" dominant-baseline="central">PRODUCTS</text>`;
-
-  // leader lines: dot inside the slice -> 45° knee -> horizontal to the call-out icon
-  const AX = 162;                                    // call-out inner edge, distance from centre
-  slices.forEach(s => {
-    const c = s.corner;
-    const ly = CY + c.sy * (R_MAX + 8);              // just beyond the longest possible slice: the horizontal run never crosses one
-    let dAng = s.mid + Math.max(-1, Math.min(1, (((c.ang - s.mid + 540) % 360) - 180) / 90)) * Math.min(span * 0.28, 28);
-    dAng = Math.max(s.a0 + 6, Math.min(s.a1 - 6, dAng));
-    const [px, py] = pt(Math.max(R_RING + 16, s.r1 - 9), dAng);
-    const ax = CX + c.sx * AX;
-    let kx = px + c.sx * Math.abs(ly - py);
-    if (c.sx * (ax - kx) < 12) kx = ax - c.sx * 12;
-    s.lead = { ly, ax, px, py };
-    svg += `<g class="rpie-lead ${s.slot.cls}" style="--i:${s.i}">
-      <polyline pathLength="1" points="${px.toFixed(1)},${py.toFixed(1)} ${kx.toFixed(1)},${ly.toFixed(1)} ${ax.toFixed(1)},${ly.toFixed(1)}"/>
-      <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4"/>
-    </g>`;
-  });
-  svg += '</svg>';
-
-  // call-outs (HTML, positioned in % of the viewBox so text stays crisp)
-  let co = '';
-  slices.forEach(s => {
-    const c = s.corner, { ly, ax } = s.lead;
-    const w = 140, gap = 4;
-    const left = c.sx > 0 ? ax + gap : ax - gap - w;
-    co += `<div class="rpie-co ${s.slot.cls} ${c.sx > 0 ? 'r' : 'l'}" data-i="${s.i}" style="--i:${s.i};left:${(left / W * 100).toFixed(2)}%;top:${((ly - 13) / H * 100).toFixed(2)}%;width:${(w / W * 100).toFixed(2)}%">
-      <span class="rpie-ico"><i class="fa ${s.slot.icon}"></i></span>
-      <span class="rpie-txt">
-        <b class="rpie-name" title="${esc(s.name)}">${esc(s.name)}</b>
-        <span class="rpie-desc">${fmt(s.count)} product${s.count === 1 ? '' : 's'} · ${pctText(s.share)} of catalog</span>
-      </span>
-    </div>`;
-  });
-
-  host.innerHTML = `<div class="rpie">${svg}${co}<div class="rpie-tip" hidden></div></div>`;
-
-  // hover: pop the slice, dim the rest, show a tooltip; hovering a call-out does the same
-  const root = host.querySelector('.rpie'), tip = root.querySelector('.rpie-tip');
-  const setHover = i => {
-    root.classList.toggle('has-hover', i !== null);
-    root.querySelectorAll('[data-i]').forEach(el => el.classList.toggle('is-hover', String(i) === el.dataset.i));
-  };
-  root.addEventListener('mouseover', e => {
-    const t = e.target.closest('[data-i]'); if (!t) return;
-    const s = slices[+t.dataset.i]; setHover(s.i);
-    tip.innerHTML = `<b>${esc(s.name)}</b><br>${fmt(s.count)} of ${fmt(total)} products (${pctText(s.share)})`;
-    tip.hidden = false;
-  });
-  root.addEventListener('mousemove', e => {
-    if (tip.hidden) return;
-    const r = root.getBoundingClientRect();
-    tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 4) + 'px';
-    tip.style.top  = Math.max(e.clientY - r.top - tip.offsetHeight - 10, 2) + 'px';
-  });
-  root.addEventListener('mouseout', e => {
-    if (e.relatedTarget && root.contains(e.relatedTarget) && e.relatedTarget.closest && e.relatedTarget.closest('[data-i]')) return;
-    setHover(null); tip.hidden = true;
-  });
+function explodeCategoryPie(e) {
+  const dp = e.dataSeries.dataPoints[e.dataPointIndex];
+  dp.exploded = !dp.exploded;
+  e.chart.render();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2963,7 +2742,7 @@ async function renderReports() {
           <span style="font-size:13px;font-weight:600">📉 Total Expenses</span>
           <span style="font-size:16px;font-weight:800;color:var(--red)">Rs.${Number(pl.expenses).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
-        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
+        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
           <span style="font-size:13px;font-weight:600">📊 Cost of Goods Sold</span>
           <span style="font-size:16px;font-weight:800;color:var(--accent)">Rs.${Number(pl.cost_of_goods_sold).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
@@ -3680,24 +3459,34 @@ async function onBookingCustomerChange() {
   document.getElementById('bk-acc-search').value = acc;
   if (searchEl) searchEl.value = `${cust.name} (${acc})`;
   document.getElementById('bk-customer-info').style.display='';
-  // Show the cached figure immediately (feels instant), then correct it
-  // with the live ledger value — same source the backend will snapshot
-  // onto the invoice when this booking is saved.
-  _bkPrevBalanceLive = Number(cust.outstanding_balance)||0;
-  document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
   document.getElementById('bk-total-purchases').textContent = String(cust.loyalty_points || 0);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
+  // Customer.outstanding_balance (from the customer list fetched when this
+  // form opened) is a cached snapshot — if the customer's ledger was
+  // cleared/paid off anywhere else since then (Customer Collection, Ledger
+  // Accounts...), that field can still read the OLD balance for the rest
+  // of this session. Showing it first, even briefly, was exactly that
+  // stale-cache flash. So: show a loading placeholder and wait for the
+  // live ledger fetch — the actual current balance — instead of guessing.
+  _bkPrevBalanceLive = 0;
+  document.getElementById('bk-prev-balance').textContent = '…';
   calcBookingTotals();
 
   try {
     const ledger = await CustomersAPI.ledger(cust.id);
     // Bail out if the customer selection changed while this was in flight.
     if (parseInt(document.getElementById('bk-customer').value) !== cust.id) return;
-    _bkPrevBalanceLive = Number(ledger.remaining)||0;
+    _bkPrevBalanceLive = Math.max(0, Number(ledger.remaining)||0);
     document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
     calcBookingTotals();
   } catch (err) {
-    // Live ledger fetch failed — keep the cached-field estimate shown above.
+    // Live fetch failed (offline/server error) — fall back to the cached
+    // field rather than leaving "…" up forever, but this is the last
+    // resort, not the default path.
+    if (parseInt(document.getElementById('bk-customer').value) !== cust.id) return;
+    _bkPrevBalanceLive = Math.max(0, Number(cust.outstanding_balance)||0);
+    document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
+    calcBookingTotals();
   }
 }
 
@@ -3709,11 +3498,15 @@ function _bkCustDropRows(list) {
     const acc = 'ACC-'+String(c.id).padStart(4,'0');
     const bal = Number(c.outstanding_balance)||0;
     const balColor = bal>0 ? 'var(--red)' : 'var(--green)';
+    // Area/address under the name — makes it easy to tell apart two shops
+    // with similar or identical names when picking one from the list.
+    const area = [c.address, c.city].filter(Boolean).join(', ');
     return `<div onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
       <span style="font-size:18px;flex-shrink:0">👤</span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
-        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${acc}${c.phone ? ' · '+c.phone : ''}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${acc}${c.phone ? ' · '+c.phone : ''}</div>
+        ${area ? `<div style="font-size:10px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px"><i class="fa fa-map-marker-alt" style="opacity:.6"></i> ${area}</div>` : ''}
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:800;color:${balColor}">Rs.${bal.toFixed(2)}</div>
@@ -3773,6 +3566,17 @@ function bkCustSearch(q) {
     });
     // Only repaint if the user hasn't since changed what they're typing.
     if ((document.getElementById('bk-customer-search')?.value||'').toLowerCase().trim() !== lc) return;
+    // The server just returns matches in its default (alphabetical) order —
+    // for a short/partial query like "g" that can bury the customer whose
+    // name actually STARTS with what was typed under a page of unrelated
+    // names that merely contain a "g" somewhere. That's what made a
+    // correct-looking suggestion seem to "vanish" a moment after typing:
+    // the local instant preview (ranked below) showed it fine, then this
+    // server response silently replaced it with a differently-ordered
+    // list. Re-rank the server results the exact same way before using
+    // them, so the closest match never gets pushed out of the top 20.
+    serverResults = serverResults.map(c => ({ c, r: rank(c) })).filter(x => x.r >= 0)
+      .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name)).map(x => x.c);
     const finalResults = serverResults.length ? serverResults : localResults;
     drop.innerHTML = finalResults.length
       ? _bkCustDropRows(finalResults.slice(0, 20))
@@ -4240,7 +4044,6 @@ function calcBookingTotals() {
 
   const custId   = parseInt(document.getElementById('bk-customer')?.value)||0;
   const prevBal  = custId ? (Number(_bkPrevBalanceLive)||0) : 0;
-  const netPayable = total + prevBal;
 
   // ── Update tax label to show effective rate ────────────
   const taxLabel = document.getElementById('bk-tax-pct-label');
@@ -4263,7 +4066,6 @@ function calcBookingTotals() {
   set('bk-disc-val',      '-' + s(billDiscAmt));
   set('bk-total',          s(total));
   set('bk-prev-bal-mini',  s(prevBal));
-  set('bk-net-payable',    s(netPayable));
 }
 
 async function saveBooking(status) {
@@ -4789,8 +4591,7 @@ function buildSlipA4Html(rawSale) {
         ${(ssSettings.showDiscount && itemDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
         ${(ssSettings.showDiscount && billDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#d9d9d9;color:#000;font-size:13px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>${(b.prevBal||0)<0?'Previous Advance / Credit':'Previous Balance'}</span><span>Rs. ${Math.abs(b.prevBal||0).toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#f59e0b;color:#000;font-size:13px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
+        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>${(b.prevBal||0)<0?'Previous Advance / Credit':'Previous Balance'}</span><span>Rs. ${Math.abs(b.prevBal||0).toFixed(2)}</span></div>`;
         })()}
       </div>
     </div>
@@ -4813,11 +4614,14 @@ async function printSingleSlipA4(id) {
   if (!b) { toast('Booking not found','error'); return; }
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = buildSlipA4Html(b);
-  await animatedPrint('slip', printArea);
-  setTimeout(() => { printArea.style.display = 'none'; }, 1200);
+  printArea.style.display = 'block';
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => { printArea.style.display = 'none'; }, 1200);
+  }, 250);
 }
 
-async function printAllSlipsA4(mode) {
+function printAllSlipsA4(mode) {
   const dateFilter     = document.getElementById('ss-date')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
@@ -4955,6 +4759,7 @@ async function printAllSlipsA4(mode) {
 
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;
+  printArea.style.display = 'block';
 
   // @page is a global, page-level rule — it can't be scoped with a class
   // selector like normal CSS, so switching just this one print to
@@ -4969,13 +4774,15 @@ async function printAllSlipsA4(mode) {
     document.head.appendChild(landscapeStyleTag);
   }
 
-  // Printer animation plays first (it also gives the browser time to fully
-  // render all slip HTML), then the print dialog opens.
-  await animatedPrint('slip', printArea);
+  // Allow browser to fully render all slip HTML before triggering print dialog
   setTimeout(() => {
-    printArea.style.display = 'none';
-    if (landscapeStyleTag) landscapeStyleTag.remove();
-  }, 1500);
+    window.print();
+    setTimeout(() => {
+      printArea.style.display = 'none';
+      if (landscapeStyleTag) landscapeStyleTag.remove();
+    }, 1500);
+  }, 350);
+  toast(`Preparing ${slips.length} slip${slips.length!==1?'s':''}... Print dialog will open shortly.`, 'success');
 }
 
 // ── Sample booking data for demo ─────────────────────────
@@ -6805,7 +6612,7 @@ function renderCalendarGrid() {
         const todayDate = new Date(); todayDate.setHours(0,0,0,0);
         const isToday = cellDate.getTime() === todayDate.getTime();
         const isFuture = cellDate.getTime() > todayDate.getTime();
-        html += `<div style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);background:${isToday&&active?'rgba(234,108,77,.06)':''}">
+        html += `<div style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);background:${isToday&&active?'rgba(59,130,246,.06)':''}">
           ${active
             ? (isFuture
                 ? `<div style="background:var(--yellow-glow);border:1px solid rgba(245,158,11,.4);border-radius:6px;padding:4px 8px;text-align:center;width:90%">
@@ -7471,7 +7278,7 @@ function exportOrderSummaryCsv() {
   toast('Order summary exported!', 'success');
 }
 
-async function printOrderSummary() {
+function printOrderSummary() {
   const usernameFilter = document.getElementById('os-username-filter')?.value || '';
 
   // Column list in DOM order (mirrors OS_COLUMN_MAP) — filtered by osSettings
@@ -7539,7 +7346,8 @@ async function printOrderSummary() {
   </div>`;
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = html;
-  await animatedPrint('order', printArea);
+  printArea.style.display = 'block';
+  window.print();
   setTimeout(() => { printArea.style.display = 'none'; }, 1000);
 }
 
@@ -8807,7 +8615,7 @@ function getCollectionFilters() {
   };
 }
 
-async function printCollectionSheet() {
+function printCollectionSheet() {
   const cf = getCollectionFilters();
   const todayLabel = cf.label;
   const now = new Date().toLocaleString('en-PK');
@@ -8951,11 +8759,12 @@ async function printCollectionSheet() {
 
   const pa = document.getElementById('print-area');
   pa.innerHTML = html;
-  await animatedPrint('cash', pa);
+  pa.style.display = 'block';
+  window.print();
   setTimeout(() => { pa.style.display = 'none'; }, 1400);
 }
 
-async function printCollectionReport() {
+function printCollectionReport() {
   // Print exactly what the Collection screen is currently filtered to
   // (date/period, search, username, Has Pending / Cleared / Overdue) —
   // was ignoring every filter and always dumping every single customer.
@@ -9034,9 +8843,9 @@ async function printCollectionReport() {
 
     <!-- Summary Banner -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-      <div style="padding:10px 12px;background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:7px;text-align:center">
-        <div style="font-size:10px;font-weight:700;color:#0369a1;text-transform:uppercase;margin-bottom:3px">Total Billed</div>
-        <div style="font-size:18px;font-weight:900;color:#0369a1">Rs.${grandTotalOrders.toFixed(2)}</div>
+      <div style="padding:10px 12px;background:#fdf1ec;border:1.5px solid #f3c3ac;border-radius:7px;text-align:center">
+        <div style="font-size:10px;font-weight:700;color:#c2502f;text-transform:uppercase;margin-bottom:3px">Total Billed</div>
+        <div style="font-size:18px;font-weight:900;color:#c2502f">Rs.${grandTotalOrders.toFixed(2)}</div>
       </div>
       <div style="padding:10px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:7px;text-align:center">
         <div style="font-size:10px;font-weight:700;color:#15803d;text-transform:uppercase;margin-bottom:3px">Total Received</div>
@@ -9120,11 +8929,12 @@ async function printCollectionReport() {
 
   const pa = document.getElementById('print-area');
   pa.innerHTML = html;
-  await animatedPrint('cash', pa);
+  pa.style.display = 'block';
+  window.print();
   setTimeout(() => { pa.style.display = 'none'; }, 1400);
 }
 
-async function printUsernameCollection(username) {
+function printUsernameCollection(username) {
   const rows = getUsernameCollectionRows(username);
   const grandTotal = rows.reduce((s,r)=>s+r.totalCollection,0);
   const grandPending = rows.reduce((s,r)=>s+r.pending,0);
@@ -9156,8 +8966,8 @@ async function printUsernameCollection(username) {
     </table>
   </div>`;
   const pa=document.getElementById('print-area');
-  pa.innerHTML=html;
-  await animatedPrint('cash', pa);
+  pa.innerHTML=html; pa.style.display='block';
+  window.print();
   setTimeout(()=>{ pa.style.display='none'; },1200);
 }
 
@@ -9528,7 +9338,7 @@ document.addEventListener('DOMContentLoaded', function() {
     .stat-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,.45); }
     /* ── Button effects ── */
     .btn { transition: all .15s cubic-bezier(.4,0,.2,1); }
-    .btn-accent:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(234,108,77,.35); }
+    .btn-accent:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(59,130,246,.35); }
     .btn-green:hover  { transform:translateY(-1px); box-shadow:0 4px 16px rgba(16,185,129,.35); }
     .btn-ghost:hover  { transform:translateY(-1px); }
     /* ── Table row hover ── */
@@ -10086,268 +9896,3 @@ function togglePasswordVisibility(inputId, btn) {
   }
   btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
 }
-
-// ═══════════════════════════════════════════════════════
-// THEMED SELECT
-// The browser/OS draws a native <select>'s popup itself (that's the default
-// blue highlight bar) and CSS can't touch it. This swaps every <select> for a
-// custom dropdown styled with the app theme. The real <select> stays in the
-// DOM (hidden), so all existing code — .value reads/writes, onchange="",
-// options rebuilt with innerHTML — keeps working exactly as before.
-// Opt a select out with the data-native attribute.
-// ═══════════════════════════════════════════════════════
-(function initThemedSelects() {
-  const vDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
-  const iDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
-  const LAYOUT_RE = /^(width|min-width|max-width|flex(-|$)|margin(-|$)|grid-column|align-self|justify-self)/;
-  let current = null; // the one open dropdown: { select, close }
-
-  function enhance(select) {
-    if (select._cs || select.multiple || select.size > 1 || select.hasAttribute('data-native')) return;
-    select._cs = true;
-
-    const wrap = document.createElement('div');
-    wrap.className = 'cs-wrap';
-    const trig = document.createElement('button');
-    trig.type = 'button';
-    trig.className = (select.className + ' cs-trigger').trim();
-    trig.setAttribute('aria-haspopup', 'listbox');
-    trig.innerHTML = '<span class="cs-label"></span><i class="fa fa-chevron-down cs-caret"></i>';
-    const label = trig.firstChild;
-
-    // Inline layout styles (width/flex/margin) go on the wrapper so the
-    // dropdown sits in the page exactly where the select did; the rest
-    // (padding, font-size, colours…) go on the trigger so it looks the same.
-    for (let i = 0; i < select.style.length; i++) {
-      const p = select.style[i];
-      if (p === 'display') continue;
-      const v = select.style.getPropertyValue(p), pr = select.style.getPropertyPriority(p);
-      (LAYOUT_RE.test(p) ? wrap : trig).style.setProperty(p, v, pr);
-    }
-
-    select.parentNode.insertBefore(wrap, select);
-    wrap.appendChild(trig);
-    wrap.appendChild(select);
-    select.classList.add('cs-native');
-    select.tabIndex = -1;
-    select.setAttribute('aria-hidden', 'true');
-    select.focus = () => trig.focus();
-
-    function sync() {
-      const opt = select.options[select.selectedIndex];
-      label.textContent = opt ? opt.text : '';
-      label.classList.toggle('cs-placeholder', !opt || (opt.disabled && opt.value === ''));
-      trig.disabled = select.disabled;
-      wrap.style.display = (select.style.display === 'none' || select.hidden) ? 'none' : '';
-    }
-
-    // Programmatic `select.value = x` / `select.selectedIndex = n` fire no
-    // event, so intercept the setters on this instance to keep the label right.
-    Object.defineProperty(select, 'value', {
-      configurable: true,
-      get() { return vDesc.get.call(this); },
-      set(v) { vDesc.set.call(this, v); sync(); }
-    });
-    Object.defineProperty(select, 'selectedIndex', {
-      configurable: true,
-      get() { return iDesc.get.call(this); },
-      set(v) { iDesc.set.call(this, v); sync(); }
-    });
-    select.addEventListener('change', sync);
-    new MutationObserver(() => {
-      sync();
-      if (current && current.select === select) current.close();
-    }).observe(select, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'style', 'hidden'] });
-    sync();
-
-    // ── dropdown panel ──
-    function open() {
-      if (select.disabled) return;
-      if (current) current.close();
-      sync();
-
-      const panel = document.createElement('div');
-      panel.className = 'cs-panel';
-      panel.setAttribute('role', 'listbox');
-      const list = document.createElement('div');
-      list.className = 'cs-list';
-      const items = [], groups = [];
-      let activeItem = null;
-
-      function addOption(o, group) {
-        const isSel = o.index === select.selectedIndex;
-        const el = document.createElement('div');
-        el.className = 'cs-opt' + (o.disabled ? ' disabled' : '') + (isSel ? ' selected' : '');
-        el.setAttribute('role', 'option');
-        el.innerHTML = '<span></span>' + (isSel ? '<i class="fa fa-check cs-check"></i>' : '');
-        el.firstChild.textContent = o.text;
-        const item = { el, option: o, text: o.text.toLowerCase(), visible: true, group };
-        el.addEventListener('mousedown', e => e.preventDefault());
-        el.addEventListener('mousemove', () => { if (!o.disabled) setActive(item); });
-        el.addEventListener('click', () => { if (!o.disabled) choose(o); });
-        list.appendChild(el);
-        items.push(item);
-        if (group) group.items.push(item);
-        return item;
-      }
-      Array.from(select.children).forEach(ch => {
-        if (ch.tagName === 'OPTGROUP') {
-          const gl = document.createElement('div');
-          gl.className = 'cs-group';
-          gl.textContent = ch.label;
-          list.appendChild(gl);
-          const g = { labelEl: gl, items: [] };
-          groups.push(g);
-          Array.from(ch.children).forEach(o => addOption(o, g));
-        } else if (ch.tagName === 'OPTION') {
-          addOption(ch, null);
-        }
-      });
-      if (!items.length) {
-        list.innerHTML = '<div class="cs-empty">No options</div>';
-      }
-
-      let search = null;
-      if (items.length > 8) {
-        search = document.createElement('input');
-        search.type = 'text';
-        search.className = 'cs-search';
-        search.placeholder = 'Search…';
-        search.autocomplete = 'off';
-        panel.appendChild(search);
-        search.addEventListener('input', () => {
-          const q = search.value.trim().toLowerCase();
-          items.forEach(it => { it.visible = !q || it.text.includes(q); it.el.style.display = it.visible ? '' : 'none'; });
-          groups.forEach(g => { g.labelEl.style.display = g.items.some(i => i.visible) ? '' : 'none'; });
-          const first = items.find(i => i.visible && !i.option.disabled);
-          setActive(first || null);
-        });
-      }
-      panel.appendChild(list);
-
-      function setActive(item) {
-        if (activeItem) activeItem.el.classList.remove('active');
-        activeItem = item;
-        if (item) { item.el.classList.add('active'); item.el.scrollIntoView({ block: 'nearest' }); }
-      }
-      function move(dir) {
-        const nav = items.filter(i => i.visible && !i.option.disabled);
-        if (!nav.length) return;
-        let idx = nav.indexOf(activeItem);
-        idx = idx === -1 ? (dir > 0 ? 0 : nav.length - 1) : (idx + dir + nav.length) % nav.length;
-        setActive(nav[idx]);
-      }
-      function choose(o) {
-        const changed = select.selectedIndex !== o.index;
-        iDesc.set.call(select, o.index);
-        sync();
-        close();
-        trig.focus();
-        if (changed) {
-          select.dispatchEvent(new Event('input', { bubbles: true }));
-          select.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }
-
-      function onKey(e) {
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); trig.focus(); }
-        else if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-        else if (e.key === 'Enter' || (e.key === ' ' && !search)) { e.preventDefault(); if (activeItem) choose(activeItem.option); }
-        else if (e.key === 'Tab') close();
-      }
-      function onDocDown(e) { if (!panel.contains(e.target) && !trig.contains(e.target)) close(); }
-      let ready = false;
-      function onScroll(e) { if (ready && !panel.contains(e.target)) close(); }
-      function onResize() { close(); }
-
-      function close() {
-        if (!panel.isConnected && current !== api) return;
-        panel.remove();
-        trig.classList.remove('open');
-        document.removeEventListener('mousedown', onDocDown, true);
-        document.removeEventListener('scroll', onScroll, true);
-        window.removeEventListener('resize', onResize);
-        trig.removeEventListener('keydown', onKey);
-        if (current === api) current = null;
-      }
-      const api = { select, close };
-      current = api;
-
-      document.body.appendChild(panel);
-      trig.classList.add('open');
-
-      // Position under the trigger (or above if there's more room there).
-      const r = trig.getBoundingClientRect();
-      panel.style.minWidth = r.width + 'px';
-      panel.style.maxWidth = Math.max(r.width, 360) + 'px';
-      const searchH = search ? 44 : 0;
-      const wanted = Math.min(list.scrollHeight + searchH + 14, 300);
-      const below = window.innerHeight - r.bottom - 12;
-      const above = r.top - 12;
-      const goUp = below < Math.min(wanted, 200) && above > below;
-      const room = Math.max(120, goUp ? above : below);
-      list.style.maxHeight = Math.max(80, Math.min(300, room) - searchH - 14) + 'px';
-      const pw = panel.offsetWidth;
-      panel.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pw - 8)) + 'px';
-      if (goUp) { panel.classList.add('cs-up'); panel.style.bottom = (window.innerHeight - r.top + 6) + 'px'; }
-      else      { panel.style.top = (r.bottom + 6) + 'px'; }
-
-      const selItem = items.find(i => i.option.index === select.selectedIndex && !i.option.disabled);
-      setActive(selItem || items.find(i => !i.option.disabled) || null);
-      if (selItem) selItem.el.scrollIntoView({ block: 'center' });
-
-      document.addEventListener('mousedown', onDocDown, true);
-      document.addEventListener('scroll', onScroll, true);
-      window.addEventListener('resize', onResize);
-      trig.addEventListener('keydown', onKey);
-      if (search) { search.addEventListener('keydown', onKey); search.focus(); }
-      requestAnimationFrame(() => { ready = true; });
-    }
-
-    trig.addEventListener('click', () => {
-      if (current && current.select === select) current.close(); else open();
-    });
-    trig.addEventListener('keydown', e => {
-      if (current && current.select === select) return; // handled by the open panel
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault(); open();
-      }
-    });
-  }
-
-  function scan(root) {
-    if (root.tagName === 'SELECT') enhance(root);
-    if (root.querySelectorAll) root.querySelectorAll('select').forEach(enhance);
-  }
-  function start() {
-    scan(document);
-    // Selects created later (modals/tables built with innerHTML) get enhanced too.
-    new MutationObserver(muts => {
-      for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) scan(n);
-    }).observe(document.documentElement, { childList: true, subtree: true });
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
-  else start();
-})();
-
-// Live hint under "New Password" on the reset screen.
-document.addEventListener('DOMContentLoaded', () => {
-  const p1 = document.getElementById('rp-pass1');
-  const p2 = document.getElementById('rp-pass2');
-  const hint = document.getElementById('rp-hint');
-  if (!p1 || !hint) return;
-  const BASE = 'At least 8 characters. Avoid common passwords and all-digit passwords.';
-  function update() {
-    const v = p1.value;
-    hint.classList.remove('is-bad', 'is-good');
-    if (!v) { hint.textContent = BASE; return; }
-    if (v.length < 8) { hint.textContent = `Too short — ${8 - v.length} more character${8 - v.length === 1 ? '' : 's'} needed.`; hint.classList.add('is-bad'); return; }
-    if (/^\d+$/.test(v)) { hint.textContent = 'Passwords made only of digits are not allowed.'; hint.classList.add('is-bad'); return; }
-    if (p2 && p2.value && p2.value !== v) { hint.textContent = 'The two passwords do not match yet.'; hint.classList.add('is-bad'); return; }
-    hint.textContent = p2 && p2.value ? 'Looks good.' : 'Good length — now confirm it below.';
-    hint.classList.add('is-good');
-  }
-  p1.addEventListener('input', update);
-  if (p2) p2.addEventListener('input', update);
-});

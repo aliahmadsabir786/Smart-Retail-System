@@ -44,12 +44,24 @@ def send_password_reset_email_now(user, reset_link):
 
 
 def _send_logged(user, reset_link):
+    # Clear, actionable log line instead of a confusing SMTP login error when
+    # the mail settings were simply never filled in (.env has no credentials).
+    if (settings.EMAIL_BACKEND.endswith("smtp.EmailBackend")
+            and not getattr(settings, "EMAIL_HOST_USER", "")):
+        logger.error(
+            "Password reset email to user %s NOT sent: EMAIL_HOST_USER / EMAIL_HOST_PASSWORD are "
+            "empty. Set them in .env (Gmail needs an App Password), or use "
+            "config.settings.development which prints the email in the terminal.",
+            user.pk,
+        )
+        return
     try:
         send_password_reset_email_now(user, reset_link)
     except Exception:
         logger.exception(
-            "Password reset email to user %s FAILED — check EMAIL_HOST / EMAIL_HOST_USER / "
-            "EMAIL_HOST_PASSWORD (Gmail needs an App Password, not the normal password).",
+            "Password reset email to user %s FAILED — check EMAIL_HOST / EMAIL_PORT / EMAIL_HOST_USER / "
+            "EMAIL_HOST_PASSWORD (Gmail needs an App Password, not the normal password; some hosts, "
+            "e.g. Railway free/hobby plans, block outbound SMTP ports entirely).",
             user.pk,
         )
 
@@ -58,13 +70,25 @@ def _run_in_background(fn, *args):
     threading.Thread(target=fn, args=args, daemon=True).start()
 
 
-def dispatch_password_reset_email(user, reset_link):
-    """Deliver the reset email without ever blocking or failing the request."""
+def _deliver(user, reset_link):
+    """Runs in a background thread — never on the request itself."""
     if getattr(settings, "EMAIL_SEND_VIA_CELERY", False):
         from .tasks import send_password_reset_email
         try:
-            send_password_reset_email.delay(user.id, reset_link)
+            # retry=False: if Redis is down, fail immediately instead of
+            # retrying the publish for minutes (that used to freeze the
+            # forgot-password request for ~2 minutes).
+            send_password_reset_email.apply_async(args=(user.id, reset_link), retry=False)
             return
         except Exception:
             logger.exception("Celery broker unreachable — sending the reset email directly instead.")
-    _run_in_background(_send_logged, user, reset_link)
+    _send_logged(user, reset_link)
+
+
+def dispatch_password_reset_email(user, reset_link):
+    """Deliver the reset email without ever blocking or failing the request.
+
+    Everything (including the Celery hand-off) happens in a background
+    thread, so the person always gets an instant response.
+    """
+    _run_in_background(_deliver, user, reset_link)

@@ -193,7 +193,26 @@ class EmailVerificationConfirmSerializer(serializers.Serializer):
         return user
 
 
-def build_uid_token_link(user, view, token_generator=default_token_generator):
+def _frontend_base_url(request=None):
+    """Where emailed links should point.
+
+    Uses FRONTEND_URL — but if that is still the localhost default (nobody set
+    it for this deployment) and we know which address the request came in on,
+    use that instead, so a reset link sent from https://yourshop.example.com
+    doesn't point at http://localhost:8000 (which is dead on the recipient's
+    phone/PC). Django has already checked the request's host against
+    ALLOWED_HOSTS by this point.
+    """
+    from urllib.parse import urlparse
+    from django.conf import settings
+    base = (getattr(settings, "FRONTEND_URL", "") or "").strip().rstrip("/")
+    host = (urlparse(base).hostname or "").lower()
+    if request is not None and (not base or host in ("localhost", "127.0.0.1", "0.0.0.0", "::1")):
+        return request.build_absolute_uri("/").rstrip("/")
+    return base
+
+
+def build_uid_token_link(user, view, token_generator=default_token_generator, request=None):
     """Helper: builds a uid+token pair and full frontend link for email/reset
     flows.
 
@@ -206,8 +225,7 @@ def build_uid_token_link(user, view, token_generator=default_token_generator):
     `view` query param the frontend reads on load (see
     _checkPasswordResetLink in script.js) instead of a path segment.
     """
-    from django.conf import settings
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = token_generator.make_token(user)
-    link = f"{settings.FRONTEND_URL}/?view={view}&uid={uid}&token={token}"
+    link = f"{_frontend_base_url(request)}/?view={view}&uid={uid}&token={token}"
     return uid, token, link

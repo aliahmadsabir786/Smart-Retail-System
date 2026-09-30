@@ -165,7 +165,7 @@ class PasswordResetRequestView(generics.GenericAPIView):
         # Whether or not one matches, the response below is identical.
         user = User.objects.filter(email__iexact=email, is_active=True).first()
         if user:
-            _, _, link = build_uid_token_link(user, "reset-password")
+            _, _, link = build_uid_token_link(user, "reset-password", request=request)
             dispatch_password_reset_email(user, link)
         else:
             logger.info("Password reset requested for an unknown/inactive email — no mail sent.")

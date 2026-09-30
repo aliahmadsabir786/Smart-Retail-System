@@ -647,7 +647,7 @@
                       oninput="bkCustSearch(this.value)"
                       onfocus="bkCustSearchFocus()"
                       onblur="setTimeout(bkCustDropClose,180)">
-                    <div id="bk-cust-drop"
+                    <div id="bk-cust-drop" onmousedown="event.preventDefault()"
                       style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;z-index:500;
                              background:var(--bg-card);border:1px solid var(--border);border-radius:8px;
                              max-height:240px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,.5)">
@@ -771,12 +771,8 @@
                       <span id="bk-total" class="text-green" style="font-family:var(--mono)">Rs.0.00</span>
                     </div>
                     <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary)">
-                      <span>Prev. Balance</span>
+                      <span>Previous Balance <span style="font-size:10px">(not included in this bill)</span></span>
                       <span id="bk-prev-bal-mini" class="text-red" style="font-family:var(--mono)">Rs.0.00</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:var(--yellow);margin-top:4px">
-                      <span>Net Payable</span>
-                      <span id="bk-net-payable" style="font-family:var(--mono)">Rs.0.00</span>
                     </div>
                   </div>
                   <div style="font-size:10px;color:var(--text-muted);margin-top:6px;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px">

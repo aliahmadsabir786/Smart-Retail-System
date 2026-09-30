@@ -3704,16 +3704,24 @@ async function onBookingCustomerChange() {
 // ── Customer search-as-you-type (Order Booking) ───────────────────
 // Same UX as the product search box: type any part of the name or phone
 // number and matching customers drop down below the field.
+function _bkEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+
 function _bkCustDropRows(list) {
   return list.map(c => {
     const acc = 'ACC-'+String(c.id).padStart(4,'0');
+    // Address under the name (falls back to city) so two customers with the
+    // same/similar name can be told apart right in the dropdown.
+    const addr = String(c.address || c.city || '').replace(/\s+/g, ' ').trim();
     const bal = Number(c.outstanding_balance)||0;
     const balColor = bal>0 ? 'var(--red)' : 'var(--green)';
     return `<div onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
       <span style="font-size:18px;flex-shrink:0">👤</span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
-        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${acc}${c.phone ? ' · '+c.phone : ''}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${acc}</div>
+        ${addr ? `<div title="${_bkEsc(addr)}" style="font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📍 ${_bkEsc(addr)}</div>` : ''}
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:800;color:${balColor}">Rs.${bal.toFixed(2)}</div>
@@ -3723,40 +3731,48 @@ function _bkCustDropRows(list) {
   }).join('');
 }
 
-function bkCustSearch(q) {
-  const drop = document.getElementById('bk-cust-drop');
-  if (!drop) return;
-  const lc = (q||'').toLowerCase().trim();
-  if (!lc) { drop.style.display='none'; return; }
+// Ranks customers for the search box: names that START with the typed text
+// first, then anything else containing it (name / phone / email / account).
+// `extraIds` = customers the server matched that the local rules can't see
+// (e.g. multi-word searches) — they're kept, just ranked last.
+function _bkCustMatches(lc, extraIds) {
   const rank = (c) => {
     const name = (c.name||'').toLowerCase();
     const phone = (c.phone||'').toLowerCase(), email = (c.email||'').toLowerCase();
     const acc = ('acc-'+String(c.id).padStart(4,'0'));
     if (name.startsWith(lc)) return 0;   // starts-with → top of the list
     if (name.includes(lc) || phone.includes(lc) || email.includes(lc) || acc.includes(lc)) return 1;
+    if (extraIds && extraIds.has(c.id)) return 2;
     return -1; // no match
   };
-  const localResults = _bkCustomerCache
+  return _bkCustomerCache
     .map(c => ({ c, r: rank(c) }))
     .filter(x => x.r >= 0)
     .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name))
     .slice(0, 20)
     .map(x => x.c);
+}
+
+function bkCustSearch(q) {
+  const drop = document.getElementById('bk-cust-drop');
+  if (!drop) return;
+  const lc = (q||'').toLowerCase().trim();
+  if (!lc) { drop.style.display='none'; return; }
+  const localResults = _bkCustMatches(lc);
 
   drop.style.display='';
   drop.innerHTML = localResults.length
     ? _bkCustDropRows(localResults)
     : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
 
-  // _bkCustomerCache only ever holds the first batch of customers loaded
-  // when the form opened (capped at 500, alphabetical by name — see
-  // Customer.Meta.ordering) — with more customers than that, anyone whose
-  // name sorts past that cutoff (e.g. starts with a later letter) was
-  // invisible to this search even though they exist and show up fine on
-  // the Customers page, which searches the server live with no cap. A
-  // live search here closes that gap for good, regardless of how many
-  // customers exist — the local list above is just the instant preview
-  // while this resolves.
+  // _bkCustomerCache only holds the first batch of customers loaded when
+  // the form opened (capped at 500), so anyone past that cutoff is found by
+  // a live server search. Its results are MERGED into the cache and the
+  // list is re-ranked with the same rules as the instant preview — they
+  // used to REPLACE the preview, and since the server returns them in plain
+  // alphabetical order (matching anywhere, even inside e-mails), the
+  // "starts with what you typed" customers that had just appeared would
+  // vanish a moment later.
   debounced('bk-cust-live-search', async () => {
     let serverResults = [];
     try {
@@ -3765,17 +3781,14 @@ function bkCustSearch(q) {
     } catch (err) {
       return; // offline/server error — leave the local preview as-is
     }
-    // Merge any customer the server found but the local cache doesn't
-    // have yet, so picking them from the dropdown (bkCustSelect →
-    // onBookingCustomerChange, which looks them up by id) still works.
     serverResults.forEach(sc => {
       if (!_bkCustomerCache.some(c => c.id === sc.id)) _bkCustomerCache.push(sc);
     });
     // Only repaint if the user hasn't since changed what they're typing.
     if ((document.getElementById('bk-customer-search')?.value||'').toLowerCase().trim() !== lc) return;
-    const finalResults = serverResults.length ? serverResults : localResults;
+    const finalResults = _bkCustMatches(lc, new Set(serverResults.map(sc => sc.id)));
     drop.innerHTML = finalResults.length
-      ? _bkCustDropRows(finalResults.slice(0, 20))
+      ? _bkCustDropRows(finalResults)
       : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
   }, 250);
 }
@@ -4239,8 +4252,8 @@ function calcBookingTotals() {
   const { baseAmount, autoTaxAmt, itemDiscAmt, billDiscAmt, total } = computeBookingTotals();
 
   const custId   = parseInt(document.getElementById('bk-customer')?.value)||0;
+  // Previous balance is shown for reference only — never added to this bill.
   const prevBal  = custId ? (Number(_bkPrevBalanceLive)||0) : 0;
-  const netPayable = total + prevBal;
 
   // ── Update tax label to show effective rate ────────────
   const taxLabel = document.getElementById('bk-tax-pct-label');
@@ -4263,7 +4276,6 @@ function calcBookingTotals() {
   set('bk-disc-val',      '-' + s(billDiscAmt));
   set('bk-total',          s(total));
   set('bk-prev-bal-mini',  s(prevBal));
-  set('bk-net-payable',    s(netPayable));
 }
 
 async function saveBooking(status) {
@@ -4789,8 +4801,7 @@ function buildSlipA4Html(rawSale) {
         ${(ssSettings.showDiscount && itemDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
         ${(ssSettings.showDiscount && billDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#d9d9d9;color:#000;font-size:13px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>${(b.prevBal||0)<0?'Previous Advance / Credit':'Previous Balance'}</span><span>Rs. ${Math.abs(b.prevBal||0).toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#f59e0b;color:#000;font-size:13px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
+        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>${(b.prevBal||0)<0?'Previous Advance / Credit':'Previous Balance'}</span><span>Rs. ${Math.abs(b.prevBal||0).toFixed(2)}</span></div>`;
         })()}
       </div>
     </div>

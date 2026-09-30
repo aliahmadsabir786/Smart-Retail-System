@@ -1,6 +1,17 @@
 // ── SPLASH SCREEN ──────────────────────────────────────
+// The splash covers the page until the app is really ready: if a saved
+// session exists, the portal is opened UNDER the splash first (profile
+// fetched, dashboard rendered) and only then does the splash fade out — so
+// you never see the portal "opening" behind the loader. window.__bootReady
+// is resolved by the session-restore code below.
 (function() {
-  // Hide login & app while splash shows
+  const MIN_MS  = 900;   // shortest the splash ever shows (lets the logo animate)
+  const MAX_MS  = 4000;  // safety: never hold the splash longer than this
+  const SETTLE  = 350;   // portal gets a moment to paint before the splash lifts
+  let resolveBoot;
+  window.__bootReady = new Promise(r => { resolveBoot = r; });
+  window.__bootDone  = () => resolveBoot();
+
   document.addEventListener('DOMContentLoaded', function() {
     // Apply saved theme immediately (before splash fade)
     if (localStorage.getItem('smartretail_theme') === 'light') {
@@ -14,21 +25,21 @@
     login.style.opacity = '0';
     login.style.pointerEvents = 'none';
 
-    // After 1.4s: fade out splash, reveal login
     function hideSplash() {
       if (splash.dataset.hidden) return;
       splash.dataset.hidden = '1';
+      login.style.transition = 'opacity .3s ease';
+      login.style.opacity  = '1';
+      login.style.pointerEvents = '';
       splash.classList.add('hiding');
-      setTimeout(function() {
-        splash.style.display = 'none';
-        login.style.opacity  = '1';
-        login.style.pointerEvents = '';
-        login.style.transition = 'opacity .4s ease';
-      }, 500);
+      setTimeout(function() { splash.style.display = 'none'; }, 400);
     }
-    setTimeout(hideSplash, 1400);
-    // Safety: force-hide after 3s no matter what
-    setTimeout(hideSplash, 3000);
+
+    const minWait = new Promise(r => setTimeout(r, MIN_MS));
+    Promise.all([minWait, window.__bootReady])
+      .then(() => new Promise(r => setTimeout(r, SETTLE)))
+      .then(hideSplash);
+    setTimeout(hideSplash, MAX_MS);
   });
 })();
 
@@ -187,19 +198,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (_checkPasswordResetLink()) {
     loadLoginBranding();
     initLoginCursor();
+    if (window.__bootDone) window.__bootDone();
     return;
   }
 
-  if (typeof AuthAPI !== 'undefined' && AuthAPI.isLoggedIn()) {
-    try {
-      const user = await AuthAPI.profile();
-      await loginAs(user);
-    } catch (_) {
-      TokenStore.clear();
+  try {
+    if (typeof AuthAPI !== 'undefined' && AuthAPI.isLoggedIn()) {
+      try {
+        const user = await AuthAPI.profile();
+        await loginAs(user);
+      } catch (_) {
+        TokenStore.clear();
+      }
     }
+    // Branding (logo/name) is loaded before the splash lifts so the login
+    // screen never flashes the default mark and then swaps it.
+    await Promise.race([loadLoginBranding(), new Promise(r => setTimeout(r, 1500))]);
+  } finally {
+    initLoginCursor();
+    if (window.__bootDone) window.__bootDone();
   }
-  loadLoginBranding();
-  initLoginCursor();
 });
 
 // ═══════════════════════════════════════════════════════
@@ -207,6 +225,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ═══════════════════════════════════════════════════════
 let _resetUid = null;
 let _resetToken = null;
+let _resetEmail = null;   // returned by the confirm call; used to pre-fill the login form
 
 function _checkPasswordResetLink() {
   const params = new URLSearchParams(window.location.search);
@@ -227,7 +246,7 @@ function _checkPasswordResetLink() {
   return true;
 }
 
-function showLoginView() {
+function showLoginView(prefillEmail) {
   document.getElementById('login-view').style.display = '';
   document.getElementById('forgot-view').style.display = 'none';
   document.getElementById('reset-view').style.display = 'none';
@@ -236,8 +255,23 @@ function showLoginView() {
   const fpMsg = document.getElementById('fp-message');
   if (fpEmail) fpEmail.value = '';
   if (fpMsg) fpMsg.style.display = 'none';
+  _stopResendCooldown();
+  const err = document.getElementById('login-error');
+  if (err) err.style.display = 'none';
+  if (typeof prefillEmail === 'string' && prefillEmail) {
+    const u = document.getElementById('l-user');
+    const p = document.getElementById('l-pass');
+    if (u) u.value = prefillEmail;
+    if (p) { p.value = ''; setTimeout(() => p.focus(), 60); }
+  }
 }
-
+// "Sign in with new password" after a successful reset: back to the login form
+// with the account's email already filled in and the cursor in the password box.
+function showLoginAfterReset() {
+  const email = _resetEmail;
+  _resetEmail = null;
+  showLoginView(email || '');
+}
 function showForgotPasswordView() {
   document.getElementById('login-view').style.display = 'none';
   document.getElementById('forgot-view').style.display = '';
@@ -270,6 +304,36 @@ function _showResetSuccess() {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+let _resendTimer = null;
+function _stopResendCooldown() {
+  if (_resendTimer) { clearInterval(_resendTimer); _resendTimer = null; }
+  const btn = document.getElementById('fp-btn');
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Reset Link'; }
+}
+function _startResendCooldown(seconds) {
+  const btn = document.getElementById('fp-btn');
+  if (!btn) return;
+  let left = seconds;
+  btn.disabled = true;
+  const paint = () => { btn.innerHTML = `<i class="fa fa-clock"></i> Resend link in ${left}s`; };
+  paint();
+  if (_resendTimer) clearInterval(_resendTimer);
+  _resendTimer = setInterval(() => {
+    left -= 1;
+    if (left <= 0) {
+      _stopResendCooldown();
+      btn.innerHTML = '<i class="fa fa-redo"></i> Resend Reset Link';
+    } else paint();
+  }, 1000);
+}
+function _fpShow(msgEl, text, kind) {
+  msgEl.textContent = text;
+  msgEl.classList.toggle('is-ok', kind === 'ok');
+  msgEl.classList.toggle('is-err', kind === 'err');
+  msgEl.style.color = '';
+  msgEl.style.display = '';
+}
+
 async function submitForgotPassword() {
   const emailEl = document.getElementById('fp-email');
   const msgEl = document.getElementById('fp-message');
@@ -277,42 +341,31 @@ async function submitForgotPassword() {
   const email = (emailEl.value || '').trim();
 
   msgEl.style.display = 'none';
-  if (!email) {
-    msgEl.textContent = 'Please enter your email address.';
-    msgEl.style.color = 'var(--red,#ef4444)';
-    msgEl.style.display = '';
-    return;
-  }
-  if (!EMAIL_RE.test(email)) {
-    msgEl.textContent = 'Please enter a valid email address.';
-    msgEl.style.color = 'var(--red,#ef4444)';
-    msgEl.style.display = '';
-    return;
-  }
+  if (!email) { _fpShow(msgEl, 'Please enter your email address.', 'err'); return; }
+  if (!EMAIL_RE.test(email)) { _fpShow(msgEl, 'Please enter a valid email address.', 'err'); return; }
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...';
   try {
-    // The backend always returns this same generic response whether or not
-    // the email is actually registered — deliberately, so this screen can
-    // never be used to check which emails have accounts.
+    // The backend always returns the same generic response whether or not the
+    // email is registered — deliberately, so this screen can never be used to
+    // check which emails have accounts.
     await AuthAPI.forgotPassword(email);
-    msgEl.textContent = 'If an account with this email exists, a password reset link has been sent.';
-    msgEl.style.color = 'var(--green,#10b981)';
-    msgEl.style.display = '';
-    emailEl.value = '';
+    _fpShow(msgEl,
+      `If ${email} belongs to an account, a password reset link is on its way. ` +
+      `It usually arrives within a minute — check your Spam/Junk folder too. The link works once and expires in 1 hour.`,
+      'ok');
+    _startResendCooldown(30);
   } catch (err) {
-    // Only real request failures (network error, malformed input the
-    // backend itself rejected) land here — "email not found" never does.
-    msgEl.textContent = err.message || 'Something went wrong — please try again.';
-    msgEl.style.color = 'var(--red,#ef4444)';
-    msgEl.style.display = '';
-  } finally {
+    _fpShow(msgEl,
+      err.status === 429
+        ? 'Too many reset requests. Please wait a while before trying again.'
+        : (err.message || 'Something went wrong — please try again.'),
+      'err');
     btn.disabled = false;
     btn.innerHTML = '<i class="fa fa-paper-plane"></i> Send Reset Link';
   }
 }
-
 async function submitPasswordReset() {
   const p1 = document.getElementById('rp-pass1').value;
   const p2 = document.getElementById('rp-pass2').value;
@@ -338,10 +391,14 @@ async function submitPasswordReset() {
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Resetting...';
   try {
-    await AuthAPI.resetPasswordConfirm({
+    const done = await AuthAPI.resetPasswordConfirm({
       uid: _resetUid, token: _resetToken,
       new_password: p1, new_password_confirm: p2,
     });
+    _resetEmail = (done && done.email) || null;
+    // The server just revoked every old session for this account — drop any
+    // stale tokens this browser still holds so it can't try to reuse them.
+    try { TokenStore.clear(); } catch (_) {}
     document.getElementById('rp-pass1').value = '';
     document.getElementById('rp-pass2').value = '';
     _resetUid = null; _resetToken = null;
@@ -353,7 +410,12 @@ async function submitPasswordReset() {
     // retry with the same link can't succeed either way. A weak new
     // password or a mismatch the backend itself catches still shows as a
     // normal inline message so the person can just fix it and resubmit.
-    const badLink = err.data && (err.data.uid || err.data.token);
+    // Every API error arrives wrapped as {success:false, error:{message, details:{field:[…]}}}
+    // (apps/core/exceptions.py), so the per-field errors live under error.details —
+    // reading err.data.token directly never matched, and an expired link kept
+    // showing a raw inline error instead of the "Invalid or Expired Link" screen.
+    const fields = (err.data && err.data.error && err.data.error.details) || err.data || {};
+    const badLink = !!(fields && (fields.uid || fields.token));
     if (badLink) {
       _showResetInvalid();
     } else {
@@ -395,46 +457,62 @@ async function loadLoginBranding() {
 }
 
 // Trailing cursor on the login screen: the dot snaps straight to the real
-// cursor position every frame, while the ring around it eases toward that
-// same position a little slower — that lag between the two is what makes
-// it read as "following" rather than just a redrawn cursor. Skipped
-// entirely on touch devices (no mouse to trail) and stops itself once the
-// login screen is gone (no point still moving invisible elements).
+// cursor position, while the ring around it eases toward it a little slower.
+// Performance/robustness notes:
+//  - Listeners are attached ONCE (safe to call initLoginCursor() many times).
+//  - The rAF loop starts on demand from mousemove and stops itself once the
+//    ring has caught up, so it never runs (or dies) while the login screen is
+//    hidden. Previously the loop quit forever if it started while the screen
+//    was display:none (e.g. a saved session at page load), so after logout the
+//    ring stayed frozen while only the dot moved.
+//  - No getComputedStyle() per frame (that forced a style recalc every frame
+//    on a very large DOM and was a main cause of the login page hanging).
 function initLoginCursor() {
   const screen = document.getElementById('login-screen');
   const dot = document.getElementById('login-cursor-dot');
   const circle = document.getElementById('login-cursor-circle');
   if (!screen || !dot || !circle) return;
+  if (screen.dataset.cursorInit) return;
   if (window.matchMedia('(hover: none), (pointer: coarse)').matches) return;
+  screen.dataset.cursorInit = '1';
 
   let mouseX = 0, mouseY = 0;
   let circleX = 0, circleY = 0;
   let started = false;
+  let rafId = 0;
+
+  function paint() {
+    dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
+    circle.style.transform = `translate3d(${circleX}px, ${circleY}px, 0) translate(-50%, -50%)`;
+  }
+  function tick() {
+    circleX += (mouseX - circleX) * 0.2;
+    circleY += (mouseY - circleY) * 0.2;
+    paint();
+    if (Math.abs(mouseX - circleX) > 0.3 || Math.abs(mouseY - circleY) > 0.3) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      circleX = mouseX; circleY = mouseY; paint();
+      rafId = 0;
+    }
+  }
+  function kick() { if (!rafId) rafId = requestAnimationFrame(tick); }
 
   screen.addEventListener('mousemove', e => {
     mouseX = e.clientX; mouseY = e.clientY;
     if (!started) { circleX = mouseX; circleY = mouseY; started = true; }
-    dot.style.transform = `translate(${mouseX}px, ${mouseY}px) translate(-50%, -50%)`;
     dot.classList.add('is-visible');
     circle.classList.add('is-visible');
-  });
+    kick();
+  }, { passive: true });
   screen.addEventListener('mouseleave', () => {
     dot.classList.remove('is-visible');
     circle.classList.remove('is-visible');
   });
   screen.addEventListener('mousedown', () => circle.classList.add('is-active'));
-  screen.addEventListener('mouseup', () => circle.classList.remove('is-active'));
-
-  function tick() {
-    // getComputedStyle here (not screen.style.display) because the app
-    // hides the login screen by toggling a class, not an inline style.
-    if (getComputedStyle(screen).display === 'none') return;
-    circleX += (mouseX - circleX) * 0.15;
-    circleY += (mouseY - circleY) * 0.15;
-    circle.style.transform = `translate(${circleX}px, ${circleY}px) translate(-50%, -50%)`;
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
+  window.addEventListener('mouseup', () => circle.classList.remove('is-active'));
+  // When the screen is shown again (after logout) re-sync the ring to the dot
+  document.addEventListener('visibilitychange', () => { if (document.hidden) circle.classList.remove('is-visible'); });
 }
 let _lastOrder = null;
 let _editingBookingId = null;
@@ -447,6 +525,53 @@ let _bookingItems = [];
 // ═══════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════
+// After a manual sign-in the "shop opening" animation plays (awning drops,
+// shutter rolls up, shelves fill, OPEN sign lights up) while the portal loads
+// underneath, then it fades out over the ready portal. The page-load splash
+// (#splash-screen) is untouched. done() guarantees the whole animation plays
+// (minMs) so it never gets cut off; cancel() removes it at once (e.g. on error).
+const SHOP_OPEN_MS = 3400;   // matches the CSS timeline (~3.2s) + a beat
+function beginPortalLoader(minMs = SHOP_OPEN_MS) {
+  const s = document.getElementById('shop-open-screen');
+  if (!s) return { done: async () => {}, cancel: () => {} };
+
+  // Use the real company logo/name (already loaded for the login screen)
+  const srcLogo = document.getElementById('login-brand-logo');
+  const dstLogo = document.getElementById('shop-open-logo');
+  if (srcLogo && dstLogo) dstLogo.innerHTML = srcLogo.innerHTML;
+  const srcName = document.getElementById('login-brand-name');
+  const dstName = document.getElementById('shop-open-name');
+  if (srcName && dstName) dstName.textContent = srcName.textContent;
+
+  // Restart the CSS timeline from the beginning
+  s.classList.remove('hiding', 'play');
+  s.style.display = 'flex';
+  void s.offsetWidth;                 // force reflow so animations restart
+  s.classList.add('play');
+
+  const start = Date.now();
+  let hideTimer = null;
+  function hide() {
+    s.classList.add('hiding');
+    hideTimer = setTimeout(() => {
+      s.style.display = 'none';
+      s.classList.remove('hiding', 'play');
+    }, 450);
+  }
+  return {
+    done: async () => {
+      const wait = Math.max(0, minMs - (Date.now() - start));
+      await new Promise(r => setTimeout(r, wait));
+      hide();
+    },
+    cancel: () => {
+      clearTimeout(hideTimer);
+      s.style.display = 'none';
+      s.classList.remove('hiding', 'play');
+    },
+  };
+}
+
 // ═══════════════════════════════════════════════════════
 // PRINT ANIMATIONS
 // ═══════════════════════════════════════════════════════
@@ -526,10 +651,15 @@ async function doLogin() {
   errorBox.style.display = 'none';
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Signing in...';
+  let loader = null;
   try {
     const user = await AuthAPI.login(email, password);
+    loader = beginPortalLoader();
     await loginAs(user);
+    await loader.done();
+    loader = null;
   } catch (err) {
+    if (loader) { loader.cancel(); loader = null; }
     errorBox.textContent = err.message || 'Invalid email or password';
     errorBox.style.display = 'block';
     toast(err.message || 'Login failed', 'error');
@@ -610,7 +740,13 @@ async function loginAs(user) {
   });
 
   const landingPage = _applyRoleNav(user.role);
-  initApp(landingPage);
+  const landingReady = initApp(landingPage);
+  // Resolve only once the landing page has loaded its data (never longer than
+  // 2.5s), so whatever loader is covering the screen lifts on a finished portal.
+  await Promise.race([
+    Promise.resolve(landingReady).catch(() => {}),
+    new Promise(r => setTimeout(r, 2500)),
+  ]);
 }
 async function doLogout() {
   const ok = await confirmModal('You will be signed out of SmartRetail ERP.', {
@@ -620,6 +756,7 @@ async function doLogout() {
     await AuthAPI.logout();
     document.getElementById('app').classList.remove('visible');
     document.getElementById('login-screen').style.display = 'flex';
+    initLoginCursor();
     currentUser = null;
     document.getElementById('admin-nav').style.display = '';
     document.querySelectorAll('.nav-item').forEach(e => e.style.display = '');
@@ -697,7 +834,10 @@ function navigate(page) {
     purchasereturn: renderPurchaseReturns,
     settings: renderSettings,
   };
-  if (renders[page]) renders[page]();
+  // Keep the render's promise (if it returns one) so callers like loginAs can
+  // wait until the page has really loaded its data. Existing callers ignore it.
+  let _renderResult = null;
+  try { if (renders[page]) _renderResult = renders[page](); } catch (e) { console.error(e); }
   // Wires the modern date/time picker onto any of its known field-ids that
   // exist on whichever page just rendered (booking, saleslips, salereturn,
   // etc.) — a no-op for pages that don't have any of those ids, and safe
@@ -707,6 +847,7 @@ function navigate(page) {
   document.getElementById('notif-panel').classList.add('hidden');
   // Close sidebar on mobile after navigation
   closeSidebarMobile();
+  return _renderResult;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -714,7 +855,7 @@ function navigate(page) {
 // ═══════════════════════════════════════════════════════
 function initApp(landingPage) {
   initTheme();
-  navigate(landingPage || 'dashboard');
+  const landing = navigate(landingPage || 'dashboard');
   setInterval(updateClock, 1000);
   updateClock();
   updatePosCustomers();
@@ -723,99 +864,7 @@ function initApp(landingPage) {
   // Keep the bell reasonably fresh without the person needing to reload —
   // re-checks every 2 minutes while the app is open.
   setInterval(renderNotifications, 120000);
-  initThemedSelects();
-}
-
-// Progressively enhances every <select class="themed-select"> (the
-// "Status Filter" dropdowns) into a fully custom-drawn dropdown list, so
-// the highlighted option is always coral — a plain <select>'s own list is
-// drawn by the OS/browser and can't be reliably recolored (Windows always
-// painted it system-blue regardless of any CSS). The real <select> stays
-// in the DOM, just visually hidden, so every existing onchange="..."
-// keeps firing exactly as before; this only replaces how it LOOKS.
-function initThemedSelects() {
-  document.querySelectorAll('select.themed-select').forEach(sel => {
-    if (sel.dataset.tselDone) return;
-    sel.dataset.tselDone = '1';
-
-    const wrap = document.createElement('div');
-    wrap.className = 'tsel-wrap';
-    // Copy the select's own size/spacing (width, padding, font-size —
-    // whatever inline style it already had) onto the wrap so the visible
-    // button ends up exactly the same box the plain select used to be.
-    wrap.setAttribute('style', sel.getAttribute('style') || '');
-    sel.removeAttribute('style');
-
-    const btn = document.createElement('div');
-    btn.className = 'form-input tsel-btn';
-    btn.innerHTML = `<span class="tsel-btn-label"></span><i class="fa fa-chevron-down"></i>`;
-
-    const list = document.createElement('div');
-    list.className = 'tsel-list';
-
-    sel.parentNode.insertBefore(wrap, sel);
-    wrap.appendChild(sel);
-    wrap.appendChild(btn);
-    wrap.appendChild(list);
-
-    const label = btn.querySelector('.tsel-btn-label');
-
-    function buildList() {
-      list.innerHTML = '';
-      Array.from(sel.options).forEach((opt, i) => {
-        const row = document.createElement('div');
-        row.className = 'tsel-option' + (opt.selected ? ' tsel-selected' : '');
-        row.textContent = opt.textContent;
-        row.dataset.i = i;
-        row.addEventListener('click', () => {
-          sel.selectedIndex = i;
-          sel.dispatchEvent(new Event('change', { bubbles: true }));
-          sync();
-          close();
-        });
-        list.appendChild(row);
-      });
-    }
-    // Keeps the button label + highlighted option in sync with the real
-    // select's current value — called on our own clicks, and also on the
-    // select's own 'change' event in case something else in the app ever
-    // sets its value programmatically.
-    function sync() {
-      label.textContent = sel.options[sel.selectedIndex]?.textContent || '';
-      list.querySelectorAll('.tsel-option').forEach(row => {
-        row.classList.toggle('tsel-selected', Number(row.dataset.i) === sel.selectedIndex);
-      });
-    }
-    function open() {
-      document.querySelectorAll('.tsel-wrap.open').forEach(w => { if (w !== wrap) w.classList.remove('open'); });
-      buildList(); sync();
-      wrap.classList.add('open');
-      const sel_ = list.querySelector('.tsel-selected');
-      if (sel_) sel_.scrollIntoView({ block: 'nearest' });
-    }
-    function close() { wrap.classList.remove('open'); }
-
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      wrap.classList.contains('open') ? close() : open();
-    });
-    sel.addEventListener('change', sync);
-    buildList(); sync();
-  });
-
-  // One shared outside-click / Escape handler for every themed-select on
-  // the page, registered once regardless of how many selects get enhanced.
-  if (!window._tselGlobalHandlersBound) {
-    window._tselGlobalHandlersBound = true;
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.tsel-wrap')) {
-        document.querySelectorAll('.tsel-wrap.open').forEach(w => w.classList.remove('open'));
-      }
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') document.querySelectorAll('.tsel-wrap.open').forEach(w => w.classList.remove('open'));
-    });
-  }
+  return landing;
 }
 function updateClock() {
   const now = new Date();
@@ -1037,146 +1086,167 @@ async function renderCharts(summary) {
     charts.sales.render();
   }
 
-  // Category chart — product count per category, drawn as the infographic
-  // polar-area donut (renderCategoryPolarPie, styles under ".rpie").
+  // Category breakdown — product count per category (catalog composition, not
+  // sales), drawn as a polar-area donut with side call-outs. Plain SVG + HTML,
+  // so it needs no chart library and follows the light/dark theme through CSS.
+  if (charts.cat && typeof charts.cat.destroy === 'function') { try { charts.cat.destroy(); } catch (e) {} }
+  charts.cat = null;
   const cc = document.getElementById('categoryChart');
   if (cc) {
-    if (charts.cat && charts.cat.destroy) { try { charts.cat.destroy(); } catch (e) {} }
-    charts.cat = null;
     const prodData = await ProductsAPI.list({ page_size: 500 });
     const products = prodData.results || prodData;
     const catCounts = {};
-    products.forEach(p => { const n = p.category_name || 'Uncategorized'; catCounts[n] = (catCounts[n] || 0) + 1; });
-    renderCategoryPolarPie(cc, Object.entries(catCounts).map(([name, count]) => ({ name, count })));
+    products.forEach(p => { const k = p.category_name || 'Uncategorized'; catCounts[k] = (catCounts[k] || 0) + 1; });
+    renderCategoryPolarPie(cc, catCounts);
   }
 }
 
-
 // ═══════════════════════════════════════════════════════
-// CATEGORY POLAR-AREA DONUT (dashboard "Revenue by Category" card)
-// Infographic style: a dark ring + light core in the middle, one wedge per
-// category whose LENGTH grows with its share, big % on each wedge and a
-// call-out (icon + name + detail) joined by a leader line. Styles live in
-// style.css under ".rpie". Shows the top 3 categories + "Others" when there
-// are more than 4. Hover a wedge or a call-out to pop it and dim the rest.
+// CATEGORY POLAR-AREA DONUT
+// Equal-angle slices whose LENGTH (radius) is the category's share, around a
+// dark ring and light core that shows the total. Up to 4 slices: the top 3
+// categories + "Others" when there are more. Each slice gets a call-out (icon,
+// name, count) tied to it with a leader line. All sizes live in one 620x440
+// viewBox, and the call-outs are positioned in % of it, so it scales as one piece.
 // ═══════════════════════════════════════════════════════
-function renderCategoryPolarPie(host, rawItems) {
-  if (!host) return;
-  host.classList.add('rpie-host');
-  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+function renderCategoryPolarPie(host, catCounts) {
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const W = 620, H = 440, CX = 310, CY = 220;
+  const R_RING = 60, R_CORE = 44, R_MAX = 142;
 
-  let items = (rawItems || []).filter(i => i.count > 0).sort((a, b) => b.count - a.count);
-  const total = items.reduce((s, i) => s + i.count, 0);
+  let entries = Object.entries(catCounts).filter(([, n]) => n > 0).sort((x, y) => y[1] - x[1]);
+  const total = entries.reduce((s, [, n]) => s + n, 0);
   if (!total) {
-    host.innerHTML = '<div class="rpie-empty"><i class="fa fa-chart-pie"></i><div>No products yet — add some to see the category split.</div></div>';
+    host.innerHTML = '<div class="rpie-empty"><i class="fa fa-chart-pie"></i><span>No products yet — add products to see the category breakdown</span></div>';
     return;
   }
-  if (items.length > 4) {
-    const rest = items.slice(3);
-    items = items.slice(0, 3).concat([{ name: 'Others', count: rest.reduce((s, i) => s + i.count, 0), groupCount: rest.length }]);
+  if (entries.length > 4) {
+    const rest = entries.slice(3).reduce((s, [, n]) => s + n, 0);
+    entries = entries.slice(0, 3).concat([['Others', rest]]);
   }
+  const N = entries.length;
+  const maxCount = Math.max(...entries.map(e => e[1]));
+  const span = 360 / N;
 
-  // whole-number percentages that add up to exactly 100 (largest remainder)
-  const raw = items.map(i => i.count / total * 100);
-  const pct = raw.map(Math.floor);
-  let left = 100 - pct.reduce((a, b) => a + b, 0);
-  raw.map((r, i) => [r - pct[i], i]).sort((a, b) => b[0] - a[0]).slice(0, left).forEach(([, i]) => pct[i]++);
+  // Fixed colours per slot (crimson, coral-orange, amber, plum) + icon per slot.
+  const SLOTS = [
+    { cls: 'c0', icon: 'fa-boxes-stacked', pct: '#fff' },
+    { cls: 'c1', icon: 'fa-tags',          pct: '#fff' },
+    { cls: 'c2', icon: 'fa-layer-group',   pct: '#5c2247' },
+    { cls: 'c3', icon: 'fa-ellipsis',      pct: '#fff' },
+  ];
+  // Corners: angle of each (clockwise from 12 o'clock), and which side/half.
+  const CORNERS = [
+    { ang: 45,  sx: 1,  sy: -1 }, { ang: 135, sx: 1,  sy: 1 },
+    { ang: 225, sx: -1, sy: 1 },  { ang: 315, sx: -1, sy: -1 },
+  ];
+  const rad = d => d * Math.PI / 180;
+  const pt = (r, ang) => [CX + r * Math.sin(rad(ang)), CY - r * Math.cos(rad(ang))];
+  const angDist = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
 
-  const CX = 310, CY = 220, RING = 66, CORE = 46, RMIN = 100, RMAX = 145, GAP = 70;
-  const ICONS = ['fa-tags', 'fa-box-open', 'fa-shopping-basket', 'fa-layer-group'];
-  const vmax = Math.max(...items.map(i => i.count));
-  const P = (a, r) => [CX + r * Math.cos(a), CY + r * Math.sin(a)];
-  const f = n => n.toFixed(1);
-
-  let a0 = -Math.PI / 2;                       // start at 12 o'clock, clockwise
-  const sides = { l: [], r: [] };
-  const slices = items.map((it, k) => {
-    const sweep = Math.min(it.count / total * Math.PI * 2, Math.PI * 2 - 0.0001);
-    const a1 = a0 + sweep, am = a0 + sweep / 2;
-    const ro = RMIN + (RMAX - RMIN) * (it.count / vmax);
-    const large = sweep > Math.PI ? 1 : 0;
-    const [x1o, y1o] = P(a0, ro), [x2o, y2o] = P(a1, ro), [x1i, y1i] = P(a0, RING), [x2i, y2i] = P(a1, RING);
-    const d = `M${f(x1o)} ${f(y1o)}A${f(ro)} ${f(ro)} 0 ${large} 1 ${f(x2o)} ${f(y2o)}L${f(x2i)} ${f(y2i)}A${RING} ${RING} 0 ${large} 0 ${f(x1i)} ${f(y1i)}Z`;
-    const [tx, ty] = P(am, RING + (ro - RING) * 0.4);   // % sits inner, leader dot sits at the outer edge
-    const [dotX, dotY] = P(am, ro - 8);
-    const [elbX, elbY] = P(am, ro + 14);
-    const side = Math.cos(am) >= 0 ? 'r' : 'l';
-    const s = { k, it, d, am, ro, tx, ty, dotX, dotY, elbX, elbY, side, sweep,
-                dx: Math.cos(am) * 7, dy: Math.sin(am) * 7, y: elbY };
-    sides[side].push(s);
-    a0 = a1;
-    return s;
+  // Assign each slice the nearest free corner for its call-out.
+  const free = CORNERS.slice();
+  const slices = entries.map(([name, count], i) => {
+    const a0 = i * span, a1 = (i + 1) * span, mid = (a0 + a1) / 2;
+    const share = count / total;
+    const r1 = R_RING + (R_MAX - R_RING) * (0.32 + 0.68 * (count / maxCount));
+    let bi = 0;
+    free.forEach((c, k) => { if (angDist(c.ang, mid) < angDist(free[bi].ang, mid)) bi = k; });
+    const corner = free.splice(bi, 1)[0];
+    return { name, count, share, a0, a1, mid, r1, corner, slot: SLOTS[i % SLOTS.length], i };
   });
 
-  // keep call-outs on the same side from overlapping
-  ['l', 'r'].forEach(sd => {
-    const arr = sides[sd].sort((a, b) => a.y - b.y);
-    arr.forEach((s, i) => { s.y = Math.max(s.y, i ? arr[i - 1].y + GAP : 40); });
-    for (let i = arr.length - 1; i >= 0; i--) arr[i].y = Math.min(arr[i].y, 400 - (arr.length - 1 - i) * GAP);
-  });
-
-  const EDGE_L = 143, EDGE_R = 477;
-  let svg = '';
-  slices.forEach(s => {
-    const lbl = pct[s.k] || '<1';
-    svg += `<g class="rpie-slice c${s.k}" data-k="${s.k}" style="--i:${s.k};--dx:${f(s.dx)}px;--dy:${f(s.dy)}px">
-      <path class="rpie-shape" d="${s.d}"/>
-      ${s.sweep > 0.24 ? `<text class="rpie-pct" x="${f(s.tx)}" y="${f(s.ty)}" text-anchor="middle" dominant-baseline="central" font-size="${s.sweep > 0.6 ? 19 : 13}" fill="${s.k === 2 ? '#5c2247' : '#fff'}">${lbl}%</text>` : ''}
-    </g>`;
-  });
-  svg += `<circle class="rpie-ring" cx="${CX}" cy="${CY}" r="${RING}" style="filter:drop-shadow(0 4px 7px rgba(0,0,0,.28))"/>
-    <circle class="rpie-core" cx="${CX}" cy="${CY}" r="${CORE}"/>
-    <text class="rpie-total" x="${CX}" y="${CY - 1}" text-anchor="middle" dominant-baseline="central">${total.toLocaleString()}</text>
-    <text class="rpie-total-lbl" x="${CX}" y="${CY + 15}" text-anchor="middle">PRODUCTS</text>`;
-  slices.forEach(s => {
-    const ex = s.side === 'r' ? EDGE_R : EDGE_L;
-    svg += `<g class="rpie-lead" style="--i:${s.k}">
-      <polyline pathLength="1" points="${f(s.dotX)},${f(s.dotY)} ${f(s.elbX)},${f(s.y)} ${ex},${f(s.y)}"/>
-      <circle cx="${f(s.dotX)}" cy="${f(s.dotY)}" r="5"/>
-    </g>`;
-  });
-
-  const cos = slices.map(s => {
-    const it = s.it;
-    const detail = it.groupCount
-      ? `${it.count} products · ${it.groupCount} categories`
-      : `${it.count} product${it.count === 1 ? '' : 's'} · ${pct[s.k] || '<1'}% of catalog`;
-    return `<div class="rpie-co c${s.k} ${s.side}" data-k="${s.k}" style="--i:${s.k};left:${s.side === 'r' ? '77%' : '0'};width:23%;top:${((s.y - 16) / 440 * 100).toFixed(2)}%">
-      <span class="rpie-ico"><i class="fa ${ICONS[s.k % ICONS.length]}"></i></span>
-      <div class="rpie-txt"><div class="rpie-name" title="${esc(it.name)}">${esc(it.name)}</div><div class="rpie-desc">${esc(detail)}</div></div>
-    </div>`;
-  }).join('');
-
-  host.innerHTML = `<div class="rpie">
-    <svg class="rpie-svg" viewBox="0 0 620 440" role="img" aria-label="Products by category">${svg}</svg>
-    ${cos}<div class="rpie-tip" hidden></div></div>`;
-
-  // hover: pop the slice + its call-out, dim the rest, follow the pointer with a tooltip
-  const root = host.querySelector('.rpie'), tip = root.querySelector('.rpie-tip');
-  const setHover = (k, on) => {
-    root.classList.toggle('has-hover', on);
-    root.querySelectorAll(`[data-k="${k}"]`).forEach(el => el.classList.toggle('is-hover', on));
+  const sector = (r0, r1, a0, a1) => {
+    const full = a1 - a0 >= 359.99;
+    if (full) {
+      const [x0, y0] = pt(r1, 0), [x1, y1] = pt(r1, 180), [ix0, iy0] = pt(r0, 0), [ix1, iy1] = pt(r0, 180);
+      return `M${x0},${y0} A${r1},${r1} 0 1 1 ${x1},${y1} A${r1},${r1} 0 1 1 ${x0},${y0} Z M${ix0},${iy0} A${r0},${r0} 0 1 0 ${ix1},${iy1} A${r0},${r0} 0 1 0 ${ix0},${iy0} Z`;
+    }
+    const large = (a1 - a0) > 180 ? 1 : 0;
+    const [ox0, oy0] = pt(r1, a0), [ox1, oy1] = pt(r1, a1), [ix1, iy1] = pt(r0, a1), [ix0, iy0] = pt(r0, a0);
+    return `M${ox0},${oy0} A${r1},${r1} 0 ${large} 1 ${ox1},${oy1} L${ix1},${iy1} A${r0},${r0} 0 ${large} 0 ${ix0},${iy0} Z`;
   };
-  root.querySelectorAll('.rpie-slice, .rpie-co').forEach(el => {
-    const k = +el.dataset.k, s = slices[k];
-    el.addEventListener('mouseenter', () => {
-      setHover(k, true);
-      tip.innerHTML = `<b>${esc(s.it.name)}</b><br>${s.it.count} product${s.it.count === 1 ? '' : 's'} (${(s.it.count / total * 100).toFixed(1)}%)`;
-      tip.hidden = false;
-    });
-    el.addEventListener('mousemove', e => {
-      const r = root.getBoundingClientRect();
-      tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 4) + 'px';
-      tip.style.top = Math.max(e.clientY - r.top - tip.offsetHeight - 10, 0) + 'px';
-    });
-    el.addEventListener('mouseleave', () => { setHover(k, false); tip.hidden = true; });
-  });
-}
+  const pctText = s => { const v = s * 100; return v > 0 && v < 1 ? '<1%' : Math.round(v) + '%'; };
+  const fmt = n => Number(n).toLocaleString('en-US');
 
-function explodeCategoryPie(e) {
-  const dp = e.dataSeries.dataPoints[e.dataPointIndex];
-  dp.exploded = !dp.exploded;
-  e.chart.render();
+  let svg = `<svg class="rpie-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Products by category">`;
+  svg += `<defs><filter id="rpieShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000" flood-opacity=".22"/></filter></defs>`;
+
+  // slices (+ % label inside each)
+  slices.forEach(s => {
+    const [tx, ty] = pt(R_RING + (s.r1 - R_RING) * 0.42, s.mid);
+    const fs = Math.max(10.5, Math.min(22, (s.r1 - R_RING) * 0.3));
+    const [ox, oy] = pt(7, s.mid);                        // hover pop-out direction
+    svg += `<g class="rpie-slice ${s.slot.cls}" data-i="${s.i}" style="--i:${s.i};--dx:${(ox - CX).toFixed(1)}px;--dy:${(oy - CY).toFixed(1)}px">
+      <path class="rpie-shape" d="${sector(R_RING, s.r1, s.a0, s.a1)}" fill-rule="evenodd"/>
+      <text class="rpie-pct" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" fill="${s.slot.pct}" font-size="${fs.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${pctText(s.share)}</text>
+    </g>`;
+  });
+
+  // ring + core
+  svg += `<circle class="rpie-ring" cx="${CX}" cy="${CY}" r="${R_RING}" filter="url(#rpieShadow)"/>
+          <circle class="rpie-core" cx="${CX}" cy="${CY}" r="${R_CORE}"/>
+          <text class="rpie-total" x="${CX}" y="${CY - 3}" text-anchor="middle" dominant-baseline="central">${esc(fmt(total))}</text>
+          <text class="rpie-total-lbl" x="${CX}" y="${CY + 15}" text-anchor="middle" dominant-baseline="central">PRODUCTS</text>`;
+
+  // leader lines: dot inside the slice -> 45° knee -> horizontal to the call-out icon
+  const AX = 162;                                    // call-out inner edge, distance from centre
+  slices.forEach(s => {
+    const c = s.corner;
+    const ly = CY + c.sy * (R_MAX + 8);              // just beyond the longest possible slice: the horizontal run never crosses one
+    let dAng = s.mid + Math.max(-1, Math.min(1, (((c.ang - s.mid + 540) % 360) - 180) / 90)) * Math.min(span * 0.28, 28);
+    dAng = Math.max(s.a0 + 6, Math.min(s.a1 - 6, dAng));
+    const [px, py] = pt(Math.max(R_RING + 16, s.r1 - 9), dAng);
+    const ax = CX + c.sx * AX;
+    let kx = px + c.sx * Math.abs(ly - py);
+    if (c.sx * (ax - kx) < 12) kx = ax - c.sx * 12;
+    s.lead = { ly, ax, px, py };
+    svg += `<g class="rpie-lead ${s.slot.cls}" style="--i:${s.i}">
+      <polyline pathLength="1" points="${px.toFixed(1)},${py.toFixed(1)} ${kx.toFixed(1)},${ly.toFixed(1)} ${ax.toFixed(1)},${ly.toFixed(1)}"/>
+      <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4"/>
+    </g>`;
+  });
+  svg += '</svg>';
+
+  // call-outs (HTML, positioned in % of the viewBox so text stays crisp)
+  let co = '';
+  slices.forEach(s => {
+    const c = s.corner, { ly, ax } = s.lead;
+    const w = 140, gap = 4;
+    const left = c.sx > 0 ? ax + gap : ax - gap - w;
+    co += `<div class="rpie-co ${s.slot.cls} ${c.sx > 0 ? 'r' : 'l'}" data-i="${s.i}" style="--i:${s.i};left:${(left / W * 100).toFixed(2)}%;top:${((ly - 13) / H * 100).toFixed(2)}%;width:${(w / W * 100).toFixed(2)}%">
+      <span class="rpie-ico"><i class="fa ${s.slot.icon}"></i></span>
+      <span class="rpie-txt">
+        <b class="rpie-name" title="${esc(s.name)}">${esc(s.name)}</b>
+        <span class="rpie-desc">${fmt(s.count)} product${s.count === 1 ? '' : 's'} · ${pctText(s.share)} of catalog</span>
+      </span>
+    </div>`;
+  });
+
+  host.innerHTML = `<div class="rpie">${svg}${co}<div class="rpie-tip" hidden></div></div>`;
+
+  // hover: pop the slice, dim the rest, show a tooltip; hovering a call-out does the same
+  const root = host.querySelector('.rpie'), tip = root.querySelector('.rpie-tip');
+  const setHover = i => {
+    root.classList.toggle('has-hover', i !== null);
+    root.querySelectorAll('[data-i]').forEach(el => el.classList.toggle('is-hover', String(i) === el.dataset.i));
+  };
+  root.addEventListener('mouseover', e => {
+    const t = e.target.closest('[data-i]'); if (!t) return;
+    const s = slices[+t.dataset.i]; setHover(s.i);
+    tip.innerHTML = `<b>${esc(s.name)}</b><br>${fmt(s.count)} of ${fmt(total)} products (${pctText(s.share)})`;
+    tip.hidden = false;
+  });
+  root.addEventListener('mousemove', e => {
+    if (tip.hidden) return;
+    const r = root.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 4) + 'px';
+    tip.style.top  = Math.max(e.clientY - r.top - tip.offsetHeight - 10, 2) + 'px';
+  });
+  root.addEventListener('mouseout', e => {
+    if (e.relatedTarget && root.contains(e.relatedTarget) && e.relatedTarget.closest && e.relatedTarget.closest('[data-i]')) return;
+    setHover(null); tip.hidden = true;
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2893,7 +2963,7 @@ async function renderReports() {
           <span style="font-size:13px;font-weight:600">📉 Total Expenses</span>
           <span style="font-size:16px;font-weight:800;color:var(--red)">Rs.${Number(pl.expenses).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
-        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
           <span style="font-size:13px;font-weight:600">📊 Cost of Goods Sold</span>
           <span style="font-size:16px;font-weight:800;color:var(--accent)">Rs.${Number(pl.cost_of_goods_sold).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
         </div>
@@ -3610,65 +3680,40 @@ async function onBookingCustomerChange() {
   document.getElementById('bk-acc-search').value = acc;
   if (searchEl) searchEl.value = `${cust.name} (${acc})`;
   document.getElementById('bk-customer-info').style.display='';
+  // Show the cached figure immediately (feels instant), then correct it
+  // with the live ledger value — same source the backend will snapshot
+  // onto the invoice when this booking is saved.
+  _bkPrevBalanceLive = Number(cust.outstanding_balance)||0;
+  document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
   document.getElementById('bk-total-purchases').textContent = String(cust.loyalty_points || 0);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
-  // Customer.outstanding_balance (from the customer list fetched when this
-  // form opened) is a cached snapshot — if the customer's ledger was
-  // cleared/paid off anywhere else since then (Customer Collection, Ledger
-  // Accounts...), that field can still read the OLD balance for the rest
-  // of this session. Showing it first, even briefly, was exactly that
-  // stale-cache flash. So: show a loading placeholder and wait for the
-  // live ledger fetch — the actual current balance — instead of guessing.
-  _bkPrevBalanceLive = 0;
-  document.getElementById('bk-prev-balance').textContent = '…';
   calcBookingTotals();
 
   try {
     const ledger = await CustomersAPI.ledger(cust.id);
     // Bail out if the customer selection changed while this was in flight.
     if (parseInt(document.getElementById('bk-customer').value) !== cust.id) return;
-    _bkPrevBalanceLive = Math.max(0, Number(ledger.remaining)||0);
+    _bkPrevBalanceLive = Number(ledger.remaining)||0;
     document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
     calcBookingTotals();
   } catch (err) {
-    // Live fetch failed (offline/server error) — fall back to the cached
-    // field rather than leaving "…" up forever, but this is the last
-    // resort, not the default path.
-    if (parseInt(document.getElementById('bk-customer').value) !== cust.id) return;
-    _bkPrevBalanceLive = Math.max(0, Number(cust.outstanding_balance)||0);
-    document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
-    calcBookingTotals();
+    // Live ledger fetch failed — keep the cached-field estimate shown above.
   }
 }
 
 // ── Customer search-as-you-type (Order Booking) ───────────────────
 // Same UX as the product search box: type any part of the name or phone
 // number and matching customers drop down below the field.
-function _bkEsc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
-}
-// Escapes text and wraps the part matching the typed query in <mark>.
-function _bkHilite(text, lc) {
-  const t = String(text == null ? '' : text);
-  const i = lc ? t.toLowerCase().indexOf(lc) : -1;
-  if (i < 0) return _bkEsc(t);
-  return _bkEsc(t.slice(0, i)) +
-    '<mark style="background:var(--accent-glow);color:var(--accent);border-radius:3px;padding:0 1px">' + _bkEsc(t.slice(i, i + lc.length)) + '</mark>' +
-    _bkEsc(t.slice(i + lc.length));
-}
-function _bkCustDropRows(list, lc) {
-  return list.map((c, idx) => {
+function _bkCustDropRows(list) {
+  return list.map(c => {
     const acc = 'ACC-'+String(c.id).padStart(4,'0');
     const bal = Number(c.outstanding_balance)||0;
     const balColor = bal>0 ? 'var(--red)' : 'var(--green)';
-    // Area/address under the name — tells apart two shops with similar names.
-    const area = [c.address, c.city].filter(Boolean).join(', ');
-    return `<div class="bk-cust-row" data-idx="${idx}" data-id="${c.id}" onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="bkCustHover(${idx})">
+    return `<div onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
       <span style="font-size:18px;flex-shrink:0">👤</span>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_bkHilite(c.name, lc)}</div>
-        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_bkHilite(acc, lc)}${c.phone ? ' · '+_bkHilite(c.phone, lc) : ''}</div>
-        ${area ? `<div style="font-size:10px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px"><i class="fa fa-map-marker-alt" style="opacity:.6"></i> ${_bkHilite(area, lc)}</div>` : ''}
+        <div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">${acc}${c.phone ? ' · '+c.phone : ''}</div>
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:800;color:${balColor}">Rs.${bal.toFixed(2)}</div>
@@ -3678,101 +3723,61 @@ function _bkCustDropRows(list, lc) {
   }).join('');
 }
 
-// ── Customer dropdown: ranking, highlight, keyboard ──────────────────
-// Rank: 0 = name starts with the text, 1 = a word in the name starts with it,
-//       2 = name contains it, 3 = phone / email / account no. contains it.
-function _bkCustRank(c, lc) {
-  const name = (c.name||'').toLowerCase();
-  if (name.startsWith(lc)) return 0;
-  if (name.split(/[\s.\-_]+/).some(w => w.startsWith(lc))) return 1;
-  if (name.includes(lc)) return 2;
-  const phone = (c.phone||'').toLowerCase(), email = (c.email||'').toLowerCase();
-  const acc = 'acc-'+String(c.id).padStart(4,'0');
-  const area = ((c.address||'') + ' ' + (c.city||'')).toLowerCase();
-  if (phone.includes(lc) || email.includes(lc) || acc.includes(lc) || area.includes(lc)) return 3;
-  return -1;
-}
-let _bkCustShown = [];   // customers currently listed in the dropdown
-let _bkCustActive = -1;  // keyboard-highlighted row
-let _bkCustReq = 0;      // latest search id — ignores slow, out-of-date replies
-
-function _bkCustPaint(lc) {
-  const drop = document.getElementById('bk-cust-drop');
-  if (!drop) return;
-  const results = _bkCustomerCache
-    .map(c => ({ c, r: _bkCustRank(c, lc) }))
-    .filter(x => x.r >= 0)
-    .sort((a, b) => a.r - b.r || (a.c.name||'').localeCompare(b.c.name||''))
-    .slice(0, 30)
-    .map(x => x.c);
-  _bkCustShown = results;
-  _bkCustActive = results.length ? 0 : -1;
-  drop.style.display = 'block';
-  drop.innerHTML = results.length ? _bkCustDropRows(results, lc) : '';
-  _bkCustHover(_bkCustActive, false);
-  return results.length;
-}
-function _bkCustHover(idx, scroll) {
-  const drop = document.getElementById('bk-cust-drop');
-  if (!drop) return;
-  _bkCustActive = idx;
-  drop.querySelectorAll('.bk-cust-row').forEach(el => {
-    const on = Number(el.dataset.idx) === idx;
-    el.style.background = on ? 'var(--bg-secondary)' : '';
-    if (on && scroll) el.scrollIntoView({ block: 'nearest' });
-  });
-}
-function bkCustHover(idx) { _bkCustHover(idx, false); }
-function bkCustKey(e) {
-  const drop = document.getElementById('bk-cust-drop');
-  if (!drop || drop.style.display === 'none' || !_bkCustShown.length) return;
-  if (e.key === 'ArrowDown') { e.preventDefault(); _bkCustHover((_bkCustActive + 1) % _bkCustShown.length, true); }
-  else if (e.key === 'ArrowUp') { e.preventDefault(); _bkCustHover((_bkCustActive - 1 + _bkCustShown.length) % _bkCustShown.length, true); }
-  else if (e.key === 'Enter') { e.preventDefault(); const c = _bkCustShown[_bkCustActive]; if (c) bkCustSelect(c.id); }
-  else if (e.key === 'Escape') { bkCustDropClose(); }
-}
-
 function bkCustSearch(q) {
   const drop = document.getElementById('bk-cust-drop');
   if (!drop) return;
   const lc = (q||'').toLowerCase().trim();
-  if (!lc) { drop.style.display='none'; _bkCustShown = []; return; }
-  const reqId = ++_bkCustReq;
+  if (!lc) { drop.style.display='none'; return; }
+  const rank = (c) => {
+    const name = (c.name||'').toLowerCase();
+    const phone = (c.phone||'').toLowerCase(), email = (c.email||'').toLowerCase();
+    const acc = ('acc-'+String(c.id).padStart(4,'0'));
+    if (name.startsWith(lc)) return 0;   // starts-with → top of the list
+    if (name.includes(lc) || phone.includes(lc) || email.includes(lc) || acc.includes(lc)) return 1;
+    return -1; // no match
+  };
+  const localResults = _bkCustomerCache
+    .map(c => ({ c, r: rank(c) }))
+    .filter(x => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name))
+    .slice(0, 20)
+    .map(x => x.c);
 
-  // 1) Instant results from the customers already loaded.
-  const found = _bkCustPaint(lc);
-  if (!found) {
-    drop.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
-  }
+  drop.style.display='';
+  drop.innerHTML = localResults.length
+    ? _bkCustDropRows(localResults)
+    : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
 
-  // 2) Ask the server too — the local list only holds the first 500 customers.
-  //    The server's answer is MERGED into the local list and everything is
-  //    ranked together. (Before, the server's first-20 alphabetical matches —
-  //    names containing the letter anywhere — replaced the local starts-with
-  //    matches, so the right customers vanished after a moment.)
+  // _bkCustomerCache only ever holds the first batch of customers loaded
+  // when the form opened (capped at 500, alphabetical by name — see
+  // Customer.Meta.ordering) — with more customers than that, anyone whose
+  // name sorts past that cutoff (e.g. starts with a later letter) was
+  // invisible to this search even though they exist and show up fine on
+  // the Customers page, which searches the server live with no cap. A
+  // live search here closes that gap for good, regardless of how many
+  // customers exist — the local list above is just the instant preview
+  // while this resolves.
   debounced('bk-cust-live-search', async () => {
     let serverResults = [];
     try {
-      const data = await CustomersAPI.list({ search: q.trim(), page_size: 100 });
+      const data = await CustomersAPI.list({ search: q, page_size: 20 });
       serverResults = data.results || data;
     } catch (err) {
-      serverResults = [];   // offline/server error — keep what we have
+      return; // offline/server error — leave the local preview as-is
     }
+    // Merge any customer the server found but the local cache doesn't
+    // have yet, so picking them from the dropdown (bkCustSelect →
+    // onBookingCustomerChange, which looks them up by id) still works.
     serverResults.forEach(sc => {
       if (!_bkCustomerCache.some(c => c.id === sc.id)) _bkCustomerCache.push(sc);
     });
-    // Ignore if the user has typed something newer since.
-    if (reqId !== _bkCustReq) return;
+    // Only repaint if the user hasn't since changed what they're typing.
     if ((document.getElementById('bk-customer-search')?.value||'').toLowerCase().trim() !== lc) return;
-    const keepActive = _bkCustShown[_bkCustActive]?.id;
-    const n = _bkCustPaint(lc);
-    if (!n) {
-      drop.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
-    } else if (keepActive != null) {
-      const i = _bkCustShown.findIndex(c => c.id === keepActive);
-      if (i >= 0) _bkCustHover(i, false);
-    }
-  }, 200);
+    const finalResults = serverResults.length ? serverResults : localResults;
+    drop.innerHTML = finalResults.length
+      ? _bkCustDropRows(finalResults.slice(0, 20))
+      : '<div style="padding:12px 14px;font-size:12px;color:var(--text-muted);text-align:center"><i class="fa fa-search-minus"></i> No customer found</div>';
+  }, 250);
 }
 
 function bkCustSearchFocus() {
@@ -3781,11 +3786,8 @@ function bkCustSearchFocus() {
   if (!inp.value.trim()) {
     const drop = document.getElementById('bk-cust-drop');
     if (!drop || !_bkCustomerCache.length) return;
-    _bkCustShown = _bkCustomerCache.slice(0, 20);
-    _bkCustActive = 0;
-    drop.style.display = 'block';
-    drop.innerHTML = _bkCustDropRows(_bkCustShown, '');
-    _bkCustHover(0, false);
+    drop.style.display='';
+    drop.innerHTML = _bkCustDropRows(_bkCustomerCache.slice(0, 20));
   } else {
     bkCustSearch(inp.value);
   }
@@ -4238,6 +4240,7 @@ function calcBookingTotals() {
 
   const custId   = parseInt(document.getElementById('bk-customer')?.value)||0;
   const prevBal  = custId ? (Number(_bkPrevBalanceLive)||0) : 0;
+  const netPayable = total + prevBal;
 
   // ── Update tax label to show effective rate ────────────
   const taxLabel = document.getElementById('bk-tax-pct-label');
@@ -4260,6 +4263,7 @@ function calcBookingTotals() {
   set('bk-disc-val',      '-' + s(billDiscAmt));
   set('bk-total',          s(total));
   set('bk-prev-bal-mini',  s(prevBal));
+  set('bk-net-payable',    s(netPayable));
 }
 
 async function saveBooking(status) {
@@ -4785,7 +4789,8 @@ function buildSlipA4Html(rawSale) {
         ${(ssSettings.showDiscount && itemDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Item Discounts</span><span style="font-weight:600">- Rs. ${itemDiscAmt.toFixed(2)}</span></div>`:''}
         ${(ssSettings.showDiscount && billDiscAmt>0.005)?`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#16a34a"><span>Bill Discount</span><span style="font-weight:600">- Rs. ${billDiscAmt.toFixed(2)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#d9d9d9;color:#000;font-size:13px;font-weight:900"><span>BILL TOTAL</span><span>Rs. ${grandTotal.toFixed(2)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>${(b.prevBal||0)<0?'Previous Advance / Credit':'Previous Balance'}</span><span>Rs. ${Math.abs(b.prevBal||0).toFixed(2)}</span></div>`;
+        <div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #ddd;color:#000;font-weight:600"><span>${(b.prevBal||0)<0?'Previous Advance / Credit':'Previous Balance'}</span><span>Rs. ${Math.abs(b.prevBal||0).toFixed(2)}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#f59e0b;color:#000;font-size:13px;font-weight:900"><span>NET PAYABLE</span><span>Rs. ${(grandTotal+(b.prevBal||0)).toFixed(2)}</span></div>`;
         })()}
       </div>
     </div>
@@ -6800,7 +6805,7 @@ function renderCalendarGrid() {
         const todayDate = new Date(); todayDate.setHours(0,0,0,0);
         const isToday = cellDate.getTime() === todayDate.getTime();
         const isFuture = cellDate.getTime() > todayDate.getTime();
-        html += `<div style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);background:${isToday&&active?'rgba(59,130,246,.06)':''}">
+        html += `<div style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);background:${isToday&&active?'rgba(234,108,77,.06)':''}">
           ${active
             ? (isFuture
                 ? `<div style="background:var(--yellow-glow);border:1px solid rgba(245,158,11,.4);border-radius:6px;padding:4px 8px;text-align:center;width:90%">
@@ -9029,9 +9034,9 @@ async function printCollectionReport() {
 
     <!-- Summary Banner -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-      <div style="padding:10px 12px;background:#fdf1ec;border:1.5px solid #f3c3ac;border-radius:7px;text-align:center">
-        <div style="font-size:10px;font-weight:700;color:#c2502f;text-transform:uppercase;margin-bottom:3px">Total Billed</div>
-        <div style="font-size:18px;font-weight:900;color:#c2502f">Rs.${grandTotalOrders.toFixed(2)}</div>
+      <div style="padding:10px 12px;background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:7px;text-align:center">
+        <div style="font-size:10px;font-weight:700;color:#0369a1;text-transform:uppercase;margin-bottom:3px">Total Billed</div>
+        <div style="font-size:18px;font-weight:900;color:#0369a1">Rs.${grandTotalOrders.toFixed(2)}</div>
       </div>
       <div style="padding:10px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:7px;text-align:center">
         <div style="font-size:10px;font-weight:700;color:#15803d;text-transform:uppercase;margin-bottom:3px">Total Received</div>
@@ -9523,7 +9528,7 @@ document.addEventListener('DOMContentLoaded', function() {
     .stat-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,.45); }
     /* ── Button effects ── */
     .btn { transition: all .15s cubic-bezier(.4,0,.2,1); }
-    .btn-accent:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(59,130,246,.35); }
+    .btn-accent:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(234,108,77,.35); }
     .btn-green:hover  { transform:translateY(-1px); box-shadow:0 4px 16px rgba(16,185,129,.35); }
     .btn-ghost:hover  { transform:translateY(-1px); }
     /* ── Table row hover ── */
@@ -10081,3 +10086,268 @@ function togglePasswordVisibility(inputId, btn) {
   }
   btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
 }
+
+// ═══════════════════════════════════════════════════════
+// THEMED SELECT
+// The browser/OS draws a native <select>'s popup itself (that's the default
+// blue highlight bar) and CSS can't touch it. This swaps every <select> for a
+// custom dropdown styled with the app theme. The real <select> stays in the
+// DOM (hidden), so all existing code — .value reads/writes, onchange="",
+// options rebuilt with innerHTML — keeps working exactly as before.
+// Opt a select out with the data-native attribute.
+// ═══════════════════════════════════════════════════════
+(function initThemedSelects() {
+  const vDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  const iDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+  const LAYOUT_RE = /^(width|min-width|max-width|flex(-|$)|margin(-|$)|grid-column|align-self|justify-self)/;
+  let current = null; // the one open dropdown: { select, close }
+
+  function enhance(select) {
+    if (select._cs || select.multiple || select.size > 1 || select.hasAttribute('data-native')) return;
+    select._cs = true;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'cs-wrap';
+    const trig = document.createElement('button');
+    trig.type = 'button';
+    trig.className = (select.className + ' cs-trigger').trim();
+    trig.setAttribute('aria-haspopup', 'listbox');
+    trig.innerHTML = '<span class="cs-label"></span><i class="fa fa-chevron-down cs-caret"></i>';
+    const label = trig.firstChild;
+
+    // Inline layout styles (width/flex/margin) go on the wrapper so the
+    // dropdown sits in the page exactly where the select did; the rest
+    // (padding, font-size, colours…) go on the trigger so it looks the same.
+    for (let i = 0; i < select.style.length; i++) {
+      const p = select.style[i];
+      if (p === 'display') continue;
+      const v = select.style.getPropertyValue(p), pr = select.style.getPropertyPriority(p);
+      (LAYOUT_RE.test(p) ? wrap : trig).style.setProperty(p, v, pr);
+    }
+
+    select.parentNode.insertBefore(wrap, select);
+    wrap.appendChild(trig);
+    wrap.appendChild(select);
+    select.classList.add('cs-native');
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+    select.focus = () => trig.focus();
+
+    function sync() {
+      const opt = select.options[select.selectedIndex];
+      label.textContent = opt ? opt.text : '';
+      label.classList.toggle('cs-placeholder', !opt || (opt.disabled && opt.value === ''));
+      trig.disabled = select.disabled;
+      wrap.style.display = (select.style.display === 'none' || select.hidden) ? 'none' : '';
+    }
+
+    // Programmatic `select.value = x` / `select.selectedIndex = n` fire no
+    // event, so intercept the setters on this instance to keep the label right.
+    Object.defineProperty(select, 'value', {
+      configurable: true,
+      get() { return vDesc.get.call(this); },
+      set(v) { vDesc.set.call(this, v); sync(); }
+    });
+    Object.defineProperty(select, 'selectedIndex', {
+      configurable: true,
+      get() { return iDesc.get.call(this); },
+      set(v) { iDesc.set.call(this, v); sync(); }
+    });
+    select.addEventListener('change', sync);
+    new MutationObserver(() => {
+      sync();
+      if (current && current.select === select) current.close();
+    }).observe(select, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'style', 'hidden'] });
+    sync();
+
+    // ── dropdown panel ──
+    function open() {
+      if (select.disabled) return;
+      if (current) current.close();
+      sync();
+
+      const panel = document.createElement('div');
+      panel.className = 'cs-panel';
+      panel.setAttribute('role', 'listbox');
+      const list = document.createElement('div');
+      list.className = 'cs-list';
+      const items = [], groups = [];
+      let activeItem = null;
+
+      function addOption(o, group) {
+        const isSel = o.index === select.selectedIndex;
+        const el = document.createElement('div');
+        el.className = 'cs-opt' + (o.disabled ? ' disabled' : '') + (isSel ? ' selected' : '');
+        el.setAttribute('role', 'option');
+        el.innerHTML = '<span></span>' + (isSel ? '<i class="fa fa-check cs-check"></i>' : '');
+        el.firstChild.textContent = o.text;
+        const item = { el, option: o, text: o.text.toLowerCase(), visible: true, group };
+        el.addEventListener('mousedown', e => e.preventDefault());
+        el.addEventListener('mousemove', () => { if (!o.disabled) setActive(item); });
+        el.addEventListener('click', () => { if (!o.disabled) choose(o); });
+        list.appendChild(el);
+        items.push(item);
+        if (group) group.items.push(item);
+        return item;
+      }
+      Array.from(select.children).forEach(ch => {
+        if (ch.tagName === 'OPTGROUP') {
+          const gl = document.createElement('div');
+          gl.className = 'cs-group';
+          gl.textContent = ch.label;
+          list.appendChild(gl);
+          const g = { labelEl: gl, items: [] };
+          groups.push(g);
+          Array.from(ch.children).forEach(o => addOption(o, g));
+        } else if (ch.tagName === 'OPTION') {
+          addOption(ch, null);
+        }
+      });
+      if (!items.length) {
+        list.innerHTML = '<div class="cs-empty">No options</div>';
+      }
+
+      let search = null;
+      if (items.length > 8) {
+        search = document.createElement('input');
+        search.type = 'text';
+        search.className = 'cs-search';
+        search.placeholder = 'Search…';
+        search.autocomplete = 'off';
+        panel.appendChild(search);
+        search.addEventListener('input', () => {
+          const q = search.value.trim().toLowerCase();
+          items.forEach(it => { it.visible = !q || it.text.includes(q); it.el.style.display = it.visible ? '' : 'none'; });
+          groups.forEach(g => { g.labelEl.style.display = g.items.some(i => i.visible) ? '' : 'none'; });
+          const first = items.find(i => i.visible && !i.option.disabled);
+          setActive(first || null);
+        });
+      }
+      panel.appendChild(list);
+
+      function setActive(item) {
+        if (activeItem) activeItem.el.classList.remove('active');
+        activeItem = item;
+        if (item) { item.el.classList.add('active'); item.el.scrollIntoView({ block: 'nearest' }); }
+      }
+      function move(dir) {
+        const nav = items.filter(i => i.visible && !i.option.disabled);
+        if (!nav.length) return;
+        let idx = nav.indexOf(activeItem);
+        idx = idx === -1 ? (dir > 0 ? 0 : nav.length - 1) : (idx + dir + nav.length) % nav.length;
+        setActive(nav[idx]);
+      }
+      function choose(o) {
+        const changed = select.selectedIndex !== o.index;
+        iDesc.set.call(select, o.index);
+        sync();
+        close();
+        trig.focus();
+        if (changed) {
+          select.dispatchEvent(new Event('input', { bubbles: true }));
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); trig.focus(); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+        else if (e.key === 'Enter' || (e.key === ' ' && !search)) { e.preventDefault(); if (activeItem) choose(activeItem.option); }
+        else if (e.key === 'Tab') close();
+      }
+      function onDocDown(e) { if (!panel.contains(e.target) && !trig.contains(e.target)) close(); }
+      let ready = false;
+      function onScroll(e) { if (ready && !panel.contains(e.target)) close(); }
+      function onResize() { close(); }
+
+      function close() {
+        if (!panel.isConnected && current !== api) return;
+        panel.remove();
+        trig.classList.remove('open');
+        document.removeEventListener('mousedown', onDocDown, true);
+        document.removeEventListener('scroll', onScroll, true);
+        window.removeEventListener('resize', onResize);
+        trig.removeEventListener('keydown', onKey);
+        if (current === api) current = null;
+      }
+      const api = { select, close };
+      current = api;
+
+      document.body.appendChild(panel);
+      trig.classList.add('open');
+
+      // Position under the trigger (or above if there's more room there).
+      const r = trig.getBoundingClientRect();
+      panel.style.minWidth = r.width + 'px';
+      panel.style.maxWidth = Math.max(r.width, 360) + 'px';
+      const searchH = search ? 44 : 0;
+      const wanted = Math.min(list.scrollHeight + searchH + 14, 300);
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const goUp = below < Math.min(wanted, 200) && above > below;
+      const room = Math.max(120, goUp ? above : below);
+      list.style.maxHeight = Math.max(80, Math.min(300, room) - searchH - 14) + 'px';
+      const pw = panel.offsetWidth;
+      panel.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pw - 8)) + 'px';
+      if (goUp) { panel.classList.add('cs-up'); panel.style.bottom = (window.innerHeight - r.top + 6) + 'px'; }
+      else      { panel.style.top = (r.bottom + 6) + 'px'; }
+
+      const selItem = items.find(i => i.option.index === select.selectedIndex && !i.option.disabled);
+      setActive(selItem || items.find(i => !i.option.disabled) || null);
+      if (selItem) selItem.el.scrollIntoView({ block: 'center' });
+
+      document.addEventListener('mousedown', onDocDown, true);
+      document.addEventListener('scroll', onScroll, true);
+      window.addEventListener('resize', onResize);
+      trig.addEventListener('keydown', onKey);
+      if (search) { search.addEventListener('keydown', onKey); search.focus(); }
+      requestAnimationFrame(() => { ready = true; });
+    }
+
+    trig.addEventListener('click', () => {
+      if (current && current.select === select) current.close(); else open();
+    });
+    trig.addEventListener('keydown', e => {
+      if (current && current.select === select) return; // handled by the open panel
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault(); open();
+      }
+    });
+  }
+
+  function scan(root) {
+    if (root.tagName === 'SELECT') enhance(root);
+    if (root.querySelectorAll) root.querySelectorAll('select').forEach(enhance);
+  }
+  function start() {
+    scan(document);
+    // Selects created later (modals/tables built with innerHTML) get enhanced too.
+    new MutationObserver(muts => {
+      for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) scan(n);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+
+// Live hint under "New Password" on the reset screen.
+document.addEventListener('DOMContentLoaded', () => {
+  const p1 = document.getElementById('rp-pass1');
+  const p2 = document.getElementById('rp-pass2');
+  const hint = document.getElementById('rp-hint');
+  if (!p1 || !hint) return;
+  const BASE = 'At least 8 characters. Avoid common passwords and all-digit passwords.';
+  function update() {
+    const v = p1.value;
+    hint.classList.remove('is-bad', 'is-good');
+    if (!v) { hint.textContent = BASE; return; }
+    if (v.length < 8) { hint.textContent = `Too short — ${8 - v.length} more character${8 - v.length === 1 ? '' : 's'} needed.`; hint.classList.add('is-bad'); return; }
+    if (/^\d+$/.test(v)) { hint.textContent = 'Passwords made only of digits are not allowed.'; hint.classList.add('is-bad'); return; }
+    if (p2 && p2.value && p2.value !== v) { hint.textContent = 'The two passwords do not match yet.'; hint.classList.add('is-bad'); return; }
+    hint.textContent = p2 && p2.value ? 'Looks good.' : 'Good length — now confirm it below.';
+    hint.classList.add('is-good');
+  }
+  p1.addEventListener('input', update);
+  if (p2) p2.addEventListener('input', update);
+});

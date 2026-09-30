@@ -33,6 +33,29 @@
   <div class="splash-version">v2.1.0 &nbsp;·&nbsp; SmartRetail Systems</div>
 </div>
 
+<!-- ── SHOP OPENING (shown after sign-in, before the portal) ─── -->
+<div id="shop-open-screen" aria-hidden="true">
+  <div class="so-stage">
+    <div class="so-shop">
+      <div class="so-sign">
+        <div class="so-sign-logo" id="shop-open-logo">🏪</div>
+        <div class="so-sign-name" id="shop-open-name">SmartRetail ERP</div>
+      </div>
+      <div class="so-awning"></div>
+      <div class="so-front">
+        <div class="so-interior">
+          <div class="so-shelf"><i></i><i></i><i></i><i></i></div>
+          <div class="so-shelf"><i></i><i></i><i></i><i></i></div>
+          <div class="so-open-sign">OPEN</div>
+        </div>
+        <div class="so-shutter"><span class="so-handle"></span></div>
+      </div>
+      <div class="so-ground"></div>
+    </div>
+    <div class="so-text">Opening your shop<span class="splash-dot">.</span><span class="splash-dot">.</span><span class="splash-dot">.</span></div>
+  </div>
+</div>
+
 <!-- ── PRINT ANIMATIONS (slips = printer, collection = cash counting, order summary = walking with product) ─── -->
 <div id="print-anim-screen" aria-hidden="true">
   <div class="pa-stage">
@@ -93,50 +116,64 @@
 <div id="login-screen">
   <div class="login-cursor-dot" id="login-cursor-dot"></div>
   <div class="login-cursor-circle" id="login-cursor-circle"></div>
-  <!-- Fixed software identity — deliberately NOT wired to Settings → Company
-       branding (that only affects .login-brand-panel below). This always
-       shows the original SmartRetail ERP mark, regardless of what logo/name
-       a client uploads for their own store. -->
-  <div class="login-top-brand">
-    <div class="login-top-brand-logo" id="login-top-brand-logo">🏪</div>
-    <div class="login-top-brand-name" id="login-top-brand-name">Smart<span>Retail</span> ERP</div>
-  </div>
   <div class="login-split">
+
+    <!-- Left: brand panel. #login-brand-logo / #login-brand-name are filled
+         from Settings → Company by loadLoginBranding() (falls back to the
+         default SmartRetail mark below). -->
     <div class="login-brand-panel">
       <div class="login-brand-blob login-brand-blob-1"></div>
       <div class="login-brand-blob login-brand-blob-2"></div>
       <div class="login-brand-blob login-brand-blob-3"></div>
       <div class="login-brand-content">
-        <div class="login-brand-logo" id="login-brand-logo">🏪</div>
-        <div class="login-brand-name" id="login-brand-name">Smart<span>Retail</span> ERP</div>
-        <div class="login-brand-version">v2.1.0</div>
+        <div class="login-brand-head">
+          <div class="login-brand-logo" id="login-brand-logo">🏪</div>
+          <div>
+            <div class="login-brand-name" id="login-brand-name">Smart<span>Retail</span> ERP</div>
+            <div class="login-brand-version">v2.1.0</div>
+          </div>
+        </div>
+        <h2 class="login-hero-title">Sell faster.<br>Track everything.</h2>
+        <p class="login-hero-sub">Billing, stock, ledgers and collections — all in one place, built for busy retail and distribution businesses.</p>
+        <ul class="login-features">
+          <li><span class="login-feature-icon"><i class="fa fa-bolt"></i></span><div><b>Fast booking &amp; POS</b><span>Create bills in seconds</span></div></li>
+          <li><span class="login-feature-icon"><i class="fa fa-boxes"></i></span><div><b>Live inventory</b><span>Stock, purchases and returns in sync</span></div></li>
+          <li><span class="login-feature-icon"><i class="fa fa-book"></i></span><div><b>Ledgers &amp; collections</b><span>Know who owes what, instantly</span></div></li>
+          <li><span class="login-feature-icon"><i class="fa fa-chart-line"></i></span><div><b>Reports that matter</b><span>Sales, profit and balance sheet</span></div></li>
+        </ul>
       </div>
       <div class="login-brand-footer">
         © <span id="login-year"></span> All Rights Reserved By Ali Ahmad&nbsp;|&nbsp;Full-Stack Python Django Developer
       </div>
     </div>
+
+    <!-- Right: sign-in form -->
     <div class="login-form-panel">
       <div class="login-box" id="login-view">
         <div class="login-title">Welcome back</div>
         <div class="login-sub">Sign in to manage your retail operations</div>
         <div class="form-group">
-          <label>Email</label>
-          <input class="form-input" id="l-user" type="text" placeholder="Enter email" autocomplete="username">
+          <label for="l-user">Email</label>
+          <div class="input-icon-wrap">
+            <i class="fa fa-envelope input-icon"></i>
+            <input class="form-input" id="l-user" type="text" placeholder="Enter email" autocomplete="username">
+          </div>
         </div>
         <div class="form-group">
-          <label>Password</label>
-          <div class="password-field">
+          <label for="l-pass">Password</label>
+          <div class="password-field input-icon-wrap">
+            <i class="fa fa-lock input-icon"></i>
             <input class="form-input" id="l-pass" type="password" placeholder="Enter password" autocomplete="current-password">
             <button type="button" class="password-toggle" onclick="togglePasswordVisibility('l-pass', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
           </div>
         </div>
+        <div class="login-row">
+          <a href="javascript:void(0)" class="login-link" onclick="showForgotPasswordView()">Forgot password?</a>
+        </div>
         <button class="btn-primary" id="login-btn" onclick="doLogin()">
           <i class="fa fa-sign-in-alt"></i> Sign In
         </button>
-        <div id="login-error" style="color:var(--red,#ef4444);font-size:12px;margin-top:8px;display:none"></div>
-        <div style="text-align:center;margin-top:14px">
-          <a href="javascript:void(0)" onclick="showForgotPasswordView()" style="font-size:13px;color:var(--accent);text-decoration:none">Forgot Password?</a>
-        </div>
+        <div id="login-error" class="login-error" style="display:none"></div>
       </div>
 
       <!-- ── FORGOT PASSWORD: request a reset link by email ── -->
@@ -144,15 +181,18 @@
         <div class="login-title">Forgot Password?</div>
         <div class="login-sub">Enter the email address associated with your account.</div>
         <div class="form-group">
-          <label>Email</label>
-          <input class="form-input" id="fp-email" type="email" placeholder="Enter your account email" autocomplete="username">
+          <label for="fp-email">Email</label>
+          <div class="input-icon-wrap">
+            <i class="fa fa-envelope input-icon"></i>
+            <input class="form-input" id="fp-email" type="email" placeholder="Enter your account email" autocomplete="username">
+          </div>
         </div>
         <button class="btn-primary" id="fp-btn" onclick="submitForgotPassword()">
           <i class="fa fa-paper-plane"></i> Send Reset Link
         </button>
         <div id="fp-message" style="font-size:12px;margin-top:8px;display:none"></div>
-        <div style="text-align:center;margin-top:14px">
-          <a href="javascript:void(0)" onclick="showLoginView()" style="font-size:13px;color:var(--accent);text-decoration:none">← Back to Login</a>
+        <div style="text-align:center;margin-top:18px">
+          <a href="javascript:void(0)" class="login-link" onclick="showLoginView()">← Back to Login</a>
         </div>
       </div>
 
@@ -162,15 +202,18 @@
           <div class="login-title">Reset Password</div>
           <div class="login-sub">Choose a new password for your account.</div>
           <div class="form-group">
-            <label>New Password</label>
-            <div class="password-field">
+            <label for="rp-pass1">New Password</label>
+            <div class="password-field input-icon-wrap">
+              <i class="fa fa-lock input-icon"></i>
               <input class="form-input" id="rp-pass1" type="password" placeholder="Enter new password" autocomplete="new-password">
               <button type="button" class="password-toggle" onclick="togglePasswordVisibility('rp-pass1', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
             </div>
+            <div class="login-hint" id="rp-hint">At least 8 characters. Avoid common passwords and all-digit passwords.</div>
           </div>
           <div class="form-group">
-            <label>Confirm New Password</label>
-            <div class="password-field">
+            <label for="rp-pass2">Confirm New Password</label>
+            <div class="password-field input-icon-wrap">
+              <i class="fa fa-lock input-icon"></i>
               <input class="form-input" id="rp-pass2" type="password" placeholder="Confirm new password" autocomplete="new-password">
               <button type="button" class="password-toggle" onclick="togglePasswordVisibility('rp-pass2', this)" tabindex="-1" aria-label="Show password"><i class="fa fa-eye"></i></button>
             </div>
@@ -193,12 +236,14 @@
         <!-- Shown after a successful reset -->
         <div id="reset-success-wrap" style="display:none;text-align:center">
           <div class="login-title" style="color:var(--green,#10b981)"><i class="fa fa-check-circle"></i> Password Reset Successful</div>
-          <div class="login-sub">Your password has been changed. You can now log in.</div>
-          <button class="btn-primary" onclick="showLoginView()">
-            <i class="fa fa-sign-in-alt"></i> Return to Login
+          <div class="login-sub">Your password has been changed and you have been signed out everywhere else. Sign in with your new password.</div>
+          <button class="btn-primary" onclick="showLoginAfterReset()">
+            <i class="fa fa-sign-in-alt"></i> Sign in with new password
           </button>
         </div>
       </div>
+
+      <div class="login-secure"><i class="fa fa-shield-alt"></i> Authorized users only</div>
     </div>
   </div>
 </div>
@@ -426,17 +471,18 @@
               </div>
             </div>
             <div class="card-body">
-              <div class="chart-container" id="salesChart" style="height:340px"></div>
+              <div class="chart-container" id="salesChart" style="height:380px"></div>
             </div>
           </div>
           <div class="card">
             <div class="card-header">
               <div>
-                <div class="card-title">Revenue by Category</div>
-                <div class="card-subtitle">This month</div>
+                <div class="card-title">Category Breakdown</div>
+                <div class="card-subtitle">Products by category</div>
               </div>
             </div>
             <div class="card-body">
+              <!-- Filled by renderCategoryPolarPie() in script.js -->
               <div class="rpie-host" id="categoryChart"></div>
             </div>
           </div>
@@ -599,7 +645,6 @@
                       placeholder="&#x1F50D; Search customer by name or phone..."
                       autocomplete="off" style="padding:9px 12px;width:100%"
                       oninput="bkCustSearch(this.value)"
-                      onkeydown="bkCustKey(event)"
                       onfocus="bkCustSearchFocus()"
                       onblur="setTimeout(bkCustDropClose,180)">
                     <div id="bk-cust-drop"
@@ -626,7 +671,7 @@
                     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">LOYALTY POINTS</div>
                     <div style="font-size:18px;font-weight:800;color:var(--green)" id="bk-total-purchases">0</div>
                   </div>
-                  <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px">
+                  <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:12px">
                     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">LAST VISIT</div>
                     <div style="font-size:16px;font-weight:700;color:var(--accent)" id="bk-last-visit">—</div>
                   </div>
@@ -729,6 +774,10 @@
                       <span>Prev. Balance</span>
                       <span id="bk-prev-bal-mini" class="text-red" style="font-family:var(--mono)">Rs.0.00</span>
                     </div>
+                    <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:var(--yellow);margin-top:4px">
+                      <span>Net Payable</span>
+                      <span id="bk-net-payable" style="font-family:var(--mono)">Rs.0.00</span>
+                    </div>
                   </div>
                   <div style="font-size:10px;color:var(--text-muted);margin-top:6px;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px">
                     <i class="fa fa-magic" style="color:var(--accent)"></i>
@@ -814,7 +863,7 @@
               </div>
               <div class="form-group-inline" style="margin-bottom:0">
                 <label>Status Filter</label>
-                <select class="form-input themed-select" id="ss-status" onchange="renderSaleSlips()" style="padding:9px 12px;width:150px">
+                <select class="form-input" id="ss-status" onchange="renderSaleSlips()" style="padding:9px 12px;width:150px">
                   <option value="">All</option>
                   <option value="saved">Confirmed</option>
                   <option value="draft">Draft</option>
@@ -1001,7 +1050,7 @@
                 <i class="fa fa-search"></i>
                 <input type="text" id="ord-search" placeholder="Search orders..." oninput="debounced('ord-search', renderOrders)">
               </div>
-              <select class="form-input themed-select" id="ord-status-filter" onchange="renderOrders()" style="padding:9px 12px;width:160px">
+              <select class="form-input" id="ord-status-filter" onchange="renderOrders()" style="padding:9px 12px;width:160px">
                 <option value="">All Status</option>
                 <option>Completed</option>
                 <option>Pending</option>
@@ -1459,7 +1508,7 @@
           <div class="card">
             <div class="card-header"><div class="card-title">🚚 Distributor / Agency Info</div></div>
             <div class="card-body">
-              <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+              <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
                 <i class="fa fa-info-circle" style="color:var(--accent)"></i> This info prints on every A4 invoice as the distribution party.
               </div>
               <div class="form-group-inline"><label>Distributor / Agency Name</label><input class="form-input" id="set-dist-name" placeholder="e.g. City Distributors Co."></div>
@@ -1499,7 +1548,7 @@
         <div class="card" style="margin-top:20px">
           <div class="card-header"><div class="card-title">💾 Backup &amp; Restore</div></div>
           <div class="card-body">
-            <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+            <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
               <i class="fa fa-info-circle" style="color:var(--accent)"></i> A backup is a full export of every bill, customer, product, and stock record — saved as a downloadable .zip. The last 12 backups are kept automatically.
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
@@ -1950,7 +1999,7 @@
                 <i class="fa fa-search"></i>
                 <input type="text" id="sr-search" placeholder="Search routes, area, rep..." oninput="renderRoutesTable()">
               </div>
-              <select class="form-input themed-select" id="sr-status-filter" onchange="renderRoutesTable()" style="padding:8px 12px;width:130px;font-size:12px">
+              <select class="form-input" id="sr-status-filter" onchange="renderRoutesTable()" style="padding:8px 12px;width:130px;font-size:12px">
                 <option value="">All Status</option>
                 <option value="Active">Active</option>
                 <option value="Inactive">Inactive</option>
@@ -2093,7 +2142,7 @@
             </div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
               <!-- Active username badge -->
-              <div id="os-username-badge" style="display:none;background:var(--accent-glow);border:1px solid rgba(59,130,246,.25);color:var(--accent);font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px;white-space:nowrap"></div>
+              <div id="os-username-badge" style="display:none;background:var(--accent-glow);border:1px solid rgba(234,108,77,.25);color:var(--accent);font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px;white-space:nowrap"></div>
               <div class="search-bar" style="width:220px">
                 <i class="fa fa-search"></i>
                 <input type="text" id="os-search" placeholder="Filter by product or SKU..." oninput="debounced('os-search', renderOrderSummary)">
@@ -2252,7 +2301,7 @@
             <span style="font-size:12px;font-weight:600">Profit Margin</span>
             <span id="prod-calc-margin" style="font-size:14px;font-weight:800;color:var(--green)">0%</span>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
             <span style="font-size:12px;font-weight:600">Profit Amount</span>
             <span id="prod-calc-profit" style="font-size:14px;font-weight:800;color:var(--accent)">$0.00</span>
           </div>
@@ -2632,7 +2681,7 @@
             <div id="adj-current-stock" style="font-size:22px;font-weight:800;color:var(--text-primary)">0</div>
             <div style="font-size:9px;color:var(--text-muted)">units</div>
           </div>
-          <div style="padding:10px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(59,130,246,.2)">
+          <div style="padding:10px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
             <div style="font-size:10px;color:var(--accent);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:700">Adjustment</div>
             <div id="adj-delta-display" style="font-size:22px;font-weight:800;color:var(--accent)">±0</div>
             <div style="font-size:9px;color:var(--accent)">units</div>
@@ -3054,7 +3103,7 @@
       <button class="modal-close" onclick="closeModal('ledger-entry-modal')">✕</button>
     </div>
     <div class="modal-body">
-      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+      <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
         For daily credit collection rounds — this reduces <strong id="le-cust-name" style="color:var(--text-primary)">the customer's</strong> overall balance and isn't tied to one specific invoice. It shows up in the ledger as its own dated row, and any leftover balance carries forward automatically into their next bill.
       </div>
       <div class="form-row">
@@ -3091,7 +3140,7 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="pe-payment-id">
-      <div style="background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+      <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
         Editing <strong id="pe-ref-label" style="color:var(--text-primary)">—</strong>. This corrects the real payment record — the customer's balance and remaining-due figures recalculate automatically.
       </div>
       <div class="form-row">
@@ -3125,5 +3174,5 @@
 <!-- A4 PRINT AREA (hidden, shown on print) -->
 <div id="print-area"></div>
 
-  <script src="script.js?v=20260930-2"></script>
+  <script src="script.js?v=20260930-1"></script>
 </body>

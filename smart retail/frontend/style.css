@@ -2845,34 +2845,3 @@ body:not(.light-mode) .rpie {
 #fp-message.is-ok  { background: rgba(31,157,107,.09); border: 1px solid rgba(31,157,107,.28); color: #167a53 !important; }
 #fp-message.is-err { background: rgba(225,29,72,.07);  border: 1px solid rgba(225,29,72,.22);  color: #b4233f !important; }
 #fp-btn:disabled, #rp-btn:disabled { opacity: .7; cursor: not-allowed; }
-/* ── THEMED SELECT (.themed-select → initThemedSelects() in script.js) ──
-   The JS builds  .tsel-wrap > select + .tsel-btn + .tsel-list  but these
-   styles were missing, so the real <select> showed up next to a second
-   box and the options printed as plain text underneath (Sale Slips status
-   filter, Orders status filter, Supply Routes status filter). */
-.tsel-wrap { position: relative; display: inline-block; padding: 0 !important; max-width: 100%; vertical-align: top; }
-.tsel-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; margin: 0; }
-.tsel-btn {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  width: 100%; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
-}
-.tsel-btn-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tsel-btn > i { font-size: 10px; color: var(--text-muted); flex-shrink: 0; transition: transform .18s ease, color .18s ease; }
-.tsel-wrap.open .tsel-btn { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-.tsel-wrap.open .tsel-btn > i { transform: rotate(180deg); color: var(--accent); }
-.tsel-list {
-  display: none; position: absolute; top: calc(100% + 6px); left: 0; min-width: 100%; z-index: 10050;
-  max-height: 260px; overflow-y: auto; padding: 6px; box-sizing: border-box;
-  background: var(--bg-card); color: var(--text-primary);
-  border: 1px solid var(--border-light); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
-  font-size: 13px; animation: tselIn .14s ease-out;
-}
-.tsel-wrap.open .tsel-list { display: block; }
-@keyframes tselIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-.tsel-option { padding: 8px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
-.tsel-option + .tsel-option { margin-top: 2px; }
-.tsel-option:hover { background: var(--accent-glow); color: var(--accent); }
-.tsel-option.tsel-selected { background: var(--accent); color: #fff; font-weight: 600; }
-@media (max-width: 768px) {
-  #page-saleslips .tsel-wrap { display: block; width: 100% !important; }
-}

@@ -531,6 +531,59 @@ let _bookingItems = [];
 // (#splash-screen) is untouched. done() guarantees the whole animation plays
 // (minMs) so it never gets cut off; cancel() removes it at once (e.g. on error).
 const SHOP_OPEN_MS = 3400;   // matches the CSS timeline (~3.2s) + a beat
+// Puts the "OPEN" sign / "Opening your shop" caption back after a sign-out
+// closing animation changed them to "CLOSED" / "Closing your shop".
+function _soResetTexts(s) {
+  const sign = s.querySelector('.so-open-sign');
+  if (sign) sign.textContent = 'OPEN';
+  const cap = s.querySelector('.so-text');
+  if (cap && cap.dataset.openHtml) cap.innerHTML = cap.dataset.openHtml;
+}
+
+// Mirror image of beginPortalLoader: on sign-out the shelves empty, the shutter
+// rolls back down, the sign flips to CLOSED — then the login screen appears.
+// Returns { covered: Promise (resolves once the shop is fully shut),
+//           finish(): fades the overlay away }.
+const SHOP_CLOSE_MS = 2700;
+function beginShopClose() {
+  const s = document.getElementById('shop-open-screen');
+  if (!s) return { covered: Promise.resolve(), finish: () => {} };
+  const srcLogo = document.getElementById('login-brand-logo');
+  const dstLogo = document.getElementById('shop-open-logo');
+  if (srcLogo && dstLogo) dstLogo.innerHTML = srcLogo.innerHTML;
+  const srcName = document.getElementById('login-brand-name');
+  const dstName = document.getElementById('shop-open-name');
+  if (srcName && dstName) dstName.textContent = srcName.textContent;
+
+  const cap = s.querySelector('.so-text');
+  if (cap && !cap.dataset.openHtml) cap.dataset.openHtml = cap.innerHTML;
+  if (cap) cap.innerHTML = 'Closing your shop<span class="splash-dot">.</span><span class="splash-dot">.</span><span class="splash-dot">.</span>';
+  const sign = s.querySelector('.so-open-sign');
+  if (sign) sign.textContent = 'OPEN';
+
+  s.classList.remove('hiding', 'play', 'play-close');
+  s.style.display = 'flex';
+  void s.offsetWidth;
+  s.classList.add('play-close');
+
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const total = reduce ? 600 : SHOP_CLOSE_MS;
+  const flip = setTimeout(() => { if (sign) sign.textContent = 'CLOSED'; }, reduce ? 200 : 1900);
+  const covered = new Promise(r => setTimeout(r, total));
+  return {
+    covered,
+    finish: () => {
+      clearTimeout(flip);
+      s.classList.add('hiding');
+      setTimeout(() => {
+        s.style.display = 'none';
+        s.classList.remove('hiding', 'play-close');
+        _soResetTexts(s);
+      }, 450);
+    },
+  };
+}
+
 function beginPortalLoader(minMs = SHOP_OPEN_MS) {
   const s = document.getElementById('shop-open-screen');
   if (!s) return { done: async () => {}, cancel: () => {} };
@@ -544,7 +597,8 @@ function beginPortalLoader(minMs = SHOP_OPEN_MS) {
   if (srcName && dstName) dstName.textContent = srcName.textContent;
 
   // Restart the CSS timeline from the beginning
-  s.classList.remove('hiding', 'play');
+  _soResetTexts(s);
+  s.classList.remove('hiding', 'play', 'play-close');
   s.style.display = 'flex';
   void s.offsetWidth;                 // force reflow so animations restart
   s.classList.add('play');
@@ -753,7 +807,10 @@ async function doLogout() {
     danger: false, icon: 'fa-sign-out-alt', title: 'Sign Out?', confirmText: 'Sign Out',
   });
   if (ok) {
-    await AuthAPI.logout();
+    const closer = beginShopClose();
+    // Sign out on the server while the shutter comes down; wait for both so
+    // the closing animation always plays in full.
+    await Promise.all([AuthAPI.logout(), closer.covered]);
     document.getElementById('app').classList.remove('visible');
     document.getElementById('login-screen').style.display = 'flex';
     initLoginCursor();
@@ -761,6 +818,7 @@ async function doLogout() {
     document.getElementById('admin-nav').style.display = '';
     document.querySelectorAll('.nav-item').forEach(e => e.style.display = '');
     document.querySelectorAll('.nav-section').forEach(e => e.style.display = '');
+    closer.finish();   // lift the overlay over the login screen
   }
 }
 
@@ -3640,8 +3698,24 @@ function clearAccSearch() {
 let _bkCustomerCache = [];
 let _bkProductCache = [];
 let _bkStockByProduct = {};
+// Real per-customer balances (all invoices minus ALL payments), fetched fresh
+// every time the booking form opens. customer.outstanding_balance is only a
+// cached counter that drifts (returns, edits, deleted payments...), which is
+// why a customer with a nil balance could still show "Rs.3623.57" here.
+let _bkBalances = null;
+function _bkCustBalance(c) {
+  if (_bkBalances) {
+    const b = _bkBalances[c.id];
+    return b ? Math.max(0, Number(b.remaining) || 0) : 0;   // no invoices/payments = nothing owed
+  }
+  return Number(c.outstanding_balance) || 0;                 // balances endpoint failed: best effort
+}
 
 async function _loadBookingLookups() {
+  try {
+    const bal = await CustomersAPI.balances();
+    _bkBalances = bal.balances || bal || {};
+  } catch (_) { _bkBalances = null; }
   const [custData, prodData, stockData] = await Promise.all([
     CustomersAPI.list({ page_size: 500 }),
     ProductsAPI.list({ page_size: 500 }),  // status filter removed — was silently hiding products whose status wasn't exactly 'active'
@@ -3683,7 +3757,7 @@ async function onBookingCustomerChange() {
   // Show the cached figure immediately (feels instant), then correct it
   // with the live ledger value — same source the backend will snapshot
   // onto the invoice when this booking is saved.
-  _bkPrevBalanceLive = Number(cust.outstanding_balance)||0;
+  _bkPrevBalanceLive = _bkCustBalance(cust);
   document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
   document.getElementById('bk-total-purchases').textContent = String(cust.loyalty_points || 0);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
@@ -3714,7 +3788,7 @@ function _bkCustDropRows(list) {
     // Address under the name (falls back to city) so two customers with the
     // same/similar name can be told apart right in the dropdown.
     const addr = String(c.address || c.city || '').replace(/\s+/g, ' ').trim();
-    const bal = Number(c.outstanding_balance)||0;
+    const bal = _bkCustBalance(c);
     const balColor = bal>0 ? 'var(--red)' : 'var(--green)';
     return `<div onmousedown="bkCustSelect(${c.id})" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
       <span style="font-size:18px;flex-shrink:0">👤</span>
@@ -5290,6 +5364,17 @@ async function filterLedgerAccounts() {
   // filters this locally-cached list, it doesn't re-query the server).
   const data = type==='customer' ? await CustomersAPI.list({ page_size: 2000 }) : await SuppliersAPI.list({ page_size: 2000 });
   _ledgerAccountCache = data.results || data;
+  if (type === 'customer') {
+    // Replace the drifting cached counter with the real balance so the
+    // "All Customer Accounts" list and the payment lock below are correct.
+    try {
+      const bal = await CustomersAPI.balances();
+      const map = bal.balances || bal || {};
+      _ledgerAccountCache.forEach(x => {
+        x.outstanding_balance = map[x.id] ? Math.max(0, Number(map[x.id].remaining) || 0) : 0;
+      });
+    } catch (_) { /* keep the cached figure if the request fails */ }
+  }
   const filtered = _ledgerAccountCache.filter(x=>x.name.toLowerCase().includes(q));
   sel.innerHTML = '<option value="">— Select Account —</option>' +
     filtered.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
@@ -5504,7 +5589,8 @@ async function renderAllAccountsSummary() {
 // supported — but a real "Collect Payment" IS: a general cash collection
 // against a customer's running balance for daily credit-collection rounds,
 // not tied to any specific invoice. See collect_customer_payment (backend).
-function openLedgerEntryModal() {
+let _leDue = 0;   // what the customer still owes — the most a payment here may be
+async function openLedgerEntryModal() {
   const type = document.getElementById('ldg-type')?.value || 'customer';
   const id = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
   if (type !== 'customer') {
@@ -5515,13 +5601,21 @@ function openLedgerEntryModal() {
   const entity = _ledgerAccountCache.find(x => x.id === id);
   // Account lock: a customer with no balance can't be given a manual
   // advance/credit payment — payments only open up again once a new bill exists.
-  if (Number(entity?.outstanding_balance || 0) <= 0) {
+  // Checked against the live ledger, not the cached counter.
+  let due = Number(entity?.outstanding_balance || 0);
+  try { due = Number((await CustomersAPI.ledger(id)).remaining) || 0; } catch (_) {}
+  due = Math.round(due * 100) / 100;
+  if (due <= 0) {
     showNoPaymentRemaining(entity?.name);
     return;
   }
+  _leDue = due;
   document.getElementById('le-cust-name').textContent = entity ? entity.name + "'s" : "the customer's";
   document.getElementById('le-date').value = new Date().toISOString().slice(0, 10);
   document.getElementById('le-amount').value = '';
+  document.getElementById('le-amount').max = due.toFixed(2);
+  const dueEl = document.getElementById('le-due-hint');
+  if (dueEl) dueEl.textContent = 'Remaining to collect: Rs.' + due.toFixed(2) + ' — you can receive any amount up to this.';
   document.getElementById('le-method').value = 'cash';
   document.getElementById('le-ref').value = '';
   openModal('ledger-entry-modal');
@@ -5535,6 +5629,10 @@ async function saveLedgerEntry() {
   const date = document.getElementById('le-date').value;
   if (!date) { toast('Please pick a date', 'warning'); return; }
   if (!amount || amount <= 0) { toast('Amount must be greater than 0', 'warning'); return; }
+  if (_leDue > 0 && amount > _leDue + 0.001) {
+    toast('Only Rs.' + _leDue.toFixed(2) + ' is remaining — payment can\'t be more than the balance.', 'warning');
+    return;
+  }
 
   try {
     await CustomersAPI.collectPayment(custId, {

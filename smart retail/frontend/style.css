@@ -2604,6 +2604,44 @@ body.light-mode .so-text { color: #6b6560; }
   #shop-open-screen.play .so-shutter { animation-duration: .01s; animation-delay: .2s; }
 }
 
+/* ── SHOP CLOSING ANIMATION (on sign-out) ────────────────────────────────
+   Reverse of the opening: shelves empty, the shutter rolls down, the sign
+   flips to CLOSED, then the overlay fades to the login screen. Uses the same
+   markup as #shop-open-screen; triggered by .play-close (beginShopClose()). */
+#shop-open-screen.play-close .so-shop    { animation: soPop .4s cubic-bezier(.34,1.56,.64,1) both; }
+#shop-open-screen.play-close .so-sign    { opacity: 1; }
+#shop-open-screen.play-close .so-awning  { transform: scaleY(1); }
+#shop-open-screen.play-close .so-shutter { animation: soShutterDown .9s cubic-bezier(.65,0,.35,1) 1.05s both; }
+#shop-open-screen.play-close .so-shelf i { animation: soItemOut .3s ease-in both; }
+#shop-open-screen.play-close .so-shelf:nth-child(1) i:nth-child(1) { animation-delay: .35s; }
+#shop-open-screen.play-close .so-shelf:nth-child(1) i:nth-child(2) { animation-delay: .43s; }
+#shop-open-screen.play-close .so-shelf:nth-child(1) i:nth-child(3) { animation-delay: .51s; }
+#shop-open-screen.play-close .so-shelf:nth-child(1) i:nth-child(4) { animation-delay: .59s; }
+#shop-open-screen.play-close .so-shelf:nth-child(2) i:nth-child(1) { animation-delay: .65s; }
+#shop-open-screen.play-close .so-shelf:nth-child(2) i:nth-child(2) { animation-delay: .73s; }
+#shop-open-screen.play-close .so-shelf:nth-child(2) i:nth-child(3) { animation-delay: .81s; }
+#shop-open-screen.play-close .so-shelf:nth-child(2) i:nth-child(4) { animation-delay: .89s; }
+#shop-open-screen.play-close .so-open-sign { animation: soClosed .7s linear 1.9s both; }
+#shop-open-screen.play-close .so-text    { animation: soTextIn .4s ease .15s forwards; }
+
+@keyframes soShutterDown {
+  0%   { transform: translateY(-104%); }
+  80%  { transform: translateY(3px); }
+  100% { transform: translateY(0); }
+}
+@keyframes soItemOut { from { transform: scale(1); } to { transform: scale(0); } }
+@keyframes soClosed {
+  0%   { opacity: 1; color: #fff; background: #ea6c4d; border-color: #fff;
+         box-shadow: 0 0 16px rgba(234,108,77,.95), 0 0 34px rgba(244,162,106,.7); }
+  30%  { opacity: .4; }
+  45%  { opacity: 1; }
+  100% { opacity: .9; color: #6b4a3d; background: #3a2419; border-color: #6b4a3d; box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #shop-open-screen.play-close .so-shutter { animation-duration: .01s; animation-delay: .1s; }
+  #shop-open-screen.play-close .so-shelf i { animation-duration: .01s; animation-delay: 0s; }
+}
+
 /* ── PRINT ANIMATIONS ────────────────────────────────────────────────────
    Played by playPrintAnim() (script.js) right before the browser print
    dialog opens. Same backdrop as the shop-opening screen. Three scenes:

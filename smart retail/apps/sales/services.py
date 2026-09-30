@@ -447,6 +447,18 @@ def add_payment(sale, amount, method, user, reference=""):
             code="no_payment_remaining",
         )
 
+    # ...and a payment can never be MORE than what is still due on this
+    # invoice either — that excess would sit in the ledger as an advance /
+    # credit the shop never agreed to. Partial payments are fine: pay as
+    # much as comes in, until the invoice is fully cleared.
+    if sale.total_amount > 0:
+        invoice_due = sale.total_amount - sale.paid_amount
+        if amount > invoice_due:
+            raise ServiceException(
+                f"Only Rs.{invoice_due:.2f} is remaining on this invoice — payment can't exceed it.",
+                code="payment_exceeds_balance",
+            )
+
     payment = Payment.objects.create(
         sale=sale, amount=amount, method=method, reference=reference,
         received_by=user, created_by=user,
@@ -568,6 +580,24 @@ def update_payment(payment, *, amount=None, method=None, reference=None, occurre
     if amount is not None:
         if amount <= 0:
             raise ValueError("Payment amount must be positive.")
+        # Editing a payment UP is only allowed as far as what is still due —
+        # otherwise the extra would become an advance / credit. Lowering it
+        # (or leaving it as is) is always fine.
+        increase = amount - old_amount
+        if increase > 0:
+            if sale:
+                room = sale.total_amount - sale.paid_amount
+            elif payment.customer:
+                from apps.customers.services import get_customer_ledger
+                room = Decimal(get_customer_ledger(payment.customer)["remaining"])
+            else:
+                room = Decimal("0")
+            room = max(Decimal("0"), room)
+            if increase > room:
+                raise ServiceException(
+                    f"Only Rs.{(old_amount + room):.2f} can be recorded here — payment can't exceed what is due.",
+                    code="payment_exceeds_balance",
+                )
         payment.amount = amount
     if method is not None:
         payment.method = method

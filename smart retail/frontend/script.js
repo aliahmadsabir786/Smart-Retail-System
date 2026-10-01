@@ -1909,10 +1909,10 @@ async function saveProduct() {
     let product;
     if (editId) {
       product = await ProductsAPI.update(editId, payload);
-      toast('Product updated!', 'success');
+      toastDone('update', 'Product', name);
     } else {
       product = await ProductsAPI.create(payload);
-      toast('Product added!', 'success');
+      toastDone('add', 'Product', name);
       // Initial stock quantity (Stock Quantity field) is set via a stock-in
       // ledger entry against the default warehouse — Product itself carries
       // no quantity field in this backend (stock is per-warehouse).
@@ -1938,7 +1938,7 @@ async function deleteProduct(id) {
   try {
     await ProductsAPI.remove(id);
     renderProducts();
-    toast('Product deleted','success');
+    toastDone('delete', 'Product');
   } catch (err) {
     toast(err.message || 'Failed to delete product', 'error');
   }
@@ -1954,7 +1954,7 @@ async function addCategory() {
     document.getElementById('new-cat-name').value='';
     await renderCatList();
     if (typeof populateCategorySelects === 'function') await populateCategorySelects();
-    toast('Category added!','success');
+    toastDone('add', 'Category', val);
   } catch (err) {
     toast(err.message || 'Failed to add category', 'error');
   }
@@ -1974,7 +1974,7 @@ async function deleteCategory(id) {
     await CategoriesAPI.remove(id);
     await renderCatList();
     if (typeof populateCategorySelects === 'function') await populateCategorySelects();
-    toast('Category deleted','success');
+    toastDone('delete', 'Category');
   } catch (err) {
     toast(err.message || 'Failed to delete category — it may still be used by products', 'error');
   }
@@ -2386,7 +2386,19 @@ async function renderCustomers(page) {
     </tr>`).join('');
 }
 
+// Set when the customer modal was opened from New Booking ("+ New Shop"), so
+// the freshly added customer is selected on the bill straight away.
+let _custFromBooking = false;
+
+function openCustomerModalFromBooking() {
+  openCustomerModal();
+  _custFromBooking = true;
+  const acc = document.getElementById('cust-acc');
+  if (acc) acc.value = 'Assigned on save';
+}
+
 function openCustomerModal() {
+  _custFromBooking = false;
   document.getElementById('cust-modal-title').textContent = 'Add Customer';
   document.getElementById('cust-edit-id').value = '';
   ['cust-name','cust-phone','cust-email','cust-address','cust-cnic'].forEach(i => {
@@ -2403,6 +2415,7 @@ function openCustomerModal() {
 }
 
 function editCustomer(id) {
+  _custFromBooking = false;
   const c = _customerCache.find(x => x.id === id);
   if (!c) return;
   document.getElementById('cust-modal-title').textContent = 'Edit Customer';
@@ -2450,14 +2463,26 @@ async function saveCustomer() {
   };
 
   try {
+    let created = null;
     if (editId) {
       await CustomersAPI.update(editId, payload);
-      toast('Customer updated!', 'success');
+      toastDone('update', 'Customer', name);
     } else {
-      await CustomersAPI.create(payload);
-      toast('Customer added!', 'success');
+      created = await CustomersAPI.create(payload);
+      toastDone('add', 'Customer', name);
     }
     closeModal('customer-modal');
+    if (_custFromBooking && created && created.id) {
+      // Added from New Booking: put the new shop on the bill right away
+      // (no need to leave the page or search for it again).
+      _custFromBooking = false;
+      if (!_bkCustomerCache.some(c => c.id === created.id)) _bkCustomerCache.push(created);
+      document.getElementById('bk-customer').value = created.id;
+      document.getElementById('bk-customer-search').value = created.name;
+      if (_bkBalances) _bkBalances[created.id] = { remaining: 0 };
+      onBookingCustomerChange();
+      return;
+    }
     renderCustomers();
     if (typeof updatePosCustomers === 'function') updatePosCustomers();
   } catch (err) {
@@ -2474,7 +2499,7 @@ async function deleteCustomer(id) {
     // renderPaginationBar/renderCustomers will clamp automatically if this
     // was the last item on the last page.
     renderCustomers(_custPage);
-    toast('Customer deleted','success');
+    toastDone('delete', 'Customer');
   } catch (err) {
     toast(err.message || 'Failed to delete customer', 'error');
   }
@@ -2544,10 +2569,10 @@ async function saveSupplier() {
   try {
     if (editId) {
       await SuppliersAPI.update(editId, payload);
-      toast('Supplier updated!','success');
+      toastDone('update', 'Supplier', name);
     } else {
       await SuppliersAPI.create(payload);
-      toast('Supplier added!','success');
+      toastDone('add', 'Supplier', name);
     }
     closeModal('supplier-modal');
     renderSuppliers();
@@ -2561,7 +2586,7 @@ async function deleteSupplier(id) {
   try {
     await SuppliersAPI.remove(id);
     renderSuppliers();
-    toast('Supplier deleted','success');
+    toastDone('delete', 'Supplier');
   } catch (err) {
     toast(err.message || 'Failed to delete supplier', 'error');
   }
@@ -2808,10 +2833,10 @@ async function saveExpense() {
     };
     if (editId) {
       await ExpensesAPI.update(editId, payload);
-      toast('Expense updated!','success');
+      toastDone('update', 'Expense', description || categoryName);
     } else {
       await ExpensesAPI.create(payload);
-      toast('Expense added!','success');
+      toastDone('add', 'Expense', description || categoryName);
     }
     closeModal('expense-modal');
     renderExpenses();
@@ -2825,7 +2850,7 @@ async function deleteExpense(id) {
   try {
     await ExpensesAPI.remove(id);
     renderExpenses();
-    toast('Expense deleted','success');
+    toastDone('delete', 'Expense');
   } catch (err) {
     toast(err.message || 'Failed to delete expense', 'error');
   }
@@ -3237,11 +3262,11 @@ async function saveUser() {
   try {
     if (editId) {
       await UsersAPI.update(editId, payload);
-      toast('User updated!','success');
+      toastDone('update', 'User', name);
     } else {
       if (!pass) { toast('Password required!','error'); return; }
       await UsersAPI.create(payload);
-      toast('User created!','success');
+      toastDone('add', 'User', name);
     }
     closeModal('user-modal');
     renderUsers();
@@ -3255,7 +3280,7 @@ async function deleteUser(id) {
   try {
     await UsersAPI.remove(id);
     renderUsers();
-    toast('User deleted permanently','success');
+    toastDone('delete', 'User');
   } catch (err) {
     toast(err.message || 'Failed to delete user', 'error');
   }
@@ -3339,15 +3364,38 @@ const _toastIcons = { success:'fa-check-circle', error:'fa-times-circle', warnin
 const _toastMaxVisible = 4;
 const _toastDefaultDuration = 4200;
 
+// Friendly "Customer updated" style popup used after every add / update /
+// delete: a bold title plus a proper sentence naming what was changed.
+//   toastDone('update', 'Customer', 'Ali Traders')
+function toastDone(action, entity, name) {
+  const label = name ? '\u201c' + _bkEsc(name) + '\u201d' : 'The ' + entity.toLowerCase();
+  const verb = { add: 'added', update: 'updated', delete: 'deleted' }[action] || 'saved';
+  const tail = action === 'delete' ? ' has been deleted permanently.' : ' has been ' + verb + ' successfully.';
+  toast({ title: entity + ' ' + verb, text: label + tail, kind: action }, 'success');
+}
+
+const _toastKindIcons = { add: 'fa-plus', update: 'fa-pen', delete: 'fa-trash-can' };
+
 function toast(msg, type='success', duration=_toastDefaultDuration) {
   const container = document.getElementById('toast-container');
   if (!container) return;
+
+  // msg is either a plain string or { title, text, kind } (see toastDone).
+  let title = '', text = msg, kind = '';
+  if (msg && typeof msg === 'object') { title = msg.title || ''; text = msg.text || ''; kind = msg.kind || ''; }
+  else if (type === 'success') {
+    // Plain success strings get the matching icon/colour automatically.
+    const m = String(msg);
+    if (/\b(deleted|removed)\b/i.test(m)) kind = 'delete';
+    else if (/\b(added|created)\b/i.test(m)) kind = 'add';
+    else if (/\b(updated|saved|edited)\b/i.test(m)) kind = 'update';
+  }
 
   // De-dupe: if the exact same message/type is already showing, just bump
   // its counter and restart the auto-dismiss timer instead of stacking a
   // second identical box (this is what used to spam 4 copies of the same
   // backend error onto the screen).
-  const key = type + '::' + msg;
+  const key = type + '::' + title + '::' + text;
   const existing = container.querySelector(`.toast[data-key="${CSS.escape(key)}"]`);
   if (existing) {
     const countEl = existing.querySelector('.toast-count');
@@ -3367,12 +3415,13 @@ function toast(msg, type='success', duration=_toastDefaultDuration) {
   if (visible.length >= _toastMaxVisible) _dismissToast(visible[0]);
 
   const t = document.createElement('div');
-  t.className = 'toast ' + type;
+  t.className = 'toast ' + type + (kind ? ' k-' + kind : '');
   t.dataset.key = key;
   t.dataset.count = '1';
+  const iconCls = (type === 'success' && _toastKindIcons[kind]) || _toastIcons[type] || _toastIcons.success;
   t.innerHTML = `
-    <div class="toast-icon"><i class="fa ${_toastIcons[type]||_toastIcons.success}"></i></div>
-    <div class="toast-body"><div class="toast-msg">${msg}</div></div>
+    <div class="toast-icon"><i class="fa ${iconCls}"></i></div>
+    <div class="toast-body">${title ? `<div class="toast-title">${title}</div>` : ''}<div class="toast-msg">${text}</div></div>
     <button class="toast-close" onclick="_dismissToast(this.closest('.toast'))" aria-label="Dismiss"><i class="fa fa-times"></i></button>
     <div class="toast-progress" style="animation-duration:${duration}ms"></div>`;
   container.appendChild(t);
@@ -4512,6 +4561,7 @@ async function renderBookingList() {
                 <button class="btn btn-ghost btn-xs" onclick="editBooking(${b.id})" style="color:var(--accent)" title="Edit held invoice"><i class="fa fa-pen"></i></button>
                 <button class="btn btn-ghost btn-xs" onclick="deleteHeldBooking(${b.id},'${b.invoice_number}')" style="color:var(--red)" title="Delete held invoice"><i class="fa fa-trash"></i></button>
               ` : !['returned','cancelled'].includes(b.status) ? `
+                ${['completed','partially_returned','edited'].includes(b.status) ? `<button class="btn btn-ghost btn-xs" onclick="editCompletedSlipFromModal(${b.id})" style="color:var(--accent)" title="Edit invoice"><i class="fa fa-pen"></i></button>` : ''}
                 <button class="btn btn-ghost btn-xs" onclick="cancelBooking(${b.id})" style="color:var(--red)" title="Cancel / Return"><i class="fa fa-ban"></i></button>
                 <button class="btn btn-ghost btn-xs" onclick="voidBooking(${b.id},'${b.invoice_number}')" style="color:var(--red)" title="Delete invoice completely — restocks it, clears balance, removes it entirely"><i class="fa fa-trash"></i></button>
               ` : ''}
@@ -7122,10 +7172,10 @@ async function saveRoute() {
   try {
     if (editId) {
       await RoutesAPI.update(editId, payload);
-      toast('Route updated!', 'success');
+      toastDone('update', 'Route', name);
     } else {
       await RoutesAPI.create(payload);
-      toast('Route created!', 'success');
+      toastDone('add', 'Route', name);
     }
     closeModal('route-modal');
     renderSupplyRoutes();
@@ -7139,7 +7189,7 @@ async function deleteRoute(id) {
   try {
     await RoutesAPI.remove(id);
     renderSupplyRoutes();
-    toast('Route deleted', 'success');
+    toastDone('delete', 'Route');
   } catch (err) {
     toast(err.message || 'Failed to delete route', 'error');
   }

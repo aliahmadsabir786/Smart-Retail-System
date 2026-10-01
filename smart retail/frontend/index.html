@@ -381,16 +381,16 @@
       </div>
       <div class="topbar-actions">
         <div class="time-display" id="clock">--:--</div>
-        <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn" title="Toggle Light/Dark Mode" aria-label="Toggle theme">
-          <i class="fa fa-lightbulb bulb-icon bulb-on"></i>
-          <i class="fa fa-moon bulb-icon bulb-off" style="font-size:13px"></i>
+        <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn" title="Switch Light / Dark Mode" aria-label="Toggle theme">
+          <i class="fa fa-sun bulb-icon bulb-on"></i>
+          <i class="fa fa-moon bulb-icon bulb-off"></i>
         </button>
-        <button class="icon-btn" onclick="toggleNotif()" id="notif-btn">
+        <button class="icon-btn hb-bell" onclick="toggleNotif()" id="notif-btn" title="Notifications" aria-label="Notifications">
           <i class="fa fa-bell"></i>
           <div class="badge" style="display:none">0</div>
         </button>
-        <button class="icon-btn">
-          <i class="fa fa-question-circle"></i>
+        <button class="icon-btn hb-help" title="Help" aria-label="Help">
+          <i class="fa fa-circle-question"></i>
         </button>
       </div>
     </div>
@@ -638,7 +638,10 @@
               <!-- Row 2: Customer selection -->
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
                 <div class="form-group-inline" style="margin-bottom:0">
-                  <label>Customer Name *</label>
+                  <label style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                    <span>Customer Name *</span>
+                    <button type="button" class="btn btn-ghost btn-xs" onclick="openCustomerModalFromBooking()" title="Add a new shop / customer without leaving this bill" style="color:var(--accent);text-transform:none;letter-spacing:0;font-weight:700"><i class="fa fa-plus"></i> New Shop</button>
+                  </label>
                   <div style="position:relative">
                     <input type="hidden" id="bk-customer" value="">
                     <input class="form-input" id="bk-customer-search"

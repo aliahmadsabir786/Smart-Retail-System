@@ -2883,3 +2883,119 @@ body:not(.light-mode) .rpie {
 #fp-message.is-ok  { background: rgba(31,157,107,.09); border: 1px solid rgba(31,157,107,.28); color: #167a53 !important; }
 #fp-message.is-err { background: rgba(225,29,72,.07);  border: 1px solid rgba(225,29,72,.22);  color: #b4233f !important; }
 #fp-btn:disabled, #rp-btn:disabled { opacity: .7; cursor: not-allowed; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ANIMATED POPUPS (toast) — pop-in, bouncing icon, ring pulse, light sweep.
+   Colour follows what happened: green = added, blue = updated, red = deleted.
+   ═══════════════════════════════════════════════════════════════════════ */
+.toast { animation: toastIn2 .55s cubic-bezier(.34,1.56,.64,1) both; }
+@keyframes toastIn2 {
+  0%   { transform: translateX(120%) scale(.92); opacity: 0; }
+  60%  { transform: translateX(-6px) scale(1.02); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+.toast::before {                       /* soft light sweep across the card */
+  content: ''; position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.35), transparent);
+  transform: skewX(-20deg); pointer-events: none;
+  animation: toastShine .9s ease .3s 1 both;
+}
+@keyframes toastShine { from { left: -60%; } to { left: 130%; } }
+
+.toast-icon { position: relative; animation: toastIconPop .6s cubic-bezier(.34,1.56,.64,1) .12s both; }
+.toast-icon::after {                   /* expanding ring behind the icon */
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid currentColor; opacity: 0;
+  animation: toastRing .9s ease-out .3s 2 both;
+}
+@keyframes toastIconPop { 0% { transform: scale(0) rotate(-90deg); } 100% { transform: scale(1) rotate(0); } }
+@keyframes toastRing    { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
+.toast-icon i { display: inline-block; }
+.toast.success .toast-icon i        { animation: toastTick .5s cubic-bezier(.34,1.56,.64,1) .35s both; }
+.toast.k-update .toast-icon i       { animation: toastPen .8s ease .35s both; }
+.toast.k-delete .toast-icon i       { animation: toastShake .6s ease .35s both; }
+.toast.error .toast-icon i          { animation: toastShake .6s ease .35s both; }
+.toast.warning .toast-icon i        { animation: toastPen .8s ease .35s both; }
+@keyframes toastTick  { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes toastPen   { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-18deg); } 55% { transform: rotate(14deg); } 80% { transform: rotate(-6deg); } }
+@keyframes toastShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-3px); } 40% { transform: translateX(3px); } 60% { transform: translateX(-2px); } 80% { transform: translateX(2px); } }
+
+.toast-title { font-size: 13px; font-weight: 800; line-height: 1.3; color: var(--text-primary); margin-bottom: 2px; }
+.toast-title + .toast-msg { font-weight: 500; font-size: 12px; color: var(--text-secondary); }
+
+/* updated = blue, deleted = red (added stays green) */
+.toast.success.k-update { border-left-color: #3b82f6; }
+.toast.success.k-update .toast-icon { background: rgba(59,130,246,.15); color: #3b82f6; }
+.toast.success.k-update .toast-progress { background: #3b82f6; }
+.toast.success.k-delete { border-left-color: var(--red); }
+.toast.success.k-delete .toast-icon { background: rgba(239,68,68,.14); color: var(--red); }
+.toast.success.k-delete .toast-progress { background: var(--red); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast::before, .toast-icon, .toast-icon::after, .toast-icon i { animation: none !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   HEADER BUTTONS — theme / notifications / help as filled colour boxes
+   ═══════════════════════════════════════════════════════════════════════ */
+body .theme-toggle, body .icon-btn {
+  border: 0; color: #fff; border-radius: 10px;
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+}
+body .theme-toggle:hover, body .icon-btn:hover {
+  color: #fff; transform: translateY(-2px) scale(1.06); filter: brightness(1.06);
+}
+body .theme-toggle:active, body .icon-btn:active { transform: scale(.94); }
+
+/* Theme: sun (amber) while in dark mode, moon (indigo) while in light mode */
+body .theme-toggle {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  box-shadow: 0 4px 12px rgba(245,158,11,.40);
+  font-size: 16px;
+}
+body .theme-toggle:hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); box-shadow: 0 7px 16px rgba(245,158,11,.5); }
+body.light-mode .theme-toggle {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border: 0;
+  box-shadow: 0 4px 12px rgba(99,102,241,.40);
+}
+body.light-mode .theme-toggle:hover { background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 7px 16px rgba(99,102,241,.5); }
+.theme-toggle .bulb-off { font-size: 14px; }
+
+/* Bell: brand orange; rings on hover */
+.icon-btn.hb-bell {
+  background: linear-gradient(135deg, #f4885f, #ea6c4d); font-size: 15px;
+  box-shadow: 0 4px 12px rgba(234,108,77,.40);
+}
+.icon-btn.hb-bell:hover { background: linear-gradient(135deg, #f4885f, #ea6c4d); box-shadow: 0 7px 16px rgba(234,108,77,.5); }
+.icon-btn.hb-bell:hover i.fa-bell { animation: hbRing .7s ease; transform-origin: 50% 0; }
+@keyframes hbRing {
+  0%,100% { transform: rotate(0); } 15% { transform: rotate(18deg); } 30% { transform: rotate(-16deg); }
+  45% { transform: rotate(12deg); } 60% { transform: rotate(-8deg); } 75% { transform: rotate(4deg); }
+}
+.icon-btn .badge {
+  top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  background: #ef4444; color: #fff; font-weight: 800; font-size: 10px;
+  border: 2px solid var(--bg-primary, #fff); box-shadow: 0 2px 6px rgba(239,68,68,.5);
+  animation: hbBadgePulse 1.8s ease-in-out infinite;
+}
+@keyframes hbBadgePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.14); } }
+
+/* Help: cyan → blue */
+.icon-btn.hb-help {
+  background: linear-gradient(135deg, #22d3ee, #3b82f6); font-size: 16px;
+  box-shadow: 0 4px 12px rgba(59,130,246,.40);
+}
+.icon-btn.hb-help:hover { background: linear-gradient(135deg, #22d3ee, #3b82f6); box-shadow: 0 7px 16px rgba(59,130,246,.5); }
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn .badge, .icon-btn.hb-bell:hover i.fa-bell { animation: none !important; }
+}
+
+
+/* ── SIDEBAR ITEMS: a little taller with softly rounded corners ─────────── */
+.sidebar:not(.collapsed) .nav-item {
+  padding: 12px 14px; min-height: 44px; border-radius: 14px; margin-bottom: 4px;
+}
+.sidebar:not(.collapsed) .nav-item.active { box-shadow: 0 6px 16px rgba(234,108,77,.28); }
+.sidebar:not(.collapsed) .nav-item.active::before { display: none; }   /* the bar fights the round corners */

@@ -1,3 +1,5 @@
+from datetime import timedelta
+from django.utils import timezone
 from rest_framework import viewsets, filters, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -93,11 +95,45 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
         warehouse = Warehouse.objects.get(pk=v["warehouse"])
         return customer, warehouse
 
+    @staticmethod
+    def _recent_duplicate(user, customer, items, window_seconds=10):
+        """Same user, same customer, identical items, within a few seconds =
+        a double-click / network retry, not a second order. Returns the sale
+        that was just created instead of letting a duplicate invoice be made
+        (which would also bill the customer twice and push the first bill into
+        the second one's "Previous Balance")."""
+        if not customer:
+            return None
+        since = timezone.now() - timedelta(seconds=window_seconds)
+        want = sorted(
+            services.sale_item_key(i["product"].pk, i["variant"].pk if i.get("variant") else None,
+                                   i["quantity"], i["unit_price"],
+                                   i.get("discount_percent", 0), i.get("tax_percent", 0))
+            for i in items
+        )
+        recent = Sale.objects.filter(
+            customer=customer, served_by=user, created_at__gte=since,
+            status__in=[Sale.Status.COMPLETED, Sale.Status.EDITED],
+        ).prefetch_related("items")
+        for sale in recent:
+            have = sorted(
+                services.sale_item_key(i.product_id, i.variant_id, i.quantity, i.unit_price,
+                                       i.discount_percent, i.tax_percent)
+                for i in sale.items.all()
+            )
+            if have == want:
+                return sale
+        return None
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         v = serializer.validated_data
         customer, warehouse = self._resolve_customer_warehouse(v)
+
+        duplicate = self._recent_duplicate(request.user, customer, v["items"])
+        if duplicate:
+            return Response(SaleSerializer(duplicate).data, status=status.HTTP_200_OK)
 
         coupon = None
         if v.get("coupon_code"):
@@ -208,7 +244,10 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             discount_amount=v.get("discount_amount", 0), coupon=coupon,
             is_credit_sale=v.get("is_credit_sale"), notes=v.get("notes", ""),
         )
-        return Response(SaleSerializer(sale).data)
+        data = dict(SaleSerializer(sale).data)
+        # True when the "edit" changed nothing and the invoice was left as is.
+        data["edit_unchanged"] = bool(getattr(sale, "_edit_unchanged", False))
+        return Response(data)
 
     @action(detail=True, methods=["post"], url_path="return")
     def process_return(self, request, pk=None):

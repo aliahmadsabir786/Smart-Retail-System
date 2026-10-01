@@ -283,6 +283,52 @@ def finalize_draft_sale(sale, user, coupon=None, is_credit_sale=False):
     return sale
 
 
+def _q2(v):
+    return Decimal(str(v or 0)).quantize(Decimal("0.01"))
+
+
+def sale_item_key(product_id, variant_id, quantity, unit_price, discount_percent, tax_percent):
+    """Comparable fingerprint of one invoice line (used to spot unchanged edits
+    and accidental duplicate submits)."""
+    return (product_id, variant_id, Decimal(str(quantity)).normalize(),
+            _q2(unit_price), _q2(discount_percent), _q2(tax_percent))
+
+
+def _edit_is_noop(sale, customer, warehouse, items, discount_amount, coupon, is_credit_sale):
+    """True when "editing" an invoice would change nothing at all — same
+    customer, warehouse, Cash/Credit label, items (product, quantity, rate,
+    discount, tax) and bill discount. Saving such an edit must leave the
+    invoice, its payments and the customer's balance exactly as they are."""
+    if coupon:
+        return False
+    if (customer.pk if customer else None) != sale.customer_id:
+        return False
+    if warehouse.pk != sale.warehouse_id:
+        return False
+    if bool(is_credit_sale) != bool(sale.is_credit):
+        return False
+
+    old_items = list(sale.items.all())
+    old_keys = sorted(
+        sale_item_key(i.product_id, i.variant_id, i.quantity - i.quantity_returned,
+                      i.unit_price, i.discount_percent, i.tax_percent)
+        for i in old_items if (i.quantity - i.quantity_returned) > 0
+    )
+    new_keys = sorted(
+        sale_item_key(i["product"].pk, i["variant"].pk if i.get("variant") else None, i["quantity"],
+                      i["unit_price"], i.get("discount_percent", 0), i.get("tax_percent", 0))
+        for i in items
+    )
+    if old_keys != new_keys:
+        return False
+
+    line_disc = sum((i.line_discount for i in old_items), Decimal("0"))
+    stored_extra = max(Decimal("0"), sale.discount_amount - line_disc)
+    if abs(stored_extra - _q2(discount_amount)) > Decimal("0.01"):
+        return False
+    return True
+
+
 @transaction.atomic
 def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=Decimal("0"),
                          coupon=None, is_credit_sale=None, notes=""):
@@ -320,6 +366,12 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
     previous_is_credit = sale.is_credit
     if is_credit_sale is None:
         is_credit_sale = previous_is_credit
+
+    # Nothing actually changed → leave the invoice completely alone: no new
+    # items, no payments wiped, no stock or balance movement, status stays.
+    if _edit_is_noop(sale, customer, warehouse, items, discount_amount, coupon, is_credit_sale):
+        sale._edit_unchanged = True
+        return sale
 
     old_items = list(sale.items.select_related("product", "variant"))
 
@@ -399,6 +451,18 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
     if total_amount < 0:
         total_amount = Decimal("0.00")
 
+    # The "Previous Balance" frozen on this invoice stays exactly as it was —
+    # an edit must not change it — UNLESS the bill is being moved to a
+    # different customer, in which case the old snapshot belonged to someone
+    # else and is retaken for the new customer (their ledger doesn't include
+    # this invoice yet at this point).
+    previous_customer_id = sale.customer_id
+    if not customer:
+        sale.previous_balance = Decimal("0")
+    elif customer.pk != previous_customer_id:
+        from apps.customers.services import get_customer_ledger
+        sale.previous_balance = max(Decimal("0"), Decimal(get_customer_ledger(customer)["remaining"]))
+
     sale.customer = customer
     sale.warehouse = warehouse
     sale.notes = notes
@@ -415,13 +479,26 @@ def edit_completed_sale(sale, customer, warehouse, items, user, discount_amount=
         raise ServiceException("Credit sales require a registered customer.")
 
     if customer:
+        # `customer` was loaded by the view BEFORE step 1 above reversed the
+        # old amount off sale.customer (a different Python object for the
+        # same database row). Adding the new total onto that stale copy and
+        # saving wrote the OLD balance back on top of the reversal — so every
+        # edit left the customer owing the old bill AND the new one (the
+        # "double amount"). Re-read the row so the new total lands on top of
+        # the already-reversed balance.
+        customer.refresh_from_db(fields=["outstanding_balance", "loyalty_points"])
         customer.outstanding_balance += total_amount
         customer.save(update_fields=["outstanding_balance"])
     sale.is_credit = is_credit_sale
 
+    # served_by / created_by are deliberately NOT touched: the invoice stays
+    # under the salesperson who originally booked it, whoever edits it later.
+    # Only the audit field records who made the edit.
+    sale.updated_by = user
     sale.save(update_fields=[
         "customer", "warehouse", "notes", "coupon", "subtotal", "discount_amount",
         "tax_amount", "total_amount", "paid_amount", "status", "payment_status", "is_credit",
+        "previous_balance", "updated_by",
     ])
 
     if customer:

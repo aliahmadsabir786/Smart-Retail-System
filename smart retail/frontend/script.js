@@ -520,6 +520,15 @@ let _editingBookingId = null;
 // an already-finalized invoice in place (see editCompletedSlipFromModal) —
 // saveBooking() checks this to call SalesAPI.edit() instead of create().
 let _editingCompletedSaleId = null;
+// When editing an existing invoice: the "Previous Balance" frozen on it when it
+// was booked — { customerId, value }. The live ledger balance already contains
+// THIS invoice, so showing it as "previous" made the bill look doubled.
+let _bkEditPrev = null;
+// What the invoice looked like when it was opened for editing — used to detect
+// "saved without changing anything" and leave the invoice completely alone.
+let _bkEditOriginal = null;
+// Blocks a second Save click (double-click) while the first is still in flight.
+let _bkSaving = false;
 let _bookingItems = [];
 
 // ═══════════════════════════════════════════════════════
@@ -3632,6 +3641,8 @@ function initBooking() {
 async function newBookingForm(editId, editCompletedInPlace) {
   _editingBookingId = null;
   _editingCompletedSaleId = null;
+  _bkEditPrev = null;
+  _bkEditOriginal = null;
   document.getElementById('booking-form-wrap').style.display = '';
   document.getElementById('booking-list-wrap').style.display = 'none';
   setTimeout(()=>document.getElementById('booking-form-wrap').scrollIntoView({behavior:'smooth'}),50);
@@ -3659,8 +3670,9 @@ async function newBookingForm(editId, editCompletedInPlace) {
     // service handles reversing the old items and reapplying the new ones.
     let sale;
     try { sale = await SalesAPI.get(editId); }
-    catch (err) { toast(err.message || 'Failed to load invoice', 'error'); return; }
+    catch (err) { toast(err.message || 'Failed to load invoice', 'error'); closeBookingForm(); return; }
     _editingCompletedSaleId = editId;
+    _bkEditPrev = { customerId: sale.customer, value: Math.max(0, Number(sale.previous_balance) || 0) };
     document.getElementById('booking-form-title').textContent = `✏️ Editing Invoice — ${sale.invoice_number}`;
     document.getElementById('bk-invoice').value = sale.invoice_number;
     document.getElementById('bk-notes').value = (sale.notes||'').replace(/^Order Booking\s*(—\s*)?/,'').replace(/\s*\(date:[^)]*\)\s*$/,'');
@@ -3676,16 +3688,41 @@ async function newBookingForm(editId, editCompletedInPlace) {
         discPct: Number(it.discount_percent)||0,
       }));
     _bookingItems.push({ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1, taxPct:0, discPct:0 });
+
+    // Keep what the invoice really was: its Cash/Credit label (the form used to
+    // reset to Cash, silently flipping a credit bill) and its bill-level
+    // discount (it used to be dropped, changing the total).
+    document.getElementById('bk-payment').value = sale.is_credit ? 'credit' : 'cash';
+    let lineDisc = 0;
+    sale.items.forEach(it => {
+      const base = Number(it.unit_price) * Number(it.quantity);
+      const tax = base * (Number(it.tax_percent)||0) / 100;
+      lineDisc += (base + tax) * (Number(it.discount_percent)||0) / 100;
+    });
+    const billDisc = Math.max(0, Math.round((Number(sale.discount_amount) - lineDisc) * 100) / 100);
+    document.getElementById('bk-discount').value = billDisc;
+    _bkEditOriginal = {
+      customer: sale.customer || 0,
+      credit: !!sale.is_credit,
+      billDisc,
+      notes: document.getElementById('bk-notes').value,
+      items: _bkItemKeys(sale.items
+        .filter(it => (it.quantity - it.quantity_returned) > 0)
+        .map(it => ({ product: it.product, quantity: it.quantity - it.quantity_returned,
+                      unit_price: it.unit_price, discount_percent: it.discount_percent }))),
+    };
   } else if (editId) {
     // Editing a held (draft) invoice — pull its saved items/customer back in.
     let sale;
     try { sale = await SalesAPI.get(editId); }
-    catch (err) { toast(err.message || 'Failed to load invoice', 'error'); return; }
+    catch (err) { toast(err.message || 'Failed to load invoice', 'error'); closeBookingForm(); return; }
     if (sale.status !== 'draft') {
       toast('Only a held invoice can be edited — use Sale Return to correct a completed one.', 'warning');
+      closeBookingForm();
       return;
     }
     _editingBookingId = editId;
+    _bkEditPrev = { customerId: sale.customer, value: Math.max(0, Number(sale.previous_balance) || 0) };
     document.getElementById('booking-form-title').textContent = `✏️ Editing Held Invoice — ${sale.invoice_number}`;
     document.getElementById('bk-invoice').value = sale.invoice_number;
     document.getElementById('bk-notes').value = (sale.notes||'').replace(/^Order Booking\s*(—\s*)?/,'').replace(/\s*\(date:[^)]*\)\s*$/,'');
@@ -3806,11 +3843,16 @@ async function onBookingCustomerChange() {
   // Show the cached figure immediately (feels instant), then correct it
   // with the live ledger value — same source the backend will snapshot
   // onto the invoice when this booking is saved.
-  _bkPrevBalanceLive = _bkCustBalance(cust);
+  // Editing an existing invoice for the same customer: its own frozen
+  // Previous Balance, not the live ledger (which already counts this bill).
+  const useSnapshot = !!(_bkEditPrev && _bkEditPrev.customerId === cust.id);
+  _bkPrevBalanceLive = useSnapshot ? _bkEditPrev.value : _bkCustBalance(cust);
   document.getElementById('bk-prev-balance').textContent = 'Rs.'+_bkPrevBalanceLive.toFixed(2);
   document.getElementById('bk-total-purchases').textContent = String(cust.loyalty_points || 0);
   document.getElementById('bk-last-visit').textContent = (cust.updated_at||'').slice(0,10)||'—';
   calcBookingTotals();
+
+  if (useSnapshot) return;   // nothing live to fetch — the invoice's own figure is final
 
   try {
     const ledger = await CustomersAPI.ledger(cust.id);
@@ -4401,7 +4443,13 @@ function calcBookingTotals() {
   set('bk-prev-bal-mini',  s(prevBal));
 }
 
+function _bkItemKeys(list) {
+  return list.map(i => [Number(i.product), Number(i.quantity), (Number(i.unit_price)||0).toFixed(2),
+                        (Number(i.discount_percent)||0).toFixed(2)].join('|')).sort().join(';');
+}
+
 async function saveBooking(status) {
+  if (_bkSaving) return;   // a second click while the first save is still running
   const custId = parseInt(document.getElementById('bk-customer').value)||0;
   if (!custId) { toast('Please select a customer!','error'); return; }
   const validItems = _bookingItems.filter(i=>i.productId);
@@ -4425,6 +4473,25 @@ async function saveBooking(status) {
     };
   });
 
+  // Opened an existing invoice and saved without changing anything → keep it
+  // exactly as it is: no new bill, no balance change, payments stay.
+  if (status !== 'draft' && _editingCompletedSaleId && _bkEditOriginal) {
+    const o = _bkEditOriginal;
+    const same = o.customer === custId
+      && o.credit === (payMethod === 'credit')
+      && Math.abs(o.billDisc - discountAmount) < 0.01
+      && o.notes.trim() === notes.trim()
+      && o.items === _bkItemKeys(items);
+    if (same) {
+      toast('No changes made — the invoice was kept exactly as it is.', 'success');
+      closeBookingForm();
+      return;
+    }
+  }
+
+  _bkSaving = true;
+  const saveBtn = document.querySelector('button[onclick="saveBooking(\'saved\')"]');
+  if (saveBtn) saveBtn.disabled = true;
   try {
     const warehouseId = await _ensureDefaultWarehouse();
     const payload = {
@@ -4466,10 +4533,15 @@ async function saveBooking(status) {
     // created automatically. This does NOT apply to the POS register
     // checkout (processPayment) — a counter sale really is paid on the spot.
     _slipsLoaded = false; // new/updated sale — Sale Slips list must refetch next time it's opened
-    toast(_editingCompletedSaleId ? `Invoice updated — ${sale.invoice_number}` : `Booking saved! Invoice: ${sale.invoice_number}`, 'success');
+    toast(_editingCompletedSaleId
+      ? (sale.edit_unchanged ? 'No changes made — the invoice was kept exactly as it is.' : `Invoice updated — ${sale.invoice_number}`)
+      : `Booking saved! Invoice: ${sale.invoice_number}`, 'success');
     closeBookingForm();
   } catch (err) {
     toast(err.message || 'Failed to save booking', 'error');
+  } finally {
+    _bkSaving = false;
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 

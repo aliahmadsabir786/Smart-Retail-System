@@ -8927,14 +8927,43 @@ async function openCollectionPayment(custId) {
     return;
   }
 
+  // A payment belongs to ONE bill — the one chosen here — and never spills
+  // onto the customer's other bills. Default = the newest unpaid bill inside
+  // the period currently shown on the Collection screen (e.g. today's bill).
+  const cf = getCollectionFilters();
+  const unpaid = _custBookings(custId)
+    .filter(b => Number(b.due_amount) > 0.009)
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  if (!unpaid.length) { toast('This customer has no unpaid invoices.', 'warning'); return; }
+  const inPeriod = unpaid.filter(b => _inDT(b.created_at, cf.dateFromDT, cf.dateToDT));
+  const pick = inPeriod[0] || unpaid[0];
+  _colPayLedgerRemaining = remaining;
+  document.getElementById('col-pay-sale').innerHTML = unpaid.map(b =>
+    `<option value="${b.id}" ${b.id === pick.id ? 'selected' : ''}>${b.invoice_number} · ${(b.created_at || '').slice(0, 10)} · Due Rs.${Number(b.due_amount).toFixed(2)}</option>`
+  ).join('');
+
   document.getElementById('col-pay-cust-id').value       = custId;
   document.getElementById('col-pay-cust-name').value     = c.name;
-  document.getElementById('col-pay-outstanding').value   = 'Rs.'+remaining.toFixed(2);
   document.getElementById('col-pay-amount').value        = '';
   document.getElementById('col-pay-date').value          = new Date().toISOString().split('T')[0];
   document.getElementById('col-pay-notes').value         = '';
-  document.getElementById('col-pay-remaining').textContent = 'Rs.'+remaining.toFixed(2);
+  onColPaySaleChange();
   openModal('col-payment-modal');
+}
+
+// Customer's real remaining (ledger, nets any advance) — a payment can never
+// exceed it, whichever bill it is being applied to.
+let _colPayLedgerRemaining = 0;
+
+function onColPaySaleChange() {
+  const saleId = parseInt(document.getElementById('col-pay-sale')?.value);
+  const sale = _colSalesCache.find(b => b.id === saleId);
+  const billDue = sale ? Number(sale.due_amount) || 0 : 0;
+  const due = Math.max(0, Math.round(Math.min(billDue, _colPayLedgerRemaining) * 100) / 100);
+  document.getElementById('col-pay-outstanding').value = 'Rs.' + due.toFixed(2);
+  const amt = document.getElementById('col-pay-amount');
+  if (amt) amt.max = due.toFixed(2);
+  calcColRemaining();
 }
 
 function calcColRemaining() {
@@ -8953,41 +8982,29 @@ async function saveCollectionPayment() {
   const method = document.getElementById('col-pay-method').value;
   const c = _colCustomerCache.find(x => x.id===custId);
 
-  // col-pay-outstanding was just set from the ledger's real "remaining"
-  // (see openCollectionPayment), which already nets out any advance the
-  // customer has from an earlier General Collection payment. Capping to
-  // it here — instead of trusting whatever the cashier typed — is what
-  // actually stops the same money from being collected twice: even if
-  // someone types the invoice's full printed total, only what's truly
-  // still owed gets applied to it.
+  // col-pay-outstanding = what is still due on the CHOSEN bill, already capped
+  // by the customer's real ledger balance (which nets any advance). Capping to
+  // it — instead of trusting what the cashier typed — stops the same money
+  // being collected twice.
+  const saleId = parseInt(document.getElementById('col-pay-sale')?.value);
+  const sale = _colSalesCache.find(b => b.id === saleId);
+  if (!sale) { toast('Select the bill this payment is for.', 'warning'); return; }
+
   const trueOutstanding = parseFloat((document.getElementById('col-pay-outstanding')?.value||'Rs.0').replace('Rs.','')) || 0;
   if (amount > trueOutstanding + 0.01) {
-    toast(`Only Rs.${trueOutstanding.toFixed(2)} is actually due — part of this was already collected earlier (advance/credit). Collecting Rs.${trueOutstanding.toFixed(2)} instead.`, 'warning');
+    toast(`Only Rs.${trueOutstanding.toFixed(2)} is due on ${sale.invoice_number} — collecting Rs.${trueOutstanding.toFixed(2)} instead.`, 'warning');
     amount = trueOutstanding;
   }
   if (amount <= 0) { closeModal('col-payment-modal'); await showNoPaymentRemaining(c?.name); renderCollection(); return; }
 
-  // A "collection payment" is applied across this customer's unpaid sales,
-  // oldest first, via the real SalesAPI.pay() endpoint (there's no separate
-  // customer-level payment record on the backend — payments always belong
-  // to a specific invoice, matching real accounting).
-  const unpaidSales = _custBookings(custId)
-    .filter(b => Number(b.due_amount) > 0)
-    .sort((a,b) => (a.created_at||'').localeCompare(b.created_at||''));
-
-  if (!unpaidSales.length) { toast('This customer has no unpaid invoices.', 'warning'); return; }
-
+  // The payment goes onto THIS bill only (via the real SalesAPI.pay endpoint);
+  // the customer's other bills are never touched.
   try {
-    for (const sale of unpaidSales) {
-      if (amount <= 0) break;
-      const due = Number(sale.due_amount);
-      const payNow = Math.min(due, amount);
-      await SalesAPI.pay(sale.id, { amount: payNow, method });
-      amount -= payNow;
-    }
+    await SalesAPI.pay(sale.id, { amount, method });
     closeModal('col-payment-modal');
-    renderCollection();
-    toast(`Payment recorded for ${c?.name}!`,'success');
+    await renderCollection();
+    const left = Math.max(0, Number(sale.due_amount) - amount);
+    toast({ title: 'Payment recorded', text: `Rs.${amount.toFixed(2)} received on ${_bkEsc(sale.invoice_number)} (${_bkEsc(c?.name || '')}) — Rs.${left.toFixed(2)} still due on this bill.`, kind: 'add' }, 'success');
   } catch (err) {
     toast(err.message || 'Failed to record payment', 'error');
   }
@@ -9039,6 +9056,12 @@ function getCollectionFilters() {
 }
 
 async function printCollectionSheet() {
+  // Always print from FRESH data: a payment recorded a moment ago with "+ Pay"
+  // must already be reflected, not whatever was loaded when the page opened.
+  try {
+    const fresh = await SalesAPI.list({ page_size: 2000 });
+    _colSalesCache = (fresh.results || fresh).filter(b => !['cancelled', 'returned'].includes(b.status));
+  } catch (_) { /* offline: fall back to what is already loaded */ }
   const cf = getCollectionFilters();
   const todayLabel = cf.label;
   const now = new Date().toLocaleString('en-PK');
@@ -9084,7 +9107,12 @@ async function printCollectionSheet() {
   todaySales.forEach(b => {
     const username = b.served_by_name || 'Unassigned';
     if (!groups[username]) groups[username] = [];
-    const total = Number(b.total_amount) || 0;
+    const billTotal = Number(b.total_amount) || 0;
+    const paid = Number(b.paid_amount) || 0;
+    // What is STILL to be collected on this bill: the bill amount minus every
+    // payment already received against it (e.g. Rs.20445 bill, Rs.2799 paid
+    // → Rs.17646 shows here). Never negative.
+    const total = Math.max(0, Math.round((billTotal - paid) * 100) / 100);
     // Cash bookings are no longer auto-paid, so payment_status alone can't
     // tell a not-yet-collected cash bill apart from a credit one anymore —
     // both sit at UNPAID. Read the actual booked mode from is_credit instead.
@@ -9093,12 +9121,13 @@ async function printCollectionSheet() {
       invoice: b.invoice_number,
       customer: b.customer_name || 'Walk-in',
       mode: isCredit ? 'Credit' : 'Cash',
-      total,
+      total, billTotal, paid,
     });
   });
 
   const usernames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-  const grandTotal = todaySales.reduce((s, b) => s + Number(b.total_amount || 0), 0);
+  const grandTotal = todaySales.reduce(
+    (s, b) => s + Math.max(0, Math.round((Number(b.total_amount || 0) - Number(b.paid_amount || 0)) * 100) / 100), 0);
 
   const groupHtml = usernames.map(username => {
     const rows = groups[username];
@@ -9129,7 +9158,10 @@ async function printCollectionSheet() {
             <td style="padding:7px 10px;text-align:center">
               <span style="padding:2px 8px;border-radius:4px;font-size:10.5px;font-weight:700;background:${r.mode === 'Cash' ? '#dcfce7' : '#fee2e2'};color:${r.mode === 'Cash' ? '#166534' : '#991b1b'}">${r.mode}</span>
             </td>
-            <td style="padding:7px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${r.total.toFixed(2)}</td>
+            <td style="padding:7px 10px;text-align:right;font-weight:900;color:${r.total > 0.009 ? '#dc2626' : '#166534'}">
+              Rs.${r.total.toFixed(2)}${r.total <= 0.009 ? ' <span style="font-size:10px">(Paid)</span>' : ''}
+              ${r.paid > 0.009 ? `<div style="font-size:9.5px;font-weight:600;color:#666">Bill Rs.${r.billTotal.toFixed(2)} − Paid Rs.${r.paid.toFixed(2)}</div>` : ''}
+            </td>
             <td style="padding:7px 10px;border:1px solid #ccc;height:26px"></td>
           </tr>`).join('')}
         </tbody>
@@ -9169,7 +9201,8 @@ async function printCollectionSheet() {
     </table>
 
     <div style="margin-top:14px;font-size:10.5px;color:#555;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;background:#fefce8">
-      ⚠ This sheet lists the full amount to be collected for every bill cut in this period — cash and credit both — grouped by the user who booked it.
+      ⚠ This sheet lists what is still to be collected on every bill cut in this period — cash and credit both — grouped by the user who booked it.
+      Payments already received are deducted, so a part-paid bill shows only its remaining amount.
       Cash bills are shown as due here too, since actual collection happens in the evening, not at the moment of booking.
       Once a bill is physically collected, process that payment against the customer's account in the app so it's marked received.
     </div>
@@ -9610,8 +9643,9 @@ document.addEventListener('DOMContentLoaded', function() {
       <div class="modal-body">
         <input type="hidden" id="col-pay-cust-id">
         <div class="form-group-inline"><label>Customer</label><input class="form-input" id="col-pay-cust-name" readonly style="background:var(--bg-secondary)"></div>
+        <div class="form-group-inline"><label>Apply Payment To (Bill) *</label><select class="form-input" id="col-pay-sale" onchange="onColPaySaleChange()" style="padding:9px 12px;font-weight:700"></select></div>
         <div class="form-row">
-          <div class="form-group-inline"><label>Outstanding Balance</label><input class="form-input" id="col-pay-outstanding" readonly style="background:var(--bg-secondary);color:var(--red);font-weight:700;font-family:var(--mono)"></div>
+          <div class="form-group-inline"><label>Bill Balance Due</label><input class="form-input" id="col-pay-outstanding" readonly style="background:var(--bg-secondary);color:var(--red);font-weight:700;font-family:var(--mono)"></div>
           <div class="form-group-inline"><label>Payment Amount *</label><input class="form-input" type="number" id="col-pay-amount" placeholder="0.00" step="0.01" min="0" oninput="calcColRemaining()"></div>
         </div>
         <div class="form-row">

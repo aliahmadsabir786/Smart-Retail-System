@@ -7618,19 +7618,12 @@ async function renderOrderSummary() {
       const cartons = Math.floor(r.totalPieces / ppc);
       const loose   = r.totalPieces % ppc;
       const cost    = r.totalPieces * r.buyPrice;
-      const costPct = totalCost > 0 ? (cost / totalCost * 100) : 0;
       return `<tr style="${i % 2 === 0 ? '' : 'background:rgba(255,255,255,.02)'}">
         <td>
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:20px">${r.icon}</span>
             <div>
               <div style="font-weight:700;font-size:13px">${r.name}</div>
-              <div style="font-size:10px;color:var(--text-muted);margin-top:1px">
-                <div style="display:flex;align-items:center;gap:4px;margin-top:3px">
-                  <div style="height:3px;border-radius:2px;width:${Math.max(costPct,2)}px;max-width:80px;background:linear-gradient(90deg,var(--accent),var(--green));display:inline-block"></div>
-                  <span>${costPct.toFixed(0)}% of cost</span>
-                </div>
-              </div>
             </div>
           </div>
         </td>

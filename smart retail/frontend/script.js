@@ -5015,8 +5015,13 @@ function buildSlipA4Html(rawSale) {
 }
 
 async function printSingleSlipA4(id) {
-  let b = _slipsCache.find(x=>x.id===id);
-  if (!b) b = await SalesAPI.get(id);
+  // Always print from the server's CURRENT figures — not the copy loaded when
+  // the page opened — so a pending balance cleared since then (Previous
+  // Balance) and any new payment are what the slip shows.
+  let b = null;
+  try { b = await SalesAPI.get(id); } catch (_) { /* offline: fall back below */ }
+  if (b) { const i = _slipsCache.findIndex(x => x.id === id); if (i >= 0) _slipsCache[i] = b; }
+  else b = _slipsCache.find(x=>x.id===id);
   if (!b) { toast('Booking not found','error'); return; }
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = buildSlipA4Html(b);
@@ -5025,6 +5030,12 @@ async function printSingleSlipA4(id) {
 }
 
 async function printAllSlipsA4(mode) {
+  // Re-load first so every printed Previous Balance / Net Payable is live.
+  try {
+    const fresh = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
+    _slipsCache = fresh.results || fresh;
+    _slipsLoaded = true;
+  } catch (_) { /* offline: print what is already loaded */ }
   const dateFilter     = document.getElementById('ss-date')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
@@ -5757,6 +5768,7 @@ async function saveLedgerEntry() {
   }
 
   try {
+    _slipsLoaded = false;   // Sale Slips list must reload (live Previous Balance)
     await CustomersAPI.collectPayment(custId, {
       amount: amount.toFixed(2),
       method: document.getElementById('le-method').value,
@@ -9001,6 +9013,7 @@ async function saveCollectionPayment() {
   // the customer's other bills are never touched.
   try {
     await SalesAPI.pay(sale.id, { amount, method });
+    _slipsLoaded = false;   // Sale Slips list must reload (live Previous Balance)
     closeModal('col-payment-modal');
     await renderCollection();
     const left = Math.max(0, Number(sale.due_amount) - amount);

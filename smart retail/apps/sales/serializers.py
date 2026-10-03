@@ -44,6 +44,13 @@ class SaleSerializer(serializers.ModelSerializer):
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
     served_by_name = serializers.CharField(source="served_by.get_full_name", read_only=True, default=None)
     due_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    # LIVE: what the customer still owes on their EARLIER bills right now. It
+    # used to be the figure frozen when this invoice was booked, so a pending
+    # balance cleared later in the day still printed as "previous" on today's
+    # invoice. The frozen figure is still available as previous_balance_at_booking.
+    previous_balance = serializers.SerializerMethodField()
+    previous_balance_at_booking = serializers.DecimalField(
+        source="previous_balance", max_digits=12, decimal_places=2, read_only=True)
 
     class Meta:
         model = Sale
@@ -51,11 +58,50 @@ class SaleSerializer(serializers.ModelSerializer):
             "id", "invoice_number", "customer", "customer_name", "customer_cnic", "customer_address",
             "warehouse", "warehouse_name",
             "served_by", "served_by_name", "coupon", "subtotal", "discount_amount", "tax_amount",
-            "total_amount", "paid_amount", "due_amount", "previous_balance", "status", "payment_status",
+            "total_amount", "paid_amount", "due_amount", "previous_balance", "previous_balance_at_booking",
+            "status", "payment_status",
             "is_credit", "notes",
             "items", "payments", "created_at",
         ]
         read_only_fields = fields
+
+    def get_previous_balance(self, sale):
+        """Live "Previous Balance" for this invoice = what is STILL unpaid on the
+        customer's bills created before it (oldest payments first), so paying a
+        pending bill off is reflected on the next view/print immediately. Later
+        bills never count. Any standalone "General Collection" advance is applied
+        to the oldest dues first; if it more than covers them the leftover shows
+        as a negative figure (an advance), as before. Drafts / cancelled /
+        returned invoices keep their frozen figure."""
+        frozen = sale.previous_balance
+        if not sale.customer_id or sale.status in (
+            Sale.Status.DRAFT, Sale.Status.CANCELLED, Sale.Status.RETURNED
+        ):
+            return str(frozen.quantize(Decimal("0.01")))
+
+        # One small computation per customer per request, shared by every
+        # invoice of that customer in a list.
+        cache = self.context.setdefault("_live_prev", {})
+        table = cache.get(sale.customer_id)
+        if table is None:
+            from django.db.models import Sum
+            rows = (Sale.objects.filter(customer_id=sale.customer_id)
+                    .exclude(status__in=[Sale.Status.DRAFT, Sale.Status.CANCELLED, Sale.Status.RETURNED])
+                    .order_by("created_at", "id")
+                    .values_list("id", "total_amount", "paid_amount"))
+            credit = (Payment.objects.filter(customer_id=sale.customer_id, sale__isnull=True)
+                      .aggregate(t=Sum("amount"))["t"] or Decimal("0"))
+            table, owed_before = {}, Decimal("0")
+            for sid, total, paid in rows:
+                table[sid] = owed_before - credit          # credit still unused before this bill
+                due = max(Decimal("0"), total - paid)
+                used = min(credit, due)
+                credit -= used
+                owed_before += due - used
+            cache[sale.customer_id] = table
+
+        value = table.get(sale.id, frozen)
+        return str(Decimal(value).quantize(Decimal("0.01")))
 
 
 # ---------------------------------------------------------------------------

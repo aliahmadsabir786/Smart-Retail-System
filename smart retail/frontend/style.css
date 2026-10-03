@@ -2999,3 +2999,12 @@ body.light-mode .theme-toggle:hover { background: linear-gradient(135deg, #6366f
 }
 .sidebar:not(.collapsed) .nav-item.active { box-shadow: 0 6px 16px rgba(234,108,77,.28); }
 .sidebar:not(.collapsed) .nav-item.active::before { display: none; }   /* the bar fights the round corners */
+
+
+/* ── BUTTON HEIGHT ONLY ──────────────────────────────────────────────────
+   Only the height of the small buttons is raised (text/icon centred
+   vertically). Width, horizontal padding, corners, colours and hover are
+   exactly as they were. */
+.btn-sm { min-height: 36px; align-items: center; justify-content: center; }
+.btn-xs { min-height: 28px; align-items: center; justify-content: center; }
+.page-header-actions .btn-sm { min-height: 36px; }

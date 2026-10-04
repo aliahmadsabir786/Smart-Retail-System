@@ -8627,6 +8627,40 @@ let _colSalesCache = [];
 // nets EVERY payment (invoice-specific + advance/General Collection).
 let _colBalances = {};
 
+// Card under the 4 KPIs: for the customers billed TODAY — how much of their
+// previous (pre-today) balance is still pending, and how much of the old
+// balance was collected today. Same "today" and same payment dates as the
+// "Received Today" card, so the figures line up.
+function updateColPrevCard() {
+  if (!document.getElementById('col-prev-pending')) return;
+  const today = new Date().toISOString().split('T')[0];
+  const isToday = (iso) => (iso || '').slice(0, 10) === today;
+  const live = _colSalesCache.filter(b => !['draft', 'cancelled', 'returned'].includes(b.status));
+  const todays = live.filter(b => isToday(b.created_at));
+
+  // A customer's earliest bill today carries exactly their balance from before
+  // today (live — payments made since are already taken off).
+  const first = new Map();
+  todays.forEach(b => {
+    if (!b.customer) return;
+    const cur = first.get(b.customer);
+    if (!cur || (b.created_at || '') < (cur.created_at || '') || ((b.created_at || '') === (cur.created_at || '') && b.id < cur.id)) first.set(b.customer, b);
+  });
+  let pending = 0;
+  first.forEach(b => { pending += Math.max(0, Number(b.previous_balance) || 0); });
+
+  // Money received today against bills booked before today.
+  let received = 0;
+  live.filter(b => !isToday(b.created_at)).forEach(b =>
+    (b.payments || []).forEach(p => { if (isToday(p.created_at)) received += Number(p.amount) || 0; }));
+
+  const fmt = n => 'Rs.' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  document.getElementById('col-today-bills').textContent = todays.length;
+  document.getElementById('col-today-bills-sub').textContent = first.size + ' customer' + (first.size === 1 ? '' : 's') + ' billed';
+  document.getElementById('col-prev-pending').textContent = fmt(pending);
+  document.getElementById('col-prev-received').textContent = fmt(received);
+}
+
 function _custBookings(custId, fromDT, toDT) {
   let list = _colSalesCache.filter(b => b.customer === custId);
   if (fromDT || toDT) list = list.filter(b => _inDT(b.created_at, fromDT, toDT));
@@ -8802,6 +8836,7 @@ async function renderCollection() {
     if (document.getElementById('col-total-customers')) document.getElementById('col-total-customers').textContent = rows.length;
     if (document.getElementById('col-total-pending')) document.getElementById('col-total-pending').textContent = 'Rs.' + kpiPending.toFixed(0);
     if (document.getElementById('col-total-received')) document.getElementById('col-total-received').textContent = 'Rs.' + (kpiTotal - kpiPending).toFixed(0);
+    updateColPrevCard();
 
     // Render username-view table
     const colHead = document.getElementById('col-thead');
@@ -8869,6 +8904,7 @@ async function renderCollection() {
   if (document.getElementById('col-total-pending'))   document.getElementById('col-total-pending').textContent   = 'Rs.'+totalPending.toFixed(0);
   if (document.getElementById('col-total-received'))  document.getElementById('col-total-received').textContent  = 'Rs.'+totalReceived.toFixed(2);
   if (document.getElementById('col-overdue-count'))   document.getElementById('col-overdue-count').textContent   = overdueCount;
+  updateColPrevCard();
   if (label) label.textContent = rows.length + ' account' + (rows.length!==1?'s':'');
 
   if (!rows.length) {
@@ -9695,11 +9731,39 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 
     <!-- KPIs -->
-    <div class="stat-grid" style="margin-bottom:16px">
+    <div class="stat-grid col-kpi-row" style="margin-bottom:16px">
       <div class="stat-card blue"><div class="stat-header"><div class="stat-icon blue"><i class="fa fa-users"></i></div></div><div class="stat-value" id="col-total-customers">0</div><div class="stat-label">Total Accounts</div></div>
       <div class="stat-card red"><div class="stat-header"><div class="stat-icon red"><i class="fa fa-exclamation-circle"></i></div></div><div class="stat-value" id="col-total-pending">Rs.0</div><div class="stat-label">Total Pending</div></div>
       <div class="stat-card green"><div class="stat-header"><div class="stat-icon green"><i class="fa fa-check-circle"></i></div></div><div class="stat-value" id="col-total-received">Rs.0</div><div class="stat-label">Received Today</div></div>
       <div class="stat-card yellow"><div class="stat-header"><div class="stat-icon yellow"><i class="fa fa-clock"></i></div></div><div class="stat-value" id="col-overdue-count">0</div><div class="stat-label">Overdue Accounts</div></div>
+    </div>
+
+    <!-- Today's bills: previous balance still pending / received today -->
+    <div class="stat-card purple col-prev-card" id="col-prev-card" style="margin-bottom:16px">
+      <div class="col-prev-seg">
+        <div class="stat-icon purple"><i class="fa fa-file-invoice"></i></div>
+        <div>
+          <div class="stat-value" id="col-today-bills">0</div>
+          <div class="stat-label">Bills Out Today</div>
+          <div class="col-prev-sub" id="col-today-bills-sub">&nbsp;</div>
+        </div>
+      </div>
+      <div class="col-prev-seg">
+        <div class="stat-icon red"><i class="fa fa-hourglass-half"></i></div>
+        <div>
+          <div class="stat-value" id="col-prev-pending">Rs.0</div>
+          <div class="stat-label">Previous Balance Pending (today's bills)</div>
+          <div class="col-prev-sub">still unpaid from before today</div>
+        </div>
+      </div>
+      <div class="col-prev-seg">
+        <div class="stat-icon green"><i class="fa fa-hand-holding-dollar"></i></div>
+        <div>
+          <div class="stat-value" id="col-prev-received">Rs.0</div>
+          <div class="stat-label">Previous Balance Received Today</div>
+          <div class="col-prev-sub">paid today on bills from before today</div>
+        </div>
+      </div>
     </div>
 
     <!-- Filters -->

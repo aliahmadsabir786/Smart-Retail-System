@@ -8661,6 +8661,145 @@ function updateColPrevCard() {
   document.getElementById('col-prev-received').textContent = fmt(received);
 }
 
+// ── "Previous pending details" toggle for Print Report ─────────────────
+// When ON, the printed Customer Collection Report shows — right under every
+// customer who was billed in the report period (today by default) — each of
+// that customer's EARLIER bills that still has money pending: invoice no,
+// that old bill's own date, and the amount still pending on it. Default OFF,
+// remembered across visits, so the normal report is unchanged until the
+// user switches it on.
+const COL_PREV_DETAIL_KEY = 'smartretail_col_prev_detail';
+let _colPrevDetailOn = (() => {
+  try { return localStorage.getItem(COL_PREV_DETAIL_KEY) === 'true'; } catch (e) { return false; }
+})();
+
+function _applyColPrevDetailToggleUI() {
+  const wrap = document.getElementById('col-prev-detail-wrap');
+  if (!wrap) return;
+  const cb  = document.getElementById('col-prev-detail-toggle');
+  const bg  = wrap.querySelector('.cpd-toggle-bg');
+  const dot = wrap.querySelector('.cpd-toggle-dot');
+  if (cb) cb.checked = _colPrevDetailOn;
+  if (bg) bg.style.background = _colPrevDetailOn ? 'var(--accent)' : 'var(--border)';
+  if (dot) dot.style.left = _colPrevDetailOn ? '18px' : '2px';
+  wrap.setAttribute('aria-checked', _colPrevDetailOn ? 'true' : 'false');
+}
+
+function toggleColPrevDetail() {
+  _colPrevDetailOn = !_colPrevDetailOn;
+  try { localStorage.setItem(COL_PREV_DETAIL_KEY, String(_colPrevDetailOn)); } catch (e) {}
+  _applyColPrevDetailToggleUI();
+}
+
+// "03-Oct-2026" from the date part of an ISO timestamp (no timezone shifting,
+// same date part the rest of the Collection page already uses).
+function _colFmtDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  if (!m) return '—';
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(m[2]) - 1] || m[2];
+  return `${m[3]}-${mon}-${m[1]}`;
+}
+
+// For every customer billed inside the report period (cf = getCollectionFilters()),
+// returns Map(customerId -> { items:[{invoice,date,pending,billTotal,paid}], total }):
+// the customer's bills from BEFORE their first bill of the period that still
+// have an amount pending, oldest first.
+//
+// Pending per old bill = bill total − payments on it. A standalone "General
+// Collection" advance (payment not tied to any bill) is applied to the oldest
+// dues first — exactly how the API computes the live Previous Balance — so the
+// listed amounts add up to the same "Previous Balance Pending" figure the
+// Collection screen and the invoice show.
+function getColPrevPendingDetails(cf) {
+  const out = new Map();
+  const r2 = n => Math.round(n * 100) / 100;
+  const cmp = (a, b) => (a.created_at || '').localeCompare(b.created_at || '') || ((a.id || 0) - (b.id || 0));
+  const byCust = new Map();
+  _colSalesCache.forEach(b => {
+    if (!b.customer || ['draft', 'cancelled', 'returned'].includes(b.status)) return;
+    if (!byCust.has(b.customer)) byCust.set(b.customer, []);
+    byCust.get(b.customer).push(b);
+  });
+
+  byCust.forEach((bills, custId) => {
+    bills.sort(cmp);
+    const inPeriod = bills.filter(b => _inDT(b.created_at, cf.dateFromDT, cf.dateToDT));
+    if (!inPeriod.length) return;                       // not billed in this period
+    if (cf.usernameQ && !inPeriod.some(b => (b.served_by_name || '').toLowerCase().includes(cf.usernameQ))) return;
+
+    const first   = inPeriod[0];                        // earliest bill of the period
+    const earlier = bills.filter(b => cmp(b, first) < 0);
+    const dues    = earlier.map(b => r2(Math.max(0, (Number(b.total_amount) || 0) - (Number(b.paid_amount) || 0))));
+    const sumDues = dues.reduce((s, d) => s + d, 0);
+    // previous_balance on that first bill = sum of earlier dues − unapplied advance.
+    let credit = r2(Math.max(0, sumDues - (Number(first.previous_balance) || 0)));
+
+    const items = [];
+    earlier.forEach((b, i) => {
+      const used    = Math.min(credit, dues[i]);
+      credit        = r2(credit - used);
+      const pending = r2(dues[i] - used);
+      if (pending > 0.009) {
+        items.push({
+          invoice: b.invoice_number, date: _colFmtDate(b.created_at), pending,
+          billTotal: Number(b.total_amount) || 0, paid: Number(b.paid_amount) || 0,
+        });
+      }
+    });
+    if (items.length) out.set(custId, { items, total: r2(items.reduce((s, it) => s + it.pending, 0)) });
+  });
+  return out;
+}
+
+// Shared by every printout that supports the "Previous pending details"
+// toggle (Print Report, Print Collection, Print (this filter)) so they all
+// look and add up the same.
+function _colPrevBoxHtml(name, d) {
+  return `
+            <div style="border:1px dashed #94a3b8;border-radius:6px;padding:6px 10px;background:#fffbeb;page-break-inside:avoid;break-inside:avoid">
+              <div style="font-size:10px;font-weight:800;color:#a16207;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Previous pending bills — ${_bkEsc(name)}</div>
+              <table style="width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed">
+                <thead>
+                  <tr style="background:#f3f4f6 !important;color:#000 !important">
+                    <th style="padding:4px 8px;text-align:left;width:36%">Invoice No</th>
+                    <th style="padding:4px 8px;text-align:left;width:30%">Date</th>
+                    <th style="padding:4px 8px;text-align:right">Pending Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${d.items.map(it => `
+                  <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:4px 8px;font-family:monospace">${_bkEsc(it.invoice)}</td>
+                    <td style="padding:4px 8px">${it.date}</td>
+                    <td style="padding:4px 8px;text-align:right;font-weight:800;color:#dc2626">Rs.${it.pending.toFixed(2)}${it.paid > 0.009 ? `<div style="font-size:9px;font-weight:600;color:#666">Bill Rs.${it.billTotal.toFixed(2)} − Paid Rs.${it.paid.toFixed(2)}</div>` : ''}</td>
+                  </tr>`).join('')}
+                </tbody>
+                <tfoot>
+                  <tr style="background:#f3f4f6">
+                    <td colspan="2" style="padding:4px 8px;font-weight:800">Total previous pending</td>
+                    <td style="padding:4px 8px;text-align:right;font-weight:900;color:#dc2626">Rs.${d.total.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>`;
+}
+
+// Grand line at the bottom of a printout: total of the previous pending shown
+// above, for the given customer ids (each counted once).
+function _colPrevSummaryHtml(custIds, prevMap) {
+  let custs = 0, invs = 0, grand = 0;
+  new Set(custIds.filter(Boolean)).forEach(id => {
+    const d = prevMap.get(id);
+    if (d && d.items.length) { custs++; invs += d.items.length; grand += d.total; }
+  });
+  return invs
+    ? `<div style="margin-top:10px;padding:9px 12px;border:1.5px solid #fde047;border-radius:7px;background:#fefce8;font-size:12px;display:flex;justify-content:space-between;gap:12px">
+         <span style="font-weight:800;color:#a16207">PREVIOUS PENDING — customers billed in this period (${custs} customer${custs !== 1 ? 's' : ''}, ${invs} invoice${invs !== 1 ? 's' : ''})</span>
+         <span style="font-weight:900;color:#dc2626">Rs.${grand.toFixed(2)}</span>
+       </div>`
+    : `<div style="margin-top:10px;padding:8px 12px;border:1px solid #e5e7eb;border-radius:7px;background:#f8fafc;font-size:11px;color:#555">No previous pending bills for the customers billed in this period.</div>`;
+}
+
 function _custBookings(custId, fromDT, toDT) {
   let list = _colSalesCache.filter(b => b.customer === custId);
   if (fromDT || toDT) list = list.filter(b => _inDT(b.created_at, fromDT, toDT));
@@ -9160,6 +9299,7 @@ async function printCollectionSheet() {
     // both sit at UNPAID. Read the actual booked mode from is_credit instead.
     const isCredit = !!b.is_credit;
     groups[username].push({
+      custId: b.customer || null, ts: b.created_at || '', billId: b.id || 0,
       invoice: b.invoice_number,
       customer: b.customer_name || 'Walk-in',
       mode: isCredit ? 'Credit' : 'Cash',
@@ -9167,9 +9307,78 @@ async function printCollectionSheet() {
     });
   });
 
+  // Optional "Previous pending details" (same toggle as Print Report): the
+  // bills list and its totals stay exactly as always; below them a SEPARATE
+  // table lists the earlier bills of those customers that still have money
+  // pending — customer, invoice no, that bill's date, pending amount — with
+  // its own total (never added into the collection total above).
+  const showPrev = !!_colPrevDetailOn;
+  const prevMap  = showPrev ? getColPrevPendingDetails(cf) : new Map();
+
   const usernames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
   const grandTotal = todaySales.reduce(
     (s, b) => s + Math.max(0, Math.round((Number(b.total_amount || 0) - Number(b.paid_amount || 0)) * 100) / 100), 0);
+
+  let prevTableHtml = '';
+  if (showPrev) {
+    const seen = new Set();
+    const prevRows = [];
+    usernames.forEach(u => groups[u].forEach(r => {
+      if (!r.custId || seen.has(r.custId)) return;
+      const d = prevMap.get(r.custId);
+      if (!d || !d.items.length) return;
+      seen.add(r.custId);
+      d.items.forEach(it => prevRows.push({ customer: r.customer, ...it }));
+    }));
+    const prevTotal = Math.round(prevRows.reduce((s, r) => s + r.pending, 0) * 100) / 100;
+    prevTableHtml = !prevRows.length
+      ? `<div style="margin-top:16px;padding:8px 12px;border:1px solid #e5e7eb;border-radius:7px;background:#f8fafc;font-size:11px;color:#555">No previous pending bills for the customers billed in this period.</div>`
+      : `
+    <div style="margin-top:22px">
+      <div style="background:var(--accent-glow,#eef2ff);border:1px solid #ccc;border-radius:6px 6px 0 0;padding:7px 12px;font-size:12.5px;font-weight:800;display:flex;justify-content:space-between">
+        <span><i class="fa fa-hourglass-half"></i> Previous Pending Bills — customers billed in this period</span>
+        <span>${prevRows.length} invoice${prevRows.length !== 1 ? 's' : ''}</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#d9d9d9 !important;color:#000 !important">
+            <th style="padding:7px 10px;text-align:left">#</th>
+            <th style="padding:7px 10px;text-align:left">Invoice</th>
+            <th style="padding:7px 10px;text-align:left">Customer</th>
+            <th style="padding:7px 10px;text-align:left">Date</th>
+            <th style="padding:7px 10px;text-align:right">Pending Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${prevRows.map((r, i) => `
+          <tr style="background:${i % 2 ? '#f8f8f8' : '#fff'};border-bottom:1px solid #e5e7eb;page-break-inside:avoid;break-inside:avoid">
+            <td style="padding:7px 10px;color:#666">${i + 1}</td>
+            <td style="padding:7px 10px;font-family:monospace;font-size:10.5px">${_bkEsc(r.invoice)}</td>
+            <td style="padding:7px 10px;font-weight:700">${_bkEsc(r.customer)}</td>
+            <td style="padding:7px 10px">${r.date}</td>
+            <td style="padding:7px 10px;text-align:right;font-weight:900;color:#dc2626">
+              Rs.${r.pending.toFixed(2)}
+              ${r.paid > 0.009 ? `<div style="font-size:9.5px;font-weight:600;color:#666">Bill Rs.${r.billTotal.toFixed(2)} − Paid Rs.${r.paid.toFixed(2)}</div>` : ''}
+            </td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:#f1f1f1">
+            <td colspan="4" style="padding:8px 10px;font-weight:800;font-size:11.5px">Subtotal — Previous Pending</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${prevTotal.toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px">
+        <tfoot>
+          <tr style="background:#d9d9d9 !important;color:#000 !important">
+            <td style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL PREVIOUS PENDING</td>
+            <td style="padding:11px 10px;text-align:right;font-size:18px;font-weight:900;color:#f87171">Rs.${prevTotal.toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+  }
 
   const groupHtml = usernames.map(username => {
     const rows = groups[username];
@@ -9223,7 +9432,7 @@ async function printCollectionSheet() {
       <div>
         <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">${logoBlock}${storeName}</div>
         <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Customer Collection Sheet${usernameFilter ? ` — ${usernames[0]}` : ''}</div>
-        <div style="font-size:11px;color:#666;margin-top:2px">Period: ${todayLabel}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px">Period: ${todayLabel}${showPrev ? ' &nbsp;|&nbsp; Includes previous pending bill details' : ''}</div>
       </div>
       <div style="text-align:right">
         <div style="font-size:11px;color:#555">Booked by ${usernames.length} user${usernames.length !== 1 ? 's' : ''} in this period</div>
@@ -9242,11 +9451,11 @@ async function printCollectionSheet() {
       </tfoot>
     </table>
 
+    ${prevTableHtml}
+
     <div style="margin-top:14px;font-size:10.5px;color:#555;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;background:#fefce8">
-      ⚠ This sheet lists what is still to be collected on every bill cut in this period — cash and credit both — grouped by the user who booked it.
-      Payments already received are deducted, so a part-paid bill shows only its remaining amount.
-      Cash bills are shown as due here too, since actual collection happens in the evening, not at the moment of booking.
-      Once a bill is physically collected, process that payment against the customer's account in the app so it's marked received.
+      Software Developer : Ali Ahmad Sabir
+      Python Backend Developer 
     </div>
 
     <div style="margin-top:10px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between">
@@ -9279,6 +9488,7 @@ async function printCollectionReport() {
       return true;
     });
     uRows.forEach(r => rows.push({
+      custId: r.customerId || null,
       name: r.customerName, phone: '—', acct: r.accountNo,
       totalOrders: r.totalBill, payments: r.received || 0,
       balance: Math.max(0, r.pending),
@@ -9300,6 +9510,7 @@ async function printCollectionReport() {
       if (cf.balFilter === 'clear'   && balance > 0) return;
       if (cf.balFilter === 'overdue' && (lastPay > thirtyDaysAgo || balance <= 0)) return;
       rows.push({
+        custId:      c.id,
         name:        c.name,
         phone:       c.phone || '—',
         acct:        c.accountNo || '—',
@@ -9313,6 +9524,24 @@ async function printCollectionReport() {
 
   // Sort: outstanding first, then cleared
   rows.sort((a, b) => b.balance - a.balance);
+
+  // Optional "Previous pending details" (toggle next to the Print Report
+  // button): under each customer billed in this period, list their earlier
+  // bills that still have money pending.
+  const showPrev = !!_colPrevDetailOn;
+  const prevMap  = showPrev ? getColPrevPendingDetails(cf) : new Map();
+  const prevDetailRowHtml = (r) => {
+    if (!showPrev || !r.custId) return '';
+    const d = prevMap.get(r.custId);
+    if (!d || !d.items.length) return '';
+    return `
+        <tr style="background:#fff">
+          <td></td>
+          <td colspan="8" style="padding:2px 10px 10px 10px;border-bottom:1px solid #e5e7eb">${_colPrevBoxHtml(r.name, d)}
+          </td>
+        </tr>`;
+  };
+  const prevSummaryHtml = !showPrev ? '' : _colPrevSummaryHtml(rows.map(r => r.custId), prevMap);
 
   // Grand totals
   const grandTotalOrders   = rows.reduce((s, r) => s + r.totalOrders,  0);
@@ -9330,7 +9559,7 @@ async function printCollectionReport() {
       <div>
         <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">🏪 SmartRetail ERP</div>
         <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Customer Collection Report</div>
-        <div style="font-size:11px;color:#666;margin-top:2px">Period: ${cf.label} &nbsp;|&nbsp; Printed: ${now}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px">Period: ${cf.label} &nbsp;|&nbsp; Printed: ${now}${showPrev ? ' &nbsp;|&nbsp; Includes previous pending bill details' : ''}</div>
       </div>
       <div style="text-align:right">
         <div style="font-size:11px;color:#555">Printed by: <strong>${currentUser?.full_name||'Admin'}</strong></div>
@@ -9389,7 +9618,7 @@ async function printCollectionReport() {
             </span>
           </td>
           <td style="padding:7px 10px;text-align:center;font-size:10.5px;color:#555">${r.lastPay}</td>
-        </tr>`).join('')}
+        </tr>${prevDetailRowHtml(r)}`).join('')}
       </tbody>
 
       <!-- ═══ GRAND TOTALS FOOTER ═══ -->
@@ -9417,6 +9646,8 @@ async function printCollectionReport() {
         </tr>
       </tfoot>
     </table>
+
+    ${prevSummaryHtml}
 
     <div style="margin-top:12px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between">
       <span>SmartRetail ERP — Customer Collection Report</span>
@@ -9726,6 +9957,18 @@ document.addEventListener('DOMContentLoaded', function() {
       <div class="page-header-actions">
         <button class="btn btn-ghost btn-sm" onclick="exportCollectionReport()"><i class="fa fa-file-csv"></i> Export CSV</button>
         <button class="btn btn-warning btn-sm" onclick="printCollectionSheet()" title="Prints the period, username and balance filters currently applied above"><i class="fa fa-hand-holding-usd"></i> Print Collection</button>
+        <label id="col-prev-detail-wrap" role="switch" tabindex="0" aria-checked="false"
+               title="ON: Print Report, Print Collection and Print (this filter) add the earlier bills (invoice no, date, pending amount) of the customers billed in the period that still have an amount pending — Print Report under each customer, the other two as a separate table below the totals"
+               onclick="event.preventDefault();toggleColPrevDetail()"
+               onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleColPrevDetail()}"
+               style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-muted);padding:0 4px;user-select:none">
+          <span>Previous pending details</span>
+          <div style="position:relative;width:38px;height:22px;flex-shrink:0">
+            <div class="cpd-toggle-bg" style="position:absolute;inset:0;border-radius:11px;background:var(--border);transition:background .2s"></div>
+            <div class="cpd-toggle-dot" style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none"></div>
+            <input type="checkbox" id="col-prev-detail-toggle" style="opacity:0;width:0;height:0;position:absolute;pointer-events:none">
+          </div>
+        </label>
         <button class="btn btn-accent btn-sm" onclick="printCollectionReport()"><i class="fa fa-print"></i> Print Report</button>
       </div>
     </div>
@@ -9846,6 +10089,7 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
     </div>`;
   contentDiv.appendChild(colPage);
+  _applyColPrevDetailToggleUI();   // restore the remembered ON/OFF state of the Previous pending details toggle
 
   // 5. Inject enhanced CSS
   const style = document.createElement('style');

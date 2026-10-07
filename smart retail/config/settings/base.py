@@ -78,6 +78,7 @@ LOCAL_APPS = [
     "apps.purchase",
     "apps.expenses",
     "apps.finance",
+    "apps.bankrecords",
     "apps.notifications",
     "apps.audit",
     "apps.dashboard",
@@ -337,7 +338,7 @@ LOGGING = {
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
         "file": {
-            "class": "logging.handlers.RotatingFileHandler",
+            "class": "apps.core.logging_handlers.SafeRotatingFileHandler",
             "filename": BASE_DIR / "logs" / "smartretail.log",
             "maxBytes": 10 * 1024 * 1024,
             "backupCount": 5,

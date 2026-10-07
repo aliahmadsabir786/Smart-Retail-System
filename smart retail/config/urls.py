@@ -23,6 +23,7 @@ api_v1_patterns = [
     path("routes/", include("apps.routes.urls")),
     path("expenses/", include("apps.expenses.urls")),
     path("finance/", include("apps.finance.urls")),
+    path("bank-records/", include("apps.bankrecords.urls")),
     path("notifications/", include("apps.notifications.urls")),
     path("audit-logs/", include("apps.audit.urls")),
     path("dashboard/", include("apps.dashboard.urls")),
@@ -50,6 +51,7 @@ urlpatterns = [
     path("script.js", serve_static_file, {"document_root": FRONTEND_DIR, "path": "script.js"}),
     path("api.js", serve_static_file, {"document_root": FRONTEND_DIR, "path": "api.js"}),
     path("style.css", serve_static_file, {"document_root": FRONTEND_DIR, "path": "style.css"}),
+    path("bankrecords.js", serve_static_file, {"document_root": FRONTEND_DIR, "path": "bankrecords.js"}),
 ]
 
 if settings.DEBUG:

@@ -336,6 +336,25 @@
           <i class="fa fa-book" style="color:var(--accent)"></i> <span class="nav-label">Accounting</span>
         </div>
       </div>
+      <div class="nav-section" id="br-nav-group">
+        <div class="nav-item br-group-head" data-page="bankrec" title="Bank Account" onclick="brToggleGroup()">
+          <i class="fa fa-building-columns" style="color:var(--accent)"></i>
+          <span class="nav-label">Bank Account</span>
+          <i class="fa fa-chevron-down br-caret"></i>
+        </div>
+        <div class="br-submenu" id="br-submenu">
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="dashboard" title="Dashboard" onclick="brOpen('dashboard')"><i class="fa fa-gauge-high"></i> <span class="nav-label">Dashboard</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="accounts" title="Bank Accounts" onclick="brOpen('accounts')"><i class="fa fa-building-columns"></i> <span class="nav-label">Bank Accounts</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="contacts" title="Payment Contacts" onclick="brOpen('contacts')"><i class="fa fa-address-book"></i> <span class="nav-label">Payment Contacts</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="payment" title="Add Payment" onclick="brOpen('payment')"><i class="fa fa-money-bill-transfer"></i> <span class="nav-label">Add Payment</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="deposit" title="Add Deposit" onclick="brOpen('deposit')"><i class="fa fa-piggy-bank"></i> <span class="nav-label">Add Deposit</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="transfer" title="Add Transfer" onclick="brOpen('transfer')"><i class="fa fa-right-left"></i> <span class="nav-label">Add Transfer</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="transactions" title="All Transactions" onclick="brOpen('transactions')"><i class="fa fa-list"></i> <span class="nav-label">All Transactions</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="slips" title="Bank Slips" onclick="brOpen('slips')"><i class="fa fa-receipt"></i> <span class="nav-label">Bank Slips</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="reports" title="Reports" onclick="brOpen('reports')"><i class="fa fa-chart-simple"></i> <span class="nav-label">Reports</span></div>
+          <div class="nav-item nav-sub" data-page="bankrec" data-sub="verification" title="Daily Verification" onclick="brOpen('verification')"><i class="fa fa-clipboard-check"></i> <span class="nav-label">Daily Verification</span></div>
+        </div>
+      </div>
       <div class="nav-section">
         <div class="nav-section-label">Analytics</div>
         <div class="nav-item" data-page="reports" title="Reports" onclick="navigate('reports')">
@@ -3175,4 +3194,5 @@
 <div id="print-area"></div>
 
   <script src="script.js?v=20260930-1"></script>
+  <script src="bankrecords.js?v=20261008-print-inpage"></script>
 </body>

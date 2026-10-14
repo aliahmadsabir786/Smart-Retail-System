@@ -9199,33 +9199,36 @@ async function printCollectionSheet() {
         <span><i class="fa fa-user-tag"></i> Booked by: ${username}</span>
         <span>${rows.length} bill${rows.length !== 1 ? 's' : ''}</span>
       </div>
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+        <colgroup>${showPrev
+          ? '<col style="width:5%"><col style="width:19%"><col style="width:22%"><col style="width:9%"><col style="width:14%"><col style="width:18%"><col style="width:13%">'
+          : '<col style="width:5%"><col style="width:20%"><col style="width:27%"><col style="width:10%"><col style="width:22%"><col style="width:16%">'}</colgroup>
         <thead>
           <tr style="background:#d9d9d9 !important;color:#000 !important">
-            <th style="padding:7px 10px;text-align:left">#</th>
-            <th style="padding:7px 10px;text-align:left">Invoice</th>
-            <th style="padding:7px 10px;text-align:left">Customer</th>
-            <th style="padding:7px 10px;text-align:center">Mode</th>
-            ${showPrev ? '<th style="padding:7px 10px;text-align:right">Prev Balance</th>' : ''}
-            <th style="padding:7px 10px;text-align:right">Amount to Collect</th>
-            <th style="padding:7px 10px;text-align:center">Signature</th>
+            <th style="padding:7px 6px;text-align:left;vertical-align:middle;font-size:11px">#</th>
+            <th style="padding:7px 6px;text-align:left;vertical-align:middle;font-size:11px;line-height:1.25">Invoice</th>
+            <th style="padding:7px 6px;text-align:left;vertical-align:middle;font-size:11px;line-height:1.25">Customer</th>
+            <th style="padding:7px 6px;text-align:center;vertical-align:middle;font-size:11px;line-height:1.25">Mode</th>
+            ${showPrev ? '<th style="padding:7px 6px;text-align:right;vertical-align:middle;font-size:11px;line-height:1.25">Prev Balance</th>' : ''}
+            <th style="padding:7px 6px;text-align:right;vertical-align:middle;font-size:11px;line-height:1.25">Amount to Collect</th>
+            <th style="padding:7px 6px;text-align:center;vertical-align:middle;font-size:11px;line-height:1.25">Signature</th>
           </tr>
         </thead>
         <tbody>
           ${rows.map((r, i) => `
           <tr style="background:${i % 2 ? '#f8f8f8' : '#fff'};border-bottom:1px solid #e5e7eb">
-            <td style="padding:7px 10px;color:#666">${i + 1}</td>
-            <td style="padding:7px 10px;font-family:monospace;font-size:10.5px">${r.invoice}</td>
-            <td style="padding:7px 10px;font-weight:700">${r.customer}</td>
-            <td style="padding:7px 10px;text-align:center">
-              <span style="padding:2px 8px;border-radius:4px;font-size:10.5px;font-weight:700;background:${r.mode === 'Cash' ? '#dcfce7' : '#fee2e2'};color:${r.mode === 'Cash' ? '#166534' : '#991b1b'}">${r.mode}</span>
+            <td style="padding:7px 6px;color:#666;vertical-align:middle">${i + 1}</td>
+            <td style="padding:7px 6px;font-family:monospace;font-size:10.5px;vertical-align:middle;word-break:break-all">${r.invoice}</td>
+            <td style="padding:7px 6px;font-weight:700;vertical-align:middle;overflow-wrap:anywhere">${r.customer}</td>
+            <td style="padding:7px 4px;text-align:center;vertical-align:middle">
+              <span style="padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:700;background:${r.mode === 'Cash' ? '#dcfce7' : '#fee2e2'};color:${r.mode === 'Cash' ? '#166534' : '#991b1b'}">${r.mode}</span>
             </td>
-            ${showPrev ? `<td style="padding:7px 10px;text-align:right;font-weight:700;color:${r.prevBal < 0 ? '#166534' : (r.prevBal > 0.009 ? '#dc2626' : '#666')}">${r.prevBal < 0 ? '(Adv) ' : ''}Rs.${Math.abs(r.prevBal).toFixed(2)}</td>` : ''}
-            <td style="padding:7px 10px;text-align:right;font-weight:900;color:${r.total > 0.009 ? '#dc2626' : '#166534'}">
+            ${showPrev ? `<td style="padding:7px 6px;vertical-align:middle;overflow-wrap:anywhere;text-align:right;font-weight:700;color:${r.prevBal < 0 ? '#166534' : (r.prevBal > 0.009 ? '#dc2626' : '#666')}">${r.prevBal < 0 ? '(Adv) ' : ''}Rs.${Math.abs(r.prevBal).toFixed(2)}</td>` : ''}
+            <td style="padding:7px 6px;vertical-align:middle;overflow-wrap:anywhere;text-align:right;font-weight:900;color:${r.total > 0.009 ? '#dc2626' : '#166534'}">
               Rs.${r.total.toFixed(2)}${r.total <= 0.009 ? ' <span style="font-size:10px">(Paid)</span>' : ''}
-              ${r.paid > 0.009 ? `<div style="font-size:9.5px;font-weight:600;color:#666">Bill Rs.${r.billTotal.toFixed(2)} − Paid Rs.${r.paid.toFixed(2)}</div>` : ''}
+              ${r.paid > 0.009 ? `<div style="font-size:9.5px;font-weight:600;color:#666"><span style="white-space:nowrap">Bill Rs.${r.billTotal.toFixed(2)}</span><br><span style="white-space:nowrap">− Paid Rs.${r.paid.toFixed(2)}</span></div>` : ''}
             </td>
-            <td style="padding:7px 10px;border:1px solid #ccc;height:26px"></td>
+            <td style="padding:7px 6px;border:1px solid #ccc;height:26px"></td>
           </tr>`).join('')}
         </tbody>
         <tfoot>

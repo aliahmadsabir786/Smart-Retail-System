@@ -2988,6 +2988,13 @@ body.light-mode .theme-toggle:hover { background: linear-gradient(135deg, #6366f
 }
 .icon-btn.hb-help:hover { background: linear-gradient(135deg, #22d3ee, #3b82f6); box-shadow: 0 7px 16px rgba(59,130,246,.5); }
 
+/* Logout (replaces the old Help button): red gradient */
+.icon-btn.hb-logout {
+  background: linear-gradient(135deg, #f87171, #dc2626); font-size: 15px;
+  box-shadow: 0 4px 12px rgba(220,38,38,.40);
+}
+.icon-btn.hb-logout:hover { background: linear-gradient(135deg, #f87171, #dc2626); box-shadow: 0 7px 16px rgba(220,38,38,.5); }
+
 @media (prefers-reduced-motion: reduce) {
   .icon-btn .badge, .icon-btn.hb-bell:hover i.fa-bell { animation: none !important; }
 }

@@ -268,50 +268,77 @@
   }
   // Same look as the invoices / reports: company logo, name, address, contact and
   // NTN on the left; document title, date and user on the right.
+  // Prints INSIDE the current page (same #print-area approach the Sale Slips use) —
+  // no new tab/window opens, the user stays exactly where they are.
   async function printDoc({ title, subtitle = '', body, landscape = false, stamp = '' }) {
     const s = await companyInfo();
     const logo = s.logo ? new URL(s.logo, location.origin).href : '';
     const contact = [s.phone, s.email].filter(Boolean).join(' · ');
     const user = (typeof currentUser !== 'undefined' && currentUser && (currentUser.full_name || currentUser.email)) || '';
-    const w = window.open('', '_blank');
-    if (!w) { toast('Please allow pop-ups to print.', 'warning'); return; }
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-      *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#000;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      .doc{position:relative;padding:4mm 2mm}
-      .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #000;padding-bottom:4mm;margin-bottom:4mm}
-      .co img{max-height:46px;max-width:140px;object-fit:contain;margin-bottom:4px;display:block}
-      .co .nm{font-size:22px;font-weight:800;letter-spacing:-.5px} .co .sm{font-size:11px;color:#555;margin-top:2px}
-      .ti{text-align:right;font-size:10.5px;color:#555;line-height:1.6} .ti b{font-size:15px;color:#000}
-      table.t{width:100%;border-collapse:collapse;margin-bottom:5mm} table.t th{background:#d9d9d9;padding:7px 8px;text-align:left;font-size:11px}
-      table.t td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px;vertical-align:top} table.t td.r{text-align:right;white-space:nowrap;font-weight:700}
-      .kv{display:grid;grid-template-columns:1fr 1fr;gap:0 18px;margin-bottom:6mm} .kv div{display:flex;gap:8px;padding:4px 0;align-items:center;border-bottom:1px solid #e3e3e3;font-size:11.5px}
-      .kv span{color:#777;min-width:135px} .kv b{font-weight:700}
-      .amt{border:2px solid #000;border-radius:8px;padding:8px 14px;margin:0 0 4mm;display:flex;justify-content:space-between;align-items:center;gap:12px}
-      .amt .big{font-size:24px;font-weight:800} .amt .w{font-size:11px;color:#333;text-align:right;max-width:60%}
-      .box{border:1px solid #bbb;border-radius:6px;padding:8px 10px;font-size:11.5px;margin-bottom:5mm;white-space:pre-wrap}
-      .proof{display:grid;gap:3mm;margin-bottom:4mm} .proof.n1{grid-template-columns:1fr} .proof.n2{grid-template-columns:1fr 1fr} .proof.n3{grid-template-columns:repeat(3,1fr)} .proof img{display:block;width:100%;height:auto;max-height:100mm;object-fit:contain;object-position:top center;border:1px solid #ccc;border-radius:4px} .lg{width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:6px;object-fit:contain} .sig{break-inside:avoid;page-break-inside:avoid}
-      .sig{display:flex;justify-content:space-between;gap:14px;margin-top:9mm} .sig div{flex:1;text-align:center;border-top:1px solid #000;padding-top:4px;font-size:10.5px}
-      .ft{display:flex;justify-content:space-between;font-size:8.5px;color:#555;border-top:1px solid #ccc;padding-top:3mm;margin-top:8mm}
-      .void{position:absolute;top:42%;left:12%;font-size:80px;font-weight:900;color:rgba(200,0,0,.16);transform:rotate(-24deg);pointer-events:none}
-      @media screen{.doc{width:${landscape ? '273mm' : '186mm'};margin:0 auto}}
-      @page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:12mm}
-    </style></head><body><div class="doc">${stamp}
+    const pa = document.getElementById('print-area');
+    if (!pa) { toast('Print area not found.', 'warning'); return; }
+    const D = '.bk-doc ';
+    const css = `
+      ${D}*{box-sizing:border-box} ${D}{font-family:Arial,Helvetica,sans-serif;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      ${D}table.pg{width:100%;border-collapse:collapse;border:0}
+      ${D}table.pg>thead>tr>td>div,${D}table.pg>tfoot>tr>td>div{height:12mm}
+      ${D}table.pg>thead>tr>td,${D}table.pg>tfoot>tr>td{padding:0;border:0}
+      ${D}table.pg>tbody>tr>td{padding:0 12mm;border:0;vertical-align:top}
+      ${D}.doc{position:relative;padding:0}
+      ${D}.hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #000;padding-bottom:5mm;margin-bottom:7mm}
+      ${D}.co img{max-height:46px;max-width:140px;object-fit:contain;margin-bottom:4px;display:block}
+      ${D}.co .nm{font-size:22px;font-weight:800;letter-spacing:-.5px} ${D}.co .sm{font-size:11px;color:#555;margin-top:5px;line-height:1.5}
+      ${D}.ti{text-align:right;font-size:10.5px;color:#555;line-height:2} ${D}.ti b{font-size:15px;color:#000}
+      ${D}table.t{width:100%;border-collapse:collapse;margin-bottom:5mm} ${D}table.t th{background:#d9d9d9;padding:7px 8px;text-align:left;font-size:11px}
+      ${D}table.t td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px;vertical-align:top} ${D}table.t td.r{text-align:right;white-space:nowrap;font-weight:700}
+      ${D}.kv{display:grid;grid-template-columns:1fr 1fr;gap:0 18px;margin-bottom:8mm} ${D}.kv div{display:flex;gap:8px;padding:8px 0;align-items:center;border-bottom:1px solid #e3e3e3;font-size:11.5px}
+      ${D}.kv span{color:#777;min-width:135px} ${D}.kv b{font-weight:700}
+      ${D}.amt{border:2px solid #000;border-radius:8px;padding:10px 14px;margin:0 0 7mm;display:flex;justify-content:space-between;align-items:center;gap:12px}
+      ${D}.amt .big{font-size:24px;font-weight:800} ${D}.amt .w{font-size:11px;color:#333;text-align:right;max-width:60%}
+      ${D}.box{border:1px solid #bbb;border-radius:6px;padding:8px 10px;font-size:11.5px;margin-bottom:5mm;white-space:pre-wrap}
+      ${D}.proof{display:grid;gap:3mm;margin-bottom:4mm} ${D}.proof.n1{grid-template-columns:1fr} ${D}.proof.n2{grid-template-columns:1fr 1fr} ${D}.proof.n3{grid-template-columns:repeat(3,1fr)} ${D}.proof img{display:block;width:100%;height:auto;max-height:100mm;object-fit:contain;object-position:top center;border:1px solid #ccc;border-radius:4px} ${D}.lg{width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:6px;object-fit:contain} ${D}.sig{break-inside:avoid;page-break-inside:avoid}
+      ${D}.sig{display:flex;justify-content:space-between;gap:14px;margin-top:14mm} ${D}.sig div{flex:1;text-align:center;border-top:1px solid #000;padding-top:4px;font-size:10.5px}
+      ${D}.ft{display:flex;justify-content:space-between;font-size:8.5px;color:#555;border-top:1px solid #ccc;padding-top:3mm;margin-top:8mm}
+      ${D}.void{position:absolute;top:42%;left:12%;font-size:80px;font-weight:900;color:rgba(200,0,0,.16);transform:rotate(-24deg);pointer-events:none}`;
+
+    pa.innerHTML = `<style>${css}</style><div class="bk-doc"><table class="pg"><thead><tr><td><div></div></td></tr></thead><tbody><tr><td><div class="doc">${stamp}
       <div class="hdr"><div class="co">${logo ? `<img src="${esc(logo)}" alt="">` : ''}<div class="nm">${esc(s.company_name || 'SmartRetail Store')}</div>
         ${s.address ? `<div class="sm">${esc(s.address)}</div>` : ''}${contact ? `<div class="sm">${esc(contact)}</div>` : ''}${s.tax_id ? `<div class="sm">NTN/Tax ID: ${esc(s.tax_id)}</div>` : ''}</div>
         <div class="ti"><b>${esc(title.toUpperCase())}</b><br>${subtitle}Generated: ${new Date().toLocaleString()}<br>By: ${esc(user)}</div></div>
-      ${body}
-      <div class="ft"><span>SmartRetail ERP · Banking Records</span><span>${esc(title)} · Printed: ${new Date().toLocaleString()}</span></div></div>
-      <script>window.onload=function(){
-        var imgs=document.querySelectorAll('.proof img');
-        if(imgs.length){
-          var proof=document.querySelector('.proof'), doc=document.querySelector('.doc');
-          proof.style.display='none'; var used=doc.scrollHeight; proof.style.display='';
-          var pageH=(${landscape ? 186 : 273})*96/25.4;                    /* printable height in px */
-          var h=Math.max(190, pageH-used-34);                               /* keep the signature block on this page */
-          for(var i=0;i<imgs.length;i++){imgs[i].style.maxHeight=h+'px';}
-        }
-        setTimeout(function(){window.print()},500)}<\/script></body></html>`);
-    w.document.close();
+      ${body}</div></td></tr></tbody><tfoot><tr><td><div></div></td></tr></tfoot></table></div>`;
+
+    // Paper size/orientation only for this print (page margin is 0 here — the 12mm
+    // margin on top/bottom/sides of EVERY page comes from the spacer table above, so
+    // it can't be lost to the browser's own Margins setting). Removed afterwards so
+    // the other prints (slips etc.) keep their own @page rules.
+    const old = document.getElementById('bk-print-page'); if (old) old.remove();
+    const ps = document.createElement('style');
+    ps.id = 'bk-print-page';
+    ps.textContent = `@page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:0 !important} @page :first{margin:0 !important}`;
+    document.head.appendChild(ps);
+    const cleanup = () => {
+      window.removeEventListener('afterprint', cleanup);
+      pa.innerHTML = ''; pa.style.cssText = ''; ps.remove();
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    // Laid out off-screen at real A4 width so the proof images can be measured.
+    pa.style.cssText = `display:block;position:fixed;left:-99999px;top:0;width:${landscape ? 297 : 210}mm`;
+    const imgs = Array.from(pa.querySelectorAll('img'));
+    await Promise.race([
+      Promise.all(imgs.map(im => (im.complete ? 1 : new Promise(r => { im.onload = im.onerror = r; })))),
+      new Promise(r => setTimeout(r, 4000)),
+    ]);
+    const proofImgs = pa.querySelectorAll('.proof img');
+    if (proofImgs.length) {
+      const proof = pa.querySelector('.proof'), doc = pa.querySelector('.doc');
+      proof.style.display = 'none'; const used = doc.scrollHeight; proof.style.display = '';
+      const pageH = (landscape ? 186 : 273) * 96 / 25.4;                // printable height in px
+      const h = Math.max(190, pageH - used - 56);                       // keep the signature block on this page
+      proofImgs.forEach(im => { im.style.maxHeight = h + 'px'; });
+    }
+    await new Promise(r => setTimeout(r, 30));
+    window.print();
   }
   function amountWords(value) {
     const n = Math.floor(Math.abs(+value || 0)), paisa = Math.round((Math.abs(+value || 0) - n) * 100);
@@ -344,10 +371,9 @@
       const refFor = { 'From Account': a.activity_type === 'deposit' ? null : { accountId: a.from_account },
         'To / Recipient': a.activity_type === 'payment' ? { name: a.recipient_bank } : { accountId: a.to_account },
         'Recipient Bank': { name: a.recipient_bank } };
-      const images = [];
-      for (const x of att.results.filter((x) => x.file_type !== 'pdf').slice(0, 3)) {
-        try { images.push(await blobToDataUrl(await (await blobFetch(`/attachments/${x.id}/file/`)).blob())); } catch (_) { /* skip unreadable proof */ }
-      }
+      const images = (await Promise.all(att.results.filter((x) => x.file_type !== 'pdf').slice(0, 3).map(async (x) => {
+        try { return await blobToDataUrl(await (await blobFetch(`/attachments/${x.id}/file/`)).blob()); } catch (_) { return null; /* skip unreadable proof */ }
+      }))).filter(Boolean);
       const pdfs = att.results.filter((x) => x.file_type === 'pdf');
       const void_ = ['cancelled', 'reversed'].includes(a.status);
       const body = `

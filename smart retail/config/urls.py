@@ -30,6 +30,7 @@ api_v1_patterns = [
     path("reports/", include("apps.reports.urls")),
     path("settings/", include("apps.settings.urls")),
     path("backups/", include("apps.backups.urls")),
+    path("fbr/", include("apps.fbr.urls")),
 ]
 
 FRONTEND_DIR = settings.BASE_DIR / "frontend"
@@ -52,6 +53,7 @@ urlpatterns = [
     path("api.js", serve_static_file, {"document_root": FRONTEND_DIR, "path": "api.js"}),
     path("style.css", serve_static_file, {"document_root": FRONTEND_DIR, "path": "style.css"}),
     path("bankrecords.js", serve_static_file, {"document_root": FRONTEND_DIR, "path": "bankrecords.js"}),
+    path("fbr-integration.js", serve_static_file, {"document_root": FRONTEND_DIR, "path": "fbr-integration.js"}),
 ]
 
 if settings.DEBUG:

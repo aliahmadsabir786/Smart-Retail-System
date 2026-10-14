@@ -644,9 +644,9 @@ function beginPortalLoader(minMs = SHOP_OPEN_MS) {
 //   'cash'  → banknotes are counted from one stack to the other      (Collection)
 //   'order' → a person walks across carrying a product carton        (Order Summary)
 const PRINT_ANIM = {
-  slip:  { ms: 3000, label: [[0, 'Loading printer'],   [1000, 'Printing slips']] },
-  cash:  { ms: 3200, label: [[0, 'Counting cash'],     [2700, 'Opening print']] },
-  order: { ms: 2800, label: [[0, 'Carrying your order'], [2200, 'Opening print']] },
+  slip:  { ms: 1200, label: [[0, 'Loading printer'],   [450, 'Printing slips']] },
+  cash:  { ms: 1300, label: [[0, 'Counting cash'],     [900, 'Opening print']] },
+  order: { ms: 1200, label: [[0, 'Carrying your order'], [800, 'Opening print']] },
 };
 let _printAnimBusy = false;
 function playPrintAnim(kind) {
@@ -674,7 +674,7 @@ function playPrintAnim(kind) {
   if (kind === 'cash' && countEl) {
     countEl.textContent = '0';
     for (let i = 0; i < 12; i++) {
-      timers.push(setTimeout(() => { countEl.textContent = String(i + 1); }, 1000 + i * 180));
+      timers.push(setTimeout(() => { countEl.textContent = String(i + 1); }, 100 + i * 85));
     }
   }
 
@@ -699,7 +699,7 @@ async function animatedPrint(kind, area) {
     if (area) area.style.display = 'none';
     await playPrintAnim(kind);
     if (area) area.style.display = 'block';
-    await new Promise(r => setTimeout(r, 150));   // let the print layout render
+    await new Promise(r => setTimeout(r, 60));    // let the print layout render
     window.print();
     return true;
   } finally {
@@ -9071,6 +9071,23 @@ function clearCollectionFilters() {
 // (Today's/Period's Collection Sheet, Print Report) shows exactly what's
 // filtered on screen right now — never a hardcoded "today", never "all
 // customers regardless of filter".
+// "Prev Balance" on/off switch (Customer Collection header, between Print
+// Collection and Print Report). ON = the printed Collection Sheet carries a
+// Previous Balance column for every bill; OFF = sheet prints without it.
+// Remembered across reloads; defaults to ON.
+const COL_PRINT_PREV_KEY = 'smartretail_col_print_prev';
+function colPrintPrevOn() {
+  try { return localStorage.getItem(COL_PRINT_PREV_KEY) !== '0'; } catch (_) { return true; }
+}
+function colTogglePrev(el) {
+  const on = !colPrintPrevOn();
+  try { localStorage.setItem(COL_PRINT_PREV_KEY, on ? '1' : '0'); } catch (_) {}
+  const bg = el.querySelector('.col-prev-bg'), dot = el.querySelector('.col-prev-dot');
+  if (bg)  bg.style.background = on ? 'var(--accent)' : 'var(--border)';
+  if (dot) dot.style.left      = on ? '18px' : '2px';
+  el.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+
 function getCollectionFilters() {
   const dateFrom = document.getElementById('col-date-from')?.value || '';
   const dateTo   = document.getElementById('col-date-to')?.value   || '';
@@ -9145,6 +9162,7 @@ async function printCollectionSheet() {
     return;
   }
 
+  const showPrev = colPrintPrevOn();
   const groups = {};
   todaySales.forEach(b => {
     const username = b.served_by_name || 'Unassigned';
@@ -9164,6 +9182,7 @@ async function printCollectionSheet() {
       customer: b.customer_name || 'Walk-in',
       mode: isCredit ? 'Credit' : 'Cash',
       total, billTotal, paid,
+      prevBal: Number(b.previous_balance) || 0,
     });
   });
 
@@ -9187,6 +9206,7 @@ async function printCollectionSheet() {
             <th style="padding:7px 10px;text-align:left">Invoice</th>
             <th style="padding:7px 10px;text-align:left">Customer</th>
             <th style="padding:7px 10px;text-align:center">Mode</th>
+            ${showPrev ? '<th style="padding:7px 10px;text-align:right">Prev Balance</th>' : ''}
             <th style="padding:7px 10px;text-align:right">Amount to Collect</th>
             <th style="padding:7px 10px;text-align:center">Signature</th>
           </tr>
@@ -9200,6 +9220,7 @@ async function printCollectionSheet() {
             <td style="padding:7px 10px;text-align:center">
               <span style="padding:2px 8px;border-radius:4px;font-size:10.5px;font-weight:700;background:${r.mode === 'Cash' ? '#dcfce7' : '#fee2e2'};color:${r.mode === 'Cash' ? '#166534' : '#991b1b'}">${r.mode}</span>
             </td>
+            ${showPrev ? `<td style="padding:7px 10px;text-align:right;font-weight:700;color:${r.prevBal < 0 ? '#166534' : (r.prevBal > 0.009 ? '#dc2626' : '#666')}">${r.prevBal < 0 ? '(Adv) ' : ''}Rs.${Math.abs(r.prevBal).toFixed(2)}</td>` : ''}
             <td style="padding:7px 10px;text-align:right;font-weight:900;color:${r.total > 0.009 ? '#dc2626' : '#166534'}">
               Rs.${r.total.toFixed(2)}${r.total <= 0.009 ? ' <span style="font-size:10px">(Paid)</span>' : ''}
               ${r.paid > 0.009 ? `<div style="font-size:9.5px;font-weight:600;color:#666">Bill Rs.${r.billTotal.toFixed(2)} − Paid Rs.${r.paid.toFixed(2)}</div>` : ''}
@@ -9210,6 +9231,7 @@ async function printCollectionSheet() {
         <tfoot>
           <tr style="background:#f1f1f1">
             <td colspan="4" style="padding:8px 10px;font-weight:800;font-size:11.5px">Subtotal — ${username}</td>
+            ${showPrev ? '<td></td>' : ''}
             <td style="padding:8px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${subTotal.toFixed(2)}</td>
             <td></td>
           </tr>
@@ -9726,6 +9748,13 @@ document.addEventListener('DOMContentLoaded', function() {
       <div class="page-header-actions">
         <button class="btn btn-ghost btn-sm" onclick="exportCollectionReport()"><i class="fa fa-file-csv"></i> Export CSV</button>
         <button class="btn btn-warning btn-sm" onclick="printCollectionSheet()" title="Prints the period, username and balance filters currently applied above"><i class="fa fa-hand-holding-usd"></i> Print Collection</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="col-prev-toggle" aria-pressed="${colPrintPrevOn()}" onclick="colTogglePrev(this)" title="ON: printed Collection Sheet shows each bill's Previous Balance" style="display:inline-flex;align-items:center;gap:8px">
+          <span>Prev Balance</span>
+          <span style="position:relative;width:36px;height:20px;display:inline-block;flex-shrink:0">
+            <span class="col-prev-bg" style="position:absolute;inset:0;border-radius:10px;background:${colPrintPrevOn() ? 'var(--accent)' : 'var(--border)'};transition:background .2s"></span>
+            <span class="col-prev-dot" style="position:absolute;top:2px;left:${colPrintPrevOn() ? '18px' : '2px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.35)"></span>
+          </span>
+        </button>
         <button class="btn btn-accent btn-sm" onclick="printCollectionReport()"><i class="fa fa-print"></i> Print Report</button>
       </div>
     </div>

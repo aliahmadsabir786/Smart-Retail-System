@@ -1097,15 +1097,163 @@ async function renderDashboard() {
   await renderCharts(summary);
 }
 
-async function renderCharts(summary) {
-  // Sales chart — real daily totals for the last 7 days, as a bubble chart:
+// ═══════════════════════════════════════════════════════
+// SALES OVERVIEW — FALLBACK ONLY. The normal chart is the CanvasJS bubble chart
+// in renderCharts(); this plain-SVG copy is drawn only when CanvasJS (CDN) fails
+// to load, so the card is never blank. x = day, y = revenue, size = orders.
+// ═══════════════════════════════════════════════════════
+function renderSalesBubbleSvg(host, series, days) {
+  const ck = _ckTheme();
+  const pad2 = n => String(n).padStart(2, '0');
+  const iso = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const byDay = {};
+  series.forEach(s => { byDay[String(s.day).slice(0, 10)] = s; });
+
+  const pts = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+    const s = byDay[iso(d)];
+    pts.push({ d, total: s ? Number(s.total) || 0 : 0, orders: s ? Number(s.orders) || 0 : 0 });
+  }
+  const maxTotal = Math.max(...pts.map(p => p.total));
+  if (!(maxTotal > 0)) {
+    host.innerHTML = `<div class="rpie-empty"><i class="fa fa-chart-line"></i><span>No sales in the last ${days} days</span></div>`;
+    return;
+  }
+
+  // "Nice" Y ceiling + 5 grid steps.
+  const rough = maxTotal * 1.15 / 5, mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= rough) || rough;
+  const yMax = step * 5;
+  const fmtK = v => v >= 1000 ? 'Rs. ' + (Math.round(v / 100) / 10) + 'k' : 'Rs. ' + Math.round(v);
+
+  const W = 700, H = 380, L = 70, R = 18, T = 26, B = 46;
+  const pw = W - L - R, ph = H - T - B;
+  const xAt = i => L + (pts.length === 1 ? pw / 2 : (i + 0.5) * pw / pts.length);
+  const yAt = v => T + ph - (v / yMax) * ph;
+  const maxOrders = Math.max(...pts.map(p => p.orders), 1);
+  const rMin = days > 7 ? 4 : 7, rMax = days > 7 ? 11 : 24;
+
+  let g = '';
+  for (let k = 0; k <= 5; k++) {
+    const v = step * k, y = yAt(v);
+    g += `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="${ck.grid}" stroke-width="1"/>`;
+    g += `<text x="${L - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="${ck.text}">${fmtK(v)}</text>`;
+  }
+  g += `<text transform="translate(14 ${T + ph / 2}) rotate(-90)" text-anchor="middle" font-size="11" fill="${ck.text}">Revenue (Rs.)</text>`;
+
+  const every = days > 7 ? 5 : 1;
+  pts.forEach((p, i) => {
+    const x = xAt(i), y = yAt(p.total);
+    if (i % every === 0 || i === pts.length - 1) {
+      g += `<text x="${x}" y="${H - B + 18}" text-anchor="middle" font-size="11" fill="${ck.text}">${p.d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>`;
+    }
+    const tip = `${p.d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — Revenue: Rs. ${p.total.toFixed(2)} · Orders: ${p.orders}`;
+    if (p.total <= 0) {
+      g += `<circle cx="${x}" cy="${yAt(0)}" r="3" fill="${ck.grid}"><title>${tip}</title></circle>`;
+      return;
+    }
+    const r = rMin + Math.sqrt(p.orders / maxOrders) * (rMax - rMin);
+    const col = CHART_PALETTE[i % CHART_PALETTE.length];
+    g += `<line x1="${x}" y1="${y}" x2="${x}" y2="${yAt(0)}" stroke="${col}" stroke-opacity=".25" stroke-dasharray="3 3"/>`;
+    g += `<circle cx="${x}" cy="${y}" r="${r.toFixed(1)}" fill="${col}" fill-opacity=".82" stroke="${col}" stroke-width="1.5"><title>${tip}</title></circle>`;
+    if (days <= 7) g += `<text x="${x}" y="${y - r - 6}" text-anchor="middle" font-size="10.5" font-weight="700" fill="${ck.text}">${fmtK(p.total)}</text>`;
+  });
+  g += `<circle cx="${L + 6}" cy="${H - 8}" r="5" fill="${CHART_PALETTE[0]}"/><text x="${L + 16}" y="${H - 4}" font-size="11" fill="${ck.text}">Bubble size = orders that day</text>`;
+
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Sales overview, last ${days} days" style="display:block;font-family:'Plus Jakarta Sans',sans-serif">${g}</svg>`;
+}
+
+// Sales Overview: the card sits in a 2-column grid row and is stretched to the
+// height of the taller neighbour (Category Breakdown), which used to leave an
+// empty strip under the chart. Measure the card and let the chart fill it
+// (never smaller than the original 380px). Re-fits on window resize.
+function _fitSalesChartHeight(sc) {
+  const BASE = 380;
+  const card = sc.closest('.card'), body = sc.parentElement;
+  if (!card || !body) return BASE;
+  sc.style.height = BASE + 'px';                       // measure from the default size
+  const cs = getComputedStyle(body);
+  const header = card.firstElementChild && card.firstElementChild !== body ? card.firstElementChild.offsetHeight : 0;
+  const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const h = Math.max(BASE, Math.floor(card.clientHeight - header - pad - 2));
+  sc.style.height = h + 'px';
+  return h;
+}
+// Re-measure once the page layout has settled and redraw if the card height changed.
+function _refitSalesChart() {
+  const sc = document.getElementById('salesChart');
+  if (!sc || !sc.offsetParent) return;
+  const before = sc.clientHeight;
+  const h = _fitSalesChartHeight(sc);
+  if (Math.abs(h - before) > 2 && charts.sales && typeof charts.sales.render === 'function') charts.sales.render();
+}
+let _salesFitBound = false;
+function _bindSalesChartFit() {
+  if (_salesFitBound) return;
+  _salesFitBound = true;
+  let t = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const sc = document.getElementById('salesChart');
+      if (!sc || !sc.offsetParent) return;
+      _fitSalesChartHeight(sc);
+      if (charts.sales && typeof charts.sales.render === 'function') charts.sales.render();
+    }, 150);
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// SALES OVERVIEW — Week / Month switch. Same CanvasJS bubble chart as before;
+// the two buttons in the card header (Week = 7 days, Month = 30 days) re-draw it
+// for that range and the subtitle follows. Bound from here, so index.html needs
+// no change.
+// ═══════════════════════════════════════════════════════
+// Week / Month buttons are switched OFF for now (the buttons stay as they were,
+// the chart always shows the last 7 days). To enable them later, set this to true.
+const SALES_RANGE_TOGGLE_ENABLED = false;
+let _salesOvDays = 7;
+let _salesOvBound = false;
+function _syncSalesOverviewUi() {
+  const sc = document.getElementById('salesChart');
+  const card = sc && sc.closest('.card');
+  if (!card) return;
+  const sub = card.querySelector('.card-subtitle');
+  if (sub) sub.textContent = `Last ${_salesOvDays} days`;
+  const btns = card.querySelectorAll('.card-header button');
+  [[btns[0], 7], [btns[1], 30]].forEach(([btn, d]) => {
+    if (!btn) return;
+    btn.classList.toggle('btn-accent', _salesOvDays === d);
+    btn.classList.toggle('btn-ghost', _salesOvDays !== d);
+  });
+}
+function _bindSalesOverviewButtons() {
+  if (_salesOvBound) return;
+  const sc = document.getElementById('salesChart');
+  const card = sc && sc.closest('.card');
+  const btns = card ? card.querySelectorAll('.card-header button') : [];
+  if (btns.length < 2) return;
+  _salesOvBound = true;
+  btns[0].addEventListener('click', () => loadSalesOverview(7).catch(e => console.error('Sales overview:', e)));
+  btns[1].addEventListener('click', () => loadSalesOverview(30).catch(e => console.error('Sales overview:', e)));
+}
+async function loadSalesOverview(days) {
+  _salesOvDays = (SALES_RANGE_TOGGLE_ENABLED && days === 30) ? 30 : 7;
+  days = _salesOvDays;
+  if (SALES_RANGE_TOGGLE_ENABLED) {
+    _bindSalesOverviewButtons();
+    _syncSalesOverviewUi();
+  }
+  if (charts.sales && typeof charts.sales.destroy === 'function') { try { charts.sales.destroy(); } catch (e) {} }
+  charts.sales = null;
+  // Sales chart — real daily totals for the last 7 (Week) or 30 (Month) days, as a bubble chart:
   // x = day, y = revenue, bubble size = number of orders that day, so a
   // day with fewer but bigger orders looks different from a day with lots
   // of small ones, instead of both just being "a bar this tall".
-  if (charts.sales) charts.sales.destroy();
   const sc = document.getElementById('salesChart');
   if (sc && typeof CanvasJS !== 'undefined') {
-    const chartData = await DashboardAPI.salesChart(7);
+    const chartData = await DashboardAPI.salesChart(days);
     const series = chartData.series || [];
     const ck = _ckTheme();
     const palette = CHART_PALETTE;
@@ -1119,6 +1267,8 @@ async function renderCharts(summary) {
       color: palette[i % palette.length],
     }));
 
+    _fitSalesChartHeight(sc);
+    _bindSalesChartFit();
     charts.sales = new CanvasJS.Chart('salesChart', {
       backgroundColor: 'transparent',
       animationEnabled: true,
@@ -1130,7 +1280,7 @@ async function renderCharts(summary) {
         // screenshot showed "Sep 10" printed twice). Each point now sits at
         // a plain integer index (0, 1, 2…) and dayLabels supplies its real
         // date text, so every tick is guaranteed to be its own unique day.
-        interval: 1, minimum: -0.5, maximum: dataPoints.length - 0.5,
+        interval: Math.max(1, Math.ceil(dataPoints.length / 10)), minimum: -0.5, maximum: dataPoints.length - 0.5,
         labelFormatter: (e) => dayLabels[Math.round(e.value)] || '',
         titleFontColor: ck.text, labelFontColor: ck.text,
         gridColor: ck.grid, lineColor: ck.grid, tickColor: ck.grid,
@@ -1151,8 +1301,19 @@ async function renderCharts(summary) {
       }]
     });
     charts.sales.render();
+    setTimeout(_refitSalesChart, 300);
+  } else if (sc) {
+    // Fallback only: CanvasJS (CDN) did not load -> same bubble chart in plain SVG.
+    try {
+      _fitSalesChartHeight(sc);
+      const res = await DashboardAPI.salesChart(days);
+      renderSalesBubbleSvg(sc, res.series || [], days);
+    } catch (e) { sc.innerHTML = ''; }
   }
 
+}
+
+async function renderCharts(summary) {
   // Category breakdown — product count per category (catalog composition, not
   // sales), drawn as a polar-area donut with side call-outs. Plain SVG + HTML,
   // so it needs no chart library and follows the light/dark theme through CSS.
@@ -1166,6 +1327,10 @@ async function renderCharts(summary) {
     products.forEach(p => { const k = p.category_name || 'Uncategorized'; catCounts[k] = (catCounts[k] || 0) + 1; });
     renderCategoryPolarPie(cc, catCounts);
   }
+
+  // Sales chart goes LAST: the card height is set by the taller Category card,
+  // so the chart can only be sized to fill it once that card has rendered.
+  try { await loadSalesOverview(_salesOvDays); } catch (e) { console.error('Sales overview:', e); }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -8989,6 +9154,7 @@ async function openCollectionPayment(custId) {
   document.getElementById('col-pay-date').value          = new Date().toISOString().split('T')[0];
   document.getElementById('col-pay-notes').value         = '';
   onColPaySaleChange();
+  _colPaySyncButton();   // Record Payment stays disabled until a valid amount is entered
   openModal('col-payment-modal');
 }
 
@@ -9007,13 +9173,68 @@ function onColPaySaleChange() {
   calcColRemaining();
 }
 
-function calcColRemaining() {
-  const outStr = document.getElementById('col-pay-outstanding')?.value||'Rs.0';
-  const outstanding = parseFloat(outStr.replace('Rs.','')) || 0;
-  const paying = parseFloat(document.getElementById('col-pay-amount')?.value) || 0;
-  const rem = Math.max(0, outstanding-paying);
-  document.getElementById('col-pay-remaining').textContent = 'Rs.'+rem.toFixed(2);
-  document.getElementById('col-pay-remaining').style.color = rem===0 ? 'var(--green)' : 'var(--yellow)';
+// Guards against the over-payment popup firing repeatedly while it is open.
+let _colOverPopupOpen = false;
+
+// Single source of truth for "what is still due on the selected bill".
+function _colPayDue() {
+  const outStr = document.getElementById('col-pay-outstanding')?.value || 'Rs.0';
+  return Math.round((parseFloat(outStr.replace('Rs.', '')) || 0) * 100) / 100;
+}
+
+// Enables Record Payment only for a valid amount: > 0 and never above the
+// bill's remaining due.
+function _colPaySyncButton() {
+  const btn = document.getElementById('col-pay-save');
+  const errEl = document.getElementById('col-pay-error');
+  const amtEl = document.getElementById('col-pay-amount');
+  const due = _colPayDue();
+  const paying = parseFloat(amtEl?.value) || 0;
+  const exceeds = paying > due + 0.004;
+  const invalid = paying <= 0 || exceeds || due <= 0;
+  if (btn) {
+    btn.disabled = invalid;
+    btn.style.opacity = invalid ? '.5' : '';
+    btn.style.cursor = invalid ? 'not-allowed' : '';
+  }
+  if (amtEl) amtEl.style.borderColor = exceeds ? 'var(--red)' : '';
+  if (errEl) {
+    errEl.style.display = exceeds ? 'block' : 'none';
+    errEl.textContent = exceeds
+      ? `Amount is more than the bill's due. Maximum allowed: Rs.${due.toFixed(2)}`
+      : '';
+  }
+}
+
+async function calcColRemaining() {
+  const outstanding = _colPayDue();
+  const amtEl = document.getElementById('col-pay-amount');
+  let paying = parseFloat(amtEl?.value) || 0;
+
+  // Entered more than the bill's actual due → block Record Payment, warn,
+  // then cut the amount back to the actual due so it can never exceed it.
+  if (paying > outstanding + 0.004) {
+    _colPaySyncButton();                       // button disabled + red message right away
+    if (!_colOverPopupOpen) {
+      _colOverPopupOpen = true;
+      await confirmModal(
+        `You entered Rs.${paying.toFixed(2)}, but only Rs.${outstanding.toFixed(2)} is due on this invoice. ` +
+        `Payment can't be more than the invoice's actual due — the amount has been reduced to Rs.${outstanding.toFixed(2)}.`,
+        { title: 'Payment exceeds invoice amount', confirmText: 'OK', cancelText: 'Close', danger: false, icon: 'fa-exclamation-triangle' }
+      );
+      _colOverPopupOpen = false;
+    }
+    // Cut to actual (re-read: user may have kept typing while popup was open)
+    const now = parseFloat(amtEl.value) || 0;
+    if (now > outstanding + 0.004) amtEl.value = outstanding > 0 ? outstanding.toFixed(2) : '';
+    paying = parseFloat(amtEl.value) || 0;
+  }
+
+  const rem = Math.max(0, outstanding - paying);
+  const remEl = document.getElementById('col-pay-remaining');
+  remEl.textContent = 'Rs.' + rem.toFixed(2);
+  remEl.style.color = rem === 0 ? 'var(--green)' : 'var(--yellow)';
+  _colPaySyncButton();
 }
 
 async function saveCollectionPayment() {
@@ -9032,9 +9253,12 @@ async function saveCollectionPayment() {
   if (!sale) { toast('Select the bill this payment is for.', 'warning'); return; }
 
   const trueOutstanding = parseFloat((document.getElementById('col-pay-outstanding')?.value||'Rs.0').replace('Rs.','')) || 0;
-  if (amount > trueOutstanding + 0.01) {
-    toast(`Only Rs.${trueOutstanding.toFixed(2)} is due on ${sale.invoice_number} — collecting Rs.${trueOutstanding.toFixed(2)} instead.`, 'warning');
-    amount = trueOutstanding;
+  if (amount > trueOutstanding + 0.004) {
+    // Never silently accept more than the invoice's actual due.
+    document.getElementById('col-pay-amount').value = trueOutstanding > 0 ? trueOutstanding.toFixed(2) : '';
+    calcColRemaining();
+    toast(`Only Rs.${trueOutstanding.toFixed(2)} is due on ${sale.invoice_number} — payment can't exceed it.`, 'error');
+    return;
   }
   if (amount <= 0) { closeModal('col-payment-modal'); await showNoPaymentRemaining(c?.name); renderCollection(); return; }
 
@@ -9072,8 +9296,9 @@ function clearCollectionFilters() {
 // filtered on screen right now — never a hardcoded "today", never "all
 // customers regardless of filter".
 // "Prev Balance" on/off switch (Customer Collection header, between Print
-// Collection and Print Report). ON = the printed Collection Sheet carries a
-// Previous Balance column for every bill; OFF = sheet prints without it.
+// Collection and Print Report). ON = the printed Collection Sheet adds a separate
+// Previous Balance table (with its own total) below the collection total;
+// OFF = only the collection table prints.
 // Remembered across reloads; defaults to ON.
 const COL_PRINT_PREV_KEY = 'smartretail_col_print_prev';
 function colPrintPrevOn() {
@@ -9114,6 +9339,150 @@ function getCollectionFilters() {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Collection Sheet pagination
+// Every printed page is its own .a4-doc (so it always starts on a fresh sheet)
+// and holds at most COL_PAGE_ROWS customers (29). Rows have a FIXED height
+// (nowrap + ellipsis), so the page budget below is exact rather than a guess.
+// Layout when "Prev Balance" is ON:
+//   1) normal collection table(s) per username  →  TOTAL COLLECTION EXPECTED
+//   2) a separate Previous Balance table(s) per username (one row per customer
+//      billed in the period)  →  TOTAL PREVIOUS BALANCE PENDING
+// When it is OFF only part 1 prints. Anything that doesn't fit flows onto the
+// next page; a username split across pages repeats its heading "(contd.)".
+// ─────────────────────────────────────────────────────────────────────────
+const COL_PAGE_ROWS = 29;         // customers per printed page
+const COL_PAGE_BUDGET_FIRST = 1050; // usable content height, page 1 (no top page-margin)
+const COL_PAGE_BUDGET_NEXT = 990;   // usable content height, pages 2+
+const COL_H = { hdrFirst: 92, hdrNext: 34, banner: 34, ghead: 24, thead: 25, row: 28, sub: 27, total: 46, notes: 112 };   // row = 25px + 3px gap
+
+function colEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// sections: [{ kind:'main'|'prev', groups:[{username, rows:[...]}], ... }]
+// → pages: [[block, block, ...], ...]
+function colPaginate(sections) {
+  const H = COL_H, pages = [];
+  let page = null, used = 0, rowsOnPage = 0;
+  const open = () => {
+    page = []; pages.push(page);
+    used = pages.length === 1 ? H.hdrFirst : H.hdrNext;
+    rowsOnPage = 0;
+  };
+  const room = px => used + px <= (pages.length === 1 ? COL_PAGE_BUDGET_FIRST : COL_PAGE_BUDGET_NEXT);
+  open();
+
+  sections.forEach((sec, si) => {
+    if (si > 0) {
+      // Section heading must travel together with at least its first group + row.
+      if (!room(H.banner + H.ghead + H.thead + H.row + H.sub)) open();
+      page.push({ t: 'banner', sec }); used += H.banner;
+    }
+    sec.groups.forEach(g => {
+      let block = null, i = 0;
+      while (i < g.rows.length) {
+        const last = i === g.rows.length - 1;
+        const need = H.row + (last ? H.sub : 0);
+        if (!block) {
+          if (rowsOnPage >= COL_PAGE_ROWS || !room(H.ghead + H.thead + need)) open();
+          block = { t: 'group', sec, user: g.username, cont: i > 0, rows: [], sub: false, count: g.rows.length };
+          page.push(block); used += H.ghead + H.thead;
+        }
+        if (rowsOnPage >= COL_PAGE_ROWS || !room(need)) { block = null; open(); continue; }
+        block.rows.push({ r: g.rows[i], n: i + 1 });
+        used += H.row; rowsOnPage++; i++;
+        if (i === g.rows.length) { block.sub = true; used += H.sub; block.subTotal = g.subTotal; }
+      }
+    });
+    if (!room(H.total)) open();
+    page.push({ t: 'total', sec }); used += H.total;
+  });
+
+  if (!room(H.notes)) open();
+  page.push({ t: 'notes' });
+  return pages;
+}
+
+function colBlockHtml(b) {
+  const TD = 'padding:0 8px;height:24px;line-height:15px;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid #cfd4da;';
+  const TH = 'padding:0 8px;height:22px;line-height:14px;vertical-align:middle;font-size:11px;white-space:nowrap;';
+
+  if (b.t === 'banner') {
+    return `<div style="margin-top:8px;height:26px;line-height:26px;padding:0 12px;box-sizing:border-box;background:#d9d9d9;border:1px solid #888;font-size:13px;font-weight:900;white-space:nowrap">${colEsc(b.sec.title)}</div>`;
+  }
+
+  if (b.t === 'group') {
+    const isMain = b.sec.kind === 'main';
+    const cols = isMain
+      ? [5, 18, 29, 9, 24, 15]
+      : [5, 20, 38, 10, 27];
+    const heads = isMain
+      ? [['#', 'left'], ['Invoice', 'left'], ['Customer', 'left'], ['Mode', 'center'], ['Amount to Collect', 'right'], ['Signature', 'center']]
+      : [['#', 'left'], ['First Invoice', 'left'], ['Customer', 'left'], ['Bills', 'center'], ['Previous Balance', 'right']];
+    const rowsHtml = b.rows.map(({ r, n }) => {
+      const bg = n % 2 ? '#f6f7f9' : '#eceef2';
+      if (isMain) {
+        const modeCol = r.mode === 'Cash' ? ['#dcfce7', '#166534'] : ['#fee2e2', '#991b1b'];
+        return `<tr style="height:25px;background:${bg}">
+          <td style="${TD}color:#666">${n}</td>
+          <td style="${TD}font-family:monospace;font-size:10.5px">${colEsc(r.invoice)}</td>
+          <td style="${TD}font-weight:700;font-size:11.5px">${colEsc(r.customer)}</td>
+          <td style="${TD}text-align:center"><span style="padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;background:${modeCol[0]};color:${modeCol[1]}">${r.mode}</span></td>
+          <td style="${TD}text-align:right;font-weight:900;font-size:11.5px;color:${r.total > 0.009 ? '#dc2626' : '#166534'}">Rs.${r.total.toFixed(2)}${r.total <= 0.009 ? ' <span style="font-size:9.5px">(Paid)</span>' : (r.paid > 0.009 ? ` <span style="font-size:9px;font-weight:600;color:#666">(of ${r.billTotal.toFixed(2)})</span>` : '')}</td>
+          <td style="${TD}border:1px solid #ccc;background:#fff"></td>
+        </tr>`;
+      }
+      const pv = r.prevBal;
+      return `<tr style="height:25px;background:${bg}">
+          <td style="${TD}color:#666">${n}</td>
+          <td style="${TD}font-family:monospace;font-size:10.5px">${colEsc(r.invoice)}</td>
+          <td style="${TD}font-weight:700;font-size:11.5px">${colEsc(r.customer)}</td>
+          <td style="${TD}text-align:center">${r.bills}</td>
+          <td style="${TD}text-align:right;font-weight:900;font-size:11.5px;color:${pv < 0 ? '#166534' : (pv > 0.009 ? '#dc2626' : '#666')}">${pv < 0 ? '(Adv) ' : ''}Rs.${Math.abs(pv).toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+    const subLabel = isMain ? `Subtotal — ${colEsc(b.user)}` : `Previous Balance Subtotal — ${colEsc(b.user)}`;
+    const subRow = b.sub ? `<tr style="height:24px;background:#e3e5ea">
+          <td colspan="4" style="padding:0 8px;height:24px;font-weight:800;font-size:11.5px;white-space:nowrap">${subLabel}</td>
+          <td style="padding:0 6px;text-align:right;font-weight:900;font-size:12px;color:#dc2626;white-space:nowrap">Rs.${b.subTotal.toFixed(2)}</td>
+          ${isMain ? '<td></td>' : ''}
+        </tr>` : '';
+    return `<div>
+      <div style="height:24px;box-sizing:border-box;background:var(--accent-glow,#eef2ff);border:1px solid #ccc;border-radius:6px 6px 0 0;padding:0 12px;font-size:12.5px;font-weight:800;display:flex;justify-content:space-between;align-items:center;white-space:nowrap">
+        <span>Booked by: ${colEsc(b.user)}${b.cont ? ' (contd.)' : ''}</span>
+        <span>${b.count} ${isMain ? 'bill' : 'customer'}${b.count !== 1 ? 's' : ''}</span>
+      </div>
+      <table style="width:100%;margin:0;border-collapse:separate;border-spacing:0 3px;font-size:11px;table-layout:fixed">
+        <colgroup>${cols.map(w => `<col style="width:${w}%">`).join('')}</colgroup>
+        <thead><tr style="background:#d9d9d9 !important;color:#000 !important">
+          ${heads.map(([h, a]) => `<th style="${TH}text-align:${a}">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>${rowsHtml}${subRow}</tbody>
+      </table>
+    </div>`;
+  }
+
+  if (b.t === 'total') {
+    return `<table style="width:100%;margin:6px 0 0 0;border-collapse:collapse;font-size:12px">
+      <tr style="background:#d9d9d9 !important;color:#000 !important;height:38px">
+        <td style="padding:0 10px;font-size:13px;font-weight:900">${colEsc(b.sec.totalLabel)}</td>
+        <td style="padding:0 10px;text-align:right;font-size:18px;font-weight:900;color:#dc2626;white-space:nowrap">Rs.${b.sec.totalValue.toFixed(2)}</td>
+      </tr>
+    </table>`;
+  }
+
+  if (b.t === 'notes') {
+    return `<div style="margin-top:12px;font-size:10px;line-height:1.4;color:#555;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px;background:#fefce8">
+      ⚠ The collection table lists what is still to be collected on every bill cut in this period — cash and credit both — grouped by the user who booked it.
+      Payments already received are deducted, so a part-paid bill shows only its remaining amount.
+      Once a bill is physically collected, process that payment against the customer's account in the app so it is marked received.
+      ${b.showPrev ? '<br>The Previous Balance table is for reference only: one row per customer billed in this period, showing what they owed before their first bill of the period. Advances are shown as (Adv) and are not deducted from its total.' : ''}
+    </div>`;
+  }
+  return '';
+}
+
 async function printCollectionSheet() {
   // Always print from FRESH data: a payment recorded a moment ago with "+ Pay"
   // must already be reflected, not whatever was loaded when the page opened.
@@ -9129,7 +9498,7 @@ async function printCollectionSheet() {
   const storeName = s.company_name || 'SmartRetail Store';
   const logoDataUrl = s.logo || '';
   const logoBlock = logoDataUrl
-    ? `<img src="${logoDataUrl}" style="max-width:44px;max-height:38px;object-fit:contain;vertical-align:middle;margin-right:8px">`
+    ? `<img src="${logoDataUrl}" style="max-width:44px;max-height:30px;object-fit:contain;vertical-align:middle;margin-right:8px">`
     : `<span style="font-size:22px;line-height:1;vertical-align:middle;margin-right:6px">🏪</span>`;
 
   // Every bill cut in the period the Collection screen is CURRENTLY
@@ -9163,122 +9532,115 @@ async function printCollectionSheet() {
   }
 
   const showPrev = colPrintPrevOn();
+  const num = v => Number(v) || 0;
+  const r2 = v => Math.round(v * 100) / 100;
+
+  // ── Part 1: the normal collection sheet (per username) ──────────────────
   const groups = {};
   todaySales.forEach(b => {
     const username = b.served_by_name || 'Unassigned';
     if (!groups[username]) groups[username] = [];
-    const billTotal = Number(b.total_amount) || 0;
-    const paid = Number(b.paid_amount) || 0;
-    // What is STILL to be collected on this bill: the bill amount minus every
-    // payment already received against it (e.g. Rs.20445 bill, Rs.2799 paid
-    // → Rs.17646 shows here). Never negative.
-    const total = Math.max(0, Math.round((billTotal - paid) * 100) / 100);
-    // Cash bookings are no longer auto-paid, so payment_status alone can't
-    // tell a not-yet-collected cash bill apart from a credit one anymore —
-    // both sit at UNPAID. Read the actual booked mode from is_credit instead.
-    const isCredit = !!b.is_credit;
+    const billTotal = num(b.total_amount);
+    const paid = num(b.paid_amount);
+    // What is STILL to be collected on this bill: bill amount minus every
+    // payment already received against it. Never negative.
+    const total = Math.max(0, r2(billTotal - paid));
+    // Cash bookings are no longer auto-paid, so read the booked mode from
+    // is_credit rather than payment_status.
     groups[username].push({
       invoice: b.invoice_number,
       customer: b.customer_name || 'Walk-in',
-      mode: isCredit ? 'Credit' : 'Cash',
+      mode: b.is_credit ? 'Credit' : 'Cash',
       total, billTotal, paid,
-      prevBal: Number(b.previous_balance) || 0,
     });
   });
-
   const usernames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-  const grandTotal = todaySales.reduce(
-    (s, b) => s + Math.max(0, Math.round((Number(b.total_amount || 0) - Number(b.paid_amount || 0)) * 100) / 100), 0);
+  const grandTotal = todaySales.reduce((s, b) => s + Math.max(0, r2(num(b.total_amount) - num(b.paid_amount))), 0);
 
-  const groupHtml = usernames.map(username => {
-    const rows = groups[username];
-    const subTotal = rows.reduce((s, r) => s + r.total, 0);
-    return `
-    <div style="margin-top:16px">
-      <div style="background:var(--accent-glow,#eef2ff);border:1px solid #ccc;border-radius:6px 6px 0 0;padding:7px 12px;font-size:12.5px;font-weight:800;display:flex;justify-content:space-between">
-        <span><i class="fa fa-user-tag"></i> Booked by: ${username}</span>
-        <span>${rows.length} bill${rows.length !== 1 ? 's' : ''}</span>
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
-        <colgroup>${showPrev
-          ? '<col style="width:5%"><col style="width:19%"><col style="width:22%"><col style="width:9%"><col style="width:14%"><col style="width:18%"><col style="width:13%">'
-          : '<col style="width:5%"><col style="width:20%"><col style="width:27%"><col style="width:10%"><col style="width:22%"><col style="width:16%">'}</colgroup>
-        <thead>
-          <tr style="background:#d9d9d9 !important;color:#000 !important">
-            <th style="padding:7px 6px;text-align:left;vertical-align:middle;font-size:11px">#</th>
-            <th style="padding:7px 6px;text-align:left;vertical-align:middle;font-size:11px;line-height:1.25">Invoice</th>
-            <th style="padding:7px 6px;text-align:left;vertical-align:middle;font-size:11px;line-height:1.25">Customer</th>
-            <th style="padding:7px 6px;text-align:center;vertical-align:middle;font-size:11px;line-height:1.25">Mode</th>
-            ${showPrev ? '<th style="padding:7px 6px;text-align:right;vertical-align:middle;font-size:11px;line-height:1.25">Prev Balance</th>' : ''}
-            <th style="padding:7px 6px;text-align:right;vertical-align:middle;font-size:11px;line-height:1.25">Amount to Collect</th>
-            <th style="padding:7px 6px;text-align:center;vertical-align:middle;font-size:11px;line-height:1.25">Signature</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map((r, i) => `
-          <tr style="background:${i % 2 ? '#f8f8f8' : '#fff'};border-bottom:1px solid #e5e7eb">
-            <td style="padding:7px 6px;color:#666;vertical-align:middle">${i + 1}</td>
-            <td style="padding:7px 6px;font-family:monospace;font-size:10.5px;vertical-align:middle;word-break:break-all">${r.invoice}</td>
-            <td style="padding:7px 6px;font-weight:700;vertical-align:middle;overflow-wrap:anywhere">${r.customer}</td>
-            <td style="padding:7px 4px;text-align:center;vertical-align:middle">
-              <span style="padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:700;background:${r.mode === 'Cash' ? '#dcfce7' : '#fee2e2'};color:${r.mode === 'Cash' ? '#166534' : '#991b1b'}">${r.mode}</span>
-            </td>
-            ${showPrev ? `<td style="padding:7px 6px;vertical-align:middle;overflow-wrap:anywhere;text-align:right;font-weight:700;color:${r.prevBal < 0 ? '#166534' : (r.prevBal > 0.009 ? '#dc2626' : '#666')}">${r.prevBal < 0 ? '(Adv) ' : ''}Rs.${Math.abs(r.prevBal).toFixed(2)}</td>` : ''}
-            <td style="padding:7px 6px;vertical-align:middle;overflow-wrap:anywhere;text-align:right;font-weight:900;color:${r.total > 0.009 ? '#dc2626' : '#166534'}">
-              Rs.${r.total.toFixed(2)}${r.total <= 0.009 ? ' <span style="font-size:10px">(Paid)</span>' : ''}
-              ${r.paid > 0.009 ? `<div style="font-size:9.5px;font-weight:600;color:#666"><span style="white-space:nowrap">Bill Rs.${r.billTotal.toFixed(2)}</span><br><span style="white-space:nowrap">− Paid Rs.${r.paid.toFixed(2)}</span></div>` : ''}
-            </td>
-            <td style="padding:7px 6px;border:1px solid #ccc;height:26px"></td>
-          </tr>`).join('')}
-        </tbody>
-        <tfoot>
-          <tr style="background:#f1f1f1">
-            <td colspan="4" style="padding:8px 10px;font-weight:800;font-size:11.5px">Subtotal — ${username}</td>
-            ${showPrev ? '<td></td>' : ''}
-            <td style="padding:8px 10px;text-align:right;font-weight:900;color:#dc2626">Rs.${subTotal.toFixed(2)}</td>
-            <td></td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>`;
+  const sections = [{
+    kind: 'main',
+    totalLabel: `TOTAL COLLECTION EXPECTED — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'}`,
+    totalValue: grandTotal,
+    groups: usernames.map(u => ({
+      username: u, rows: groups[u],
+      subTotal: groups[u].reduce((s, r) => s + r.total, 0),
+    })),
+  }];
+
+  // ── Part 2: Previous Balance table (only when the toggle is ON) ─────────
+  // One row per customer billed in this period (customers with NO previous
+  // balance are listed too, as Rs.0.00). A customer's EARLIEST bill in
+  // the period carries exactly what they owed before it (live), so that is the
+  // figure used — same rule as the "Previous Balance Pending" card — which also
+  // avoids double-counting customers who got several bills.
+  if (showPrev) {
+    const first = new Map(), billCount = new Map();
+    todaySales.forEach(b => {
+      // Walk-in bills have no customer ledger, so each one is its own row
+      // (previous balance Rs.0.00) instead of being dropped from the table.
+      const key = b.customer || ('walkin-' + b.id);
+      billCount.set(key, (billCount.get(key) || 0) + 1);
+      const cur = first.get(key);
+      const k1 = b.created_at || '', k0 = cur ? (cur.created_at || '') : '';
+      if (!cur || k1 < k0 || (k1 === k0 && b.id < cur.id)) first.set(key, b);
+    });
+    const pg = {};
+    first.forEach((b, custId) => {
+      const u = b.served_by_name || 'Unassigned';
+      (pg[u] = pg[u] || []).push({
+        invoice: b.invoice_number,
+        customer: b.customer_name || 'Walk-in',
+        bills: billCount.get(custId) || 1,
+        prevBal: r2(num(b.previous_balance)),
+      });
+    });
+    const pUsers = Object.keys(pg).sort((a, b) => a.localeCompare(b));
+    pUsers.forEach(u => pg[u].sort((a, b) => a.customer.localeCompare(b.customer)));
+    // Advances (negative) are listed but not netted off the pending total.
+    const pendingOf = rows => rows.reduce((s, r) => s + Math.max(0, r.prevBal), 0);
+    if (pUsers.length) {
+      sections.push({
+        kind: 'prev',
+        title: 'PREVIOUS BALANCE — customers billed in this period (Rs.0.00 = nothing previous)',
+        totalLabel: `TOTAL PREVIOUS BALANCE PENDING — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'} (${first.size} row${first.size !== 1 ? 's' : ''})`,
+        totalValue: pUsers.reduce((s, u) => s + pendingOf(pg[u]), 0),
+        groups: pUsers.map(u => ({ username: u, rows: pg[u], subTotal: pendingOf(pg[u]) })),
+      });
+    }
+  }
+
+  // ── Paginate (29 customers per page) and render one .a4-doc per page ───
+  const pages = colPaginate(sections);
+  const DOC_STYLE = 'font-family:Arial,sans-serif;color:#000;padding:6mm 12mm;min-height:0;';
+  const html = pages.map((blocks, pi) => {
+    const pageNo = `Page ${pi + 1} of ${pages.length}`;
+    const header = pi === 0
+      ? `<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #000;padding-bottom:8px;margin-bottom:8px;height:84px;box-sizing:border-box;overflow:hidden">
+          <div>
+            <div style="font-size:22px;font-weight:900;letter-spacing:-.5px;line-height:34px;white-space:nowrap">${logoBlock}${colEsc(storeName)}</div>
+            <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Customer Collection Sheet${usernameFilter ? ` — ${colEsc(usernames[0])}` : ''}</div>
+            <div style="font-size:11px;color:#666;margin-top:2px">Period: ${colEsc(todayLabel)}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:#555">Booked by ${usernames.length} user${usernames.length !== 1 ? 's' : ''} in this period</div>
+            <div style="font-size:11px;color:#555;margin-top:4px">Total bills: <strong>${todaySales.length}</strong></div>
+            <div style="font-size:11px;color:#555;margin-top:4px">${pageNo}</div>
+          </div>
+        </div>`
+      : `<div style="height:26px;margin-bottom:6px;border-bottom:1px solid #999;display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;color:#444;box-sizing:content-box">
+          <span>${colEsc(storeName)} — Customer Collection Sheet — ${colEsc(todayLabel)}</span><span>${pageNo}</span>
+        </div>`;
+    const body = blocks.map(b => {
+      if (b.t === 'notes') b.showPrev = showPrev;
+      return colBlockHtml(b);
+    }).join('');
+    const foot = blocks.some(b => b.t === 'notes')
+      ? `<div style="margin-top:8px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:6px;display:flex;justify-content:space-between">
+          <span>${colEsc(storeName)} — Customer Collection Sheet</span>
+          <span>Printed: ${now} by ${colEsc(currentUser?.full_name || 'Admin')}</span>
+        </div>` : '';
+    return `<div class="a4-doc" style="${DOC_STYLE}">${header}${body}${foot}</div>`;
   }).join('');
-
-  const html = `<div class="a4-doc" style="font-family:Arial,sans-serif;color:#000">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:14px">
-      <div>
-        <div style="font-size:22px;font-weight:900;letter-spacing:-.5px">${logoBlock}${storeName}</div>
-        <div style="font-size:14px;font-weight:700;color:#333;margin-top:2px">Customer Collection Sheet${usernameFilter ? ` — ${usernames[0]}` : ''}</div>
-        <div style="font-size:11px;color:#666;margin-top:2px">Period: ${todayLabel}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:11px;color:#555">Booked by ${usernames.length} user${usernames.length !== 1 ? 's' : ''} in this period</div>
-        <div style="font-size:11px;color:#555;margin-top:4px">Total bills: <strong>${todaySales.length}</strong></div>
-      </div>
-    </div>
-
-    ${groupHtml}
-
-    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:16px">
-      <tfoot>
-        <tr style="background:#d9d9d9 !important;color:#000 !important">
-          <td style="padding:11px 10px;font-size:13px;font-weight:900">TOTAL COLLECTION EXPECTED — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'}</td>
-          <td style="padding:11px 10px;text-align:right;font-size:18px;font-weight:900;color:#f87171">Rs.${grandTotal.toFixed(2)}</td>
-        </tr>
-      </tfoot>
-    </table>
-
-    <div style="margin-top:14px;font-size:10.5px;color:#555;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;background:#fefce8">
-      ⚠ This sheet lists what is still to be collected on every bill cut in this period — cash and credit both — grouped by the user who booked it.
-      Payments already received are deducted, so a part-paid bill shows only its remaining amount.
-      Cash bills are shown as due here too, since actual collection happens in the evening, not at the moment of booking.
-      Once a bill is physically collected, process that payment against the customer's account in the app so it's marked received.
-    </div>
-
-    <div style="margin-top:10px;font-size:10px;color:#888;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between">
-      <span>${storeName} — Customer Collection Sheet</span>
-      <span>Printed: ${now} by ${currentUser?.full_name || 'Admin'}</span>
-    </div>
-  </div>`;
 
   const pa = document.getElementById('print-area');
   pa.innerHTML = html;
@@ -9713,7 +10075,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="form-group-inline"><label>Apply Payment To (Bill) *</label><select class="form-input" id="col-pay-sale" onchange="onColPaySaleChange()" style="padding:9px 12px;font-weight:700"></select></div>
         <div class="form-row">
           <div class="form-group-inline"><label>Bill Balance Due</label><input class="form-input" id="col-pay-outstanding" readonly style="background:var(--bg-secondary);color:var(--red);font-weight:700;font-family:var(--mono)"></div>
-          <div class="form-group-inline"><label>Payment Amount *</label><input class="form-input" type="number" id="col-pay-amount" placeholder="0.00" step="0.01" min="0" oninput="calcColRemaining()"></div>
+          <div class="form-group-inline"><label>Payment Amount *</label><input class="form-input" type="number" id="col-pay-amount" placeholder="0.00" step="0.01" min="0" oninput="calcColRemaining()"><div id="col-pay-error" style="display:none;color:var(--red);font-size:11px;font-weight:600;margin-top:4px"></div></div>
         </div>
         <div class="form-row">
           <div class="form-group-inline"><label>Payment Date</label><input class="form-input" type="date" id="col-pay-date"></div>
@@ -9729,7 +10091,7 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" onclick="closeModal('col-payment-modal')">Cancel</button>
-        <button class="btn btn-green" onclick="saveCollectionPayment()"><i class="fa fa-check"></i> Record Payment</button>
+        <button class="btn btn-green" id="col-pay-save" onclick="saveCollectionPayment()" disabled style="opacity:.5;cursor:not-allowed"><i class="fa fa-check"></i> Record Payment</button>
       </div>
     </div>
   </div>`;
@@ -9751,7 +10113,7 @@ document.addEventListener('DOMContentLoaded', function() {
       <div class="page-header-actions">
         <button class="btn btn-ghost btn-sm" onclick="exportCollectionReport()"><i class="fa fa-file-csv"></i> Export CSV</button>
         <button class="btn btn-warning btn-sm" onclick="printCollectionSheet()" title="Prints the period, username and balance filters currently applied above"><i class="fa fa-hand-holding-usd"></i> Print Collection</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="col-prev-toggle" aria-pressed="${colPrintPrevOn()}" onclick="colTogglePrev(this)" title="ON: printed Collection Sheet shows each bill's Previous Balance" style="display:inline-flex;align-items:center;gap:8px">
+        <button type="button" class="btn btn-ghost btn-sm" id="col-prev-toggle" aria-pressed="${colPrintPrevOn()}" onclick="colTogglePrev(this)" title="ON: below the collection total, prints a separate Previous Balance table (customers billed in the period) with its own total" style="display:inline-flex;align-items:center;gap:8px">
           <span>Prev Balance</span>
           <span style="position:relative;width:36px;height:20px;display:inline-block;flex-shrink:0">
             <span class="col-prev-bg" style="position:absolute;inset:0;border-radius:10px;background:${colPrintPrevOn() ? 'var(--accent)' : 'var(--border)'};transition:background .2s"></span>

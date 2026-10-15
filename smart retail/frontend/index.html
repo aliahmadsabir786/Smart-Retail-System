@@ -482,11 +482,11 @@
             <div class="card-header">
               <div>
                 <div class="card-title">Sales Overview</div>
-                <div class="card-subtitle">Last 7 days</div>
+                <div class="card-subtitle" id="sales-ov-sub">Last 7 days</div>
               </div>
               <div class="flex-gap">
-                <button class="btn btn-ghost btn-xs">Week</button>
-                <button class="btn btn-ghost btn-xs">Month</button>
+                <button class="btn btn-accent btn-xs" id="sales-ov-week" onclick="loadSalesOverview(7)">Week</button>
+                <button class="btn btn-ghost btn-xs" id="sales-ov-month" onclick="loadSalesOverview(30)">Month</button>
               </div>
             </div>
             <div class="card-body">

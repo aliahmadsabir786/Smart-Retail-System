@@ -9477,7 +9477,7 @@ function colBlockHtml(b) {
       ⚠ The collection table lists what is still to be collected on every bill cut in this period — cash and credit both — grouped by the user who booked it.
       Payments already received are deducted, so a part-paid bill shows only its remaining amount.
       Once a bill is physically collected, process that payment against the customer's account in the app so it is marked received.
-      ${b.showPrev ? '<br>The Previous Balance table is for reference only: one row per customer billed in this period, showing what they owed before their first bill of the period. Advances are shown as (Adv) and are not deducted from its total.' : ''}
+      ${b.showPrev ? '<br>The Previous Balance table is for reference only: one row per customer billed in this period who still owes a previous balance (customers with nothing previous are not listed), showing what they owed before their first bill of the period.' : ''}
     </div>`;
   }
   return '';
@@ -9568,8 +9568,9 @@ async function printCollectionSheet() {
   }];
 
   // ── Part 2: Previous Balance table (only when the toggle is ON) ─────────
-  // One row per customer billed in this period (customers with NO previous
-  // balance are listed too, as Rs.0.00). A customer's EARLIEST bill in
+  // One row per customer billed in this period who actually has a previous
+  // balance pending (customers with Rs.0.00 previous balance are NOT listed).
+  // A customer's EARLIEST bill in
   // the period carries exactly what they owed before it (live), so that is the
   // figure used — same rule as the "Previous Balance Pending" card — which also
   // avoids double-counting customers who got several bills.
@@ -9585,7 +9586,11 @@ async function printCollectionSheet() {
       if (!cur || k1 < k0 || (k1 === k0 && b.id < cur.id)) first.set(key, b);
     });
     const pg = {};
+    let prevRowCount = 0;
     first.forEach((b, custId) => {
+      // Only customers who really owe a previous balance appear in this table.
+      if (r2(num(b.previous_balance)) <= 0.009) return;
+      prevRowCount++;
       const u = b.served_by_name || 'Unassigned';
       (pg[u] = pg[u] || []).push({
         invoice: b.invoice_number,
@@ -9601,8 +9606,8 @@ async function printCollectionSheet() {
     if (pUsers.length) {
       sections.push({
         kind: 'prev',
-        title: 'PREVIOUS BALANCE — customers billed in this period (Rs.0.00 = nothing previous)',
-        totalLabel: `TOTAL PREVIOUS BALANCE PENDING — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'} (${first.size} row${first.size !== 1 ? 's' : ''})`,
+        title: 'PREVIOUS BALANCE — customers with a pending previous balance',
+        totalLabel: `TOTAL PREVIOUS BALANCE PENDING — ${usernameFilter ? usernames[0].toUpperCase() : 'ALL USERS'} (${prevRowCount} customer${prevRowCount !== 1 ? 's' : ''})`,
         totalValue: pUsers.reduce((s, u) => s + pendingOf(pg[u]), 0),
         groups: pUsers.map(u => ({ username: u, rows: pg[u], subTotal: pendingOf(pg[u]) })),
       });

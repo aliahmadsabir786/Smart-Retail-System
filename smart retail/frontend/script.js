@@ -3484,6 +3484,7 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => {
     if (e.target !== el) return;
     if (el.id === 'confirm-modal') _resolveConfirm(false);
+    else if (el.id === 'general-auth-modal') _generalAuthFinish(null);
     else closeModal(el.id);
   });
 });
@@ -5459,6 +5460,7 @@ async function renderSettings() {
   setVal('set-dist-phone', s.distributor_phone);
   setVal('set-dist-address', s.distributor_address);
   setVal('set-dist-email', s.distributor_email);
+  _renderGeneralAuthStatus(!!s.general_auth_enabled);
   renderBackupsList();
 
   const cur = document.getElementById('set-currency');
@@ -5469,6 +5471,30 @@ async function renderSettings() {
     if (prev) prev.innerHTML = `<img src="${s.logo}" style="width:100%;height:100%;object-fit:contain">`;
   }
   if (typeof updatePreview === 'function') updatePreview();
+}
+
+// ── General Auth (Settings) ─────────────────────────────────────────────
+function _renderGeneralAuthStatus(enabled) {
+  const st = document.getElementById('set-general-auth-status');
+  if (st) {
+    st.textContent = enabled ? '✔ General Auth password is set — General payments will ask for it.' : '✖ No password set — General payments are not protected.';
+    st.style.color = enabled ? 'var(--green)' : 'var(--yellow)';
+  }
+  const rm = document.getElementById('set-general-auth-remove');
+  if (rm) rm.style.display = enabled ? '' : 'none';
+}
+
+async function removeGeneralAuth() {
+  const ok = await confirmModal('Remove the General Auth password? General payments will no longer ask for a password.',
+    { title: 'Remove General Auth', confirmText: 'Remove', danger: true });
+  if (!ok) return;
+  try {
+    _companySettingsCache = await SettingsAPI.updateCompany({ general_auth_clear: true });
+    _renderGeneralAuthStatus(false);
+    toast('General Auth password removed', 'success');
+  } catch (err) {
+    toast(err.message || 'Could not remove password', 'error');
+  }
 }
 
 async function saveSettings() {
@@ -5492,8 +5518,13 @@ async function saveSettings() {
     distributor_address: g('set-dist-address'),
     distributor_email: g('set-dist-email'),
   };
+  // General Auth: only sent when a new password was typed (blank = keep current).
+  const newGeneralAuth = g('set-general-auth');
+  if (newGeneralAuth) payload.general_auth_password = newGeneralAuth;
   try {
     _companySettingsCache = await SettingsAPI.updateCompany(payload);
+    const ga = document.getElementById('set-general-auth'); if (ga) ga.value = '';
+    _renderGeneralAuthStatus(!!_companySettingsCache.general_auth_enabled);
     if (typeof updatePreview === 'function') updatePreview();
     toast('Settings saved successfully!', 'success');
   } catch (err) {
@@ -5920,6 +5951,42 @@ async function openLedgerEntryModal() {
 }
 function openLedgerEntryModalFor(id) { openLedgerEntryModal(); }
 
+// ── General Auth prompt: resolves with the verified password, or null if cancelled ──
+let _generalAuthResolve = null;
+function askGeneralAuth() {
+  return new Promise(resolve => {
+    _generalAuthResolve = resolve;
+    const inp = document.getElementById('general-auth-input');
+    const err = document.getElementById('general-auth-error');
+    inp.value = ''; err.style.display = 'none';
+    openModal('general-auth-modal');
+    setTimeout(() => inp.focus(), 50);
+  });
+}
+function _generalAuthFinish(value) {
+  closeModal('general-auth-modal');
+  const r = _generalAuthResolve; _generalAuthResolve = null;
+  if (r) r(value);
+}
+async function _generalAuthSubmit() {
+  const inp = document.getElementById('general-auth-input');
+  const err = document.getElementById('general-auth-error');
+  const btn = document.getElementById('general-auth-ok');
+  const pw = inp.value;
+  if (!pw) { err.textContent = 'Please enter the password'; err.style.display = 'block'; return; }
+  btn.disabled = true;
+  try {
+    const res = await SettingsAPI.verifyGeneralAuth(pw);
+    if (res && res.valid) { _generalAuthFinish(pw); return; }
+    err.textContent = 'Incorrect password. Please try again.';
+    err.style.display = 'block'; inp.value = ''; inp.focus();
+  } catch (e) {
+    err.textContent = e.status === 429 ? 'Too many attempts. Please wait a minute.' : (e.message || 'Could not verify password');
+    err.style.display = 'block';
+  } finally { btn.disabled = false; }
+}
+
+let _leSaving = false;   // blocks a double-submit while the payment is being saved
 async function saveLedgerEntry() {
   const custId = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
   if (!custId) return;
@@ -5932,20 +5999,44 @@ async function saveLedgerEntry() {
     return;
   }
 
+  // General Auth: if a password is set in Settings, it must be entered BEFORE
+  // the payment goes through (the server re-checks it as well).
+  let authPassword = '';
+  try {
+    const cs = await SettingsAPI.getCompany();
+    _companySettingsCache = cs;
+    if (cs && cs.general_auth_enabled) {
+      authPassword = await askGeneralAuth();
+      if (authPassword === null) return;   // cancelled — nothing is recorded
+    }
+  } catch (_) { /* settings unreadable — the server still enforces the password */ }
+
+  // Password accepted (or none needed) → close the payment box RIGHT AWAY so
+  // the screen doesn't wait on the network; it is reopened only if saving fails.
+  if (_leSaving) return;
+  _leSaving = true;
+  closeModal('ledger-entry-modal');
+
   try {
     _slipsLoaded = false;   // Sale Slips list must reload (live Previous Balance)
-    await CustomersAPI.collectPayment(custId, {
+    const body = {
       amount: amount.toFixed(2),
       method: document.getElementById('le-method').value,
       reference: document.getElementById('le-ref').value || '',
       date: date + 'T12:00:00',
-    });
-    closeModal('ledger-entry-modal');
+    };
+    if (authPassword) body.auth_password = authPassword;
+    await CustomersAPI.collectPayment(custId, body);
     toast('Payment collected and added to ledger', 'success');
-    await loadLedgerAccount();
+    await loadLedgerAccount();   // updated ledger shown immediately after the save
   } catch (err) {
-    if (/no payment remaining|already clear/i.test(err.message || '')) { closeModal('ledger-entry-modal'); showNoPaymentRemaining(); }
-    else toast(err.message || 'Could not collect payment', 'error');
+    if (/no payment remaining|already clear/i.test(err.message || '')) { showNoPaymentRemaining(); }
+    else {
+      openModal('ledger-entry-modal');   // keep what was typed so it can be retried
+      toast(err.message || 'Could not collect payment', 'error');
+    }
+  } finally {
+    _leSaving = false;
   }
 }
 

@@ -88,6 +88,24 @@ class CustomerViewSet(viewsets.ModelViewSet):
         from apps.sales.models import Payment
         from apps.sales.serializers import PaymentSerializer
 
+        # General Auth: when a password is set in Settings, a General payment
+        # is only recorded if that password is supplied (checked server-side).
+        from apps.settings.models import CompanySettings
+        company = CompanySettings.load()
+        if company.general_auth_enabled:
+            supplied = request.data.get("auth_password") or ""
+            if not supplied:
+                return Response(
+                    {"detail": "General Auth password is required to record this payment.",
+                     "code": "general_auth_required"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not company.check_general_auth_password(supplied):
+                return Response(
+                    {"detail": "Incorrect General Auth password.", "code": "general_auth_invalid"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         customer = self.get_object()
         serializer = CollectPaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

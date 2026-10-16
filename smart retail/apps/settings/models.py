@@ -32,6 +32,10 @@ class CompanySettings(models.Model):
     distributor_address = models.TextField(blank=True)
     distributor_email = models.EmailField(blank=True)
 
+    # "General Auth" — password asked before any General payment is recorded
+    # from a customer's Ledger. Stored HASHED (never plain text); blank = off.
+    general_auth_password = models.CharField(max_length=128, blank=True, default="")
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -48,6 +52,21 @@ class CompanySettings(models.Model):
 
     def delete(self, *args, **kwargs):
         pass  # singleton cannot be deleted
+
+    @property
+    def general_auth_enabled(self):
+        return bool(self.general_auth_password)
+
+    def set_general_auth_password(self, raw):
+        from django.contrib.auth.hashers import make_password
+        self.general_auth_password = make_password(raw) if raw else ""
+
+    def check_general_auth_password(self, raw):
+        """True when no General Auth password is set, or `raw` matches it."""
+        from django.contrib.auth.hashers import check_password
+        if not self.general_auth_password:
+            return True
+        return bool(raw) and check_password(raw, self.general_auth_password)
 
     @classmethod
     def load(cls):

@@ -357,6 +357,8 @@ const SettingsAPI = {
   // Unauthenticated — used on the Login screen before anyone has signed in.
   getPublicBranding() { return apiRequest('/settings/company/public/'); },
   updateCompany(data) { return apiRequest('/settings/company/', { method: 'PATCH', body: data }); },
+  // General Auth — checks the password asked before a General (ledger) payment.
+  verifyGeneralAuth(password) { return apiRequest('/settings/general-auth/verify/', { method: 'POST', body: { password } }); },
   updateCompanyLogo(file) {
     const form = new FormData();
     form.append('logo', file);

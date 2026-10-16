@@ -3,6 +3,7 @@ from django.db.models.deletion import ProtectedError
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 from apps.core.permissions import IsAdminOrAbove, IsSuperAdmin
 from .models import CompanySettings
@@ -49,6 +50,33 @@ class PublicCompanyBrandingView(APIView):
             except ValueError:
                 logo_url = None
         return Response({"name": s.company_name or "", "logo": logo_url})
+
+
+class GeneralAuthThrottle(SimpleRateThrottle):
+    """Slows down password guessing on the General Auth check (per user)."""
+    scope = "general_auth"
+    rate = "10/min"
+
+    def get_cache_key(self, request, view):
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class GeneralAuthVerifyView(APIView):
+    """
+    POST /settings/general-auth/verify/  {"password": "..."}
+
+    Lets the frontend check the General Auth password BEFORE a General payment
+    is submitted. Returns {"enabled": bool, "valid": bool}. The collect-payment
+    endpoint re-checks the password server-side, so this is only for UX.
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [GeneralAuthThrottle]
+
+    def post(self, request):
+        s = CompanySettings.load()
+        valid = s.check_general_auth_password(request.data.get("password") or "")
+        return Response({"enabled": s.general_auth_enabled, "valid": valid})
 
 
 def _require_confirmation(request):

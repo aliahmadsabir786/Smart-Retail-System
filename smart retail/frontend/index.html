@@ -1333,15 +1333,16 @@
         </div>
         <div class="grid-2" style="margin-bottom:20px">
           <div class="card">
-            <div class="card-header"><div class="card-title">Expenses by Category</div></div>
-            <div class="card-body"><div class="chart-container"><canvas id="expenseChart"></canvas></div></div>
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div class="card-title">Expenses by Category</div><div id="exp3d-total" style="font-size:13px;font-weight:800;color:var(--accent)"></div></div>
+            <div class="card-body"><div id="exp3d-wrap" style="position:relative"></div></div>
           </div>
           <div class="card">
             <div class="card-header"><div class="card-title">Monthly Expenses</div></div>
-            <div class="card-body"><div class="chart-container"><canvas id="expMonthChart"></canvas></div></div>
+            <div class="card-body"><div id="exp-month-wrap" style="position:relative"></div></div>
           </div>
         </div>
         <div class="card">
+          <div id="exp-filter-chip" style="display:none;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border)"></div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Actions</th></tr></thead>
@@ -1409,7 +1410,7 @@
         <div class="grid-2">
           <div class="card">
             <div class="card-header"><div class="card-title">Monthly Sales Trend</div></div>
-            <div class="card-body"><div class="chart-container" style="height:240px"><canvas id="rptSalesChart"></canvas></div></div>
+            <div class="card-body"><div id="rpt-sales-wrap" style="position:relative"></div></div>
           </div>
           <div class="card">
             <div class="card-header"><div class="card-title">Profit & Loss Summary</div></div>

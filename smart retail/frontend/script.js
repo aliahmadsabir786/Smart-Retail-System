@@ -2921,10 +2921,360 @@ async function _findOrCreateExpenseCategory(name) {
   return created.id;
 }
 
-async function renderExpenses() {
-  const data = await ExpensesAPI.list({ page_size: 500 });
-  _expenseCache = data.results || data;
-  document.getElementById('expenses-table').innerHTML = _expenseCache.map(e=>`
+// ═══════════════════════════════════════════════════════
+// EXPENSES — 3D EXPLODED PIE (pure SVG, no library)
+// Extruded pie with tilted top face, side walls, drop shadow, exploded
+// slices, % on every slice and lettered call-outs (A, B, C…) with leader
+// lines. Hover lifts a slice + shows a tooltip; click filters the table.
+// ═══════════════════════════════════════════════════════
+const EXP3D_COLORS = ['#ea6c4d', '#f4b63f', '#8c5a3c', '#d9c7a8', '#c0443a', '#5fa8a0', '#8b7bd0', '#3f8fd2', '#c76fa6'];
+const EXP3D_OTHERS = '#9aa3b2';
+const _p3Pct = p => (p > 0 && p < 0.1) ? '&lt;0.1' : p.toFixed(1);   // true share, never shown as a misleading 0.0
+let _expPieRows = [];   // category groups (colour + letter) shared by both charts
+let _expCatFilter = null;   // { name, cats:[...] } while a slice is selected
+
+function _p3Esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function _p3Shade(hex, amt) {            // amt > 0 lightens toward white, < 0 darkens toward black
+  const n = parseInt(hex.slice(1), 16);
+  let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  const t = amt < 0 ? 0 : 255, k = Math.abs(amt);
+  r = Math.round((t - r) * k + r); g = Math.round((t - g) * k + g); b = Math.round((t - b) * k + b);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+function _p3Money(n, dec) { return 'Rs.' + Number(n).toLocaleString('en-PK', { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 }); }
+
+function renderExpense3DPie(expenses) {
+  const wrap = document.getElementById('exp3d-wrap');
+  if (!wrap) return;
+
+  // ── Totals per category (top 7 by amount, the rest grouped as "Others") ──
+  const totals = {}, counts = {};
+  expenses.forEach(e => {
+    const k = e.category_name || 'Uncategorized';
+    totals[k] = (totals[k] || 0) + Number(e.amount || 0);
+    counts[k] = (counts[k] || 0) + 1;
+  });
+  let rows = Object.keys(totals).map(k => ({ name: k, value: totals[k], count: counts[k], cats: [k] }))
+    .filter(r => r.value > 0).sort((a, b) => b.value - a.value);
+  if (rows.length > 10) {
+    const rest = rows.slice(9);
+    rows = rows.slice(0, 9).concat([{ name: 'Others', value: rest.reduce((s, r) => s + r.value, 0),
+      count: rest.reduce((s, r) => s + r.count, 0), cats: rest.map(r => r.name) }]);
+  }
+  const total = rows.reduce((s, r) => s + r.value, 0);
+  rows.forEach((r, i) => { r.color = r.name === 'Others' ? EXP3D_OTHERS : EXP3D_COLORS[i % EXP3D_COLORS.length]; r.letter = String.fromCharCode(65 + i); r.i = i; });
+  _expPieRows = rows;   // the Monthly chart reuses these exact colours / letters
+  const totEl = document.getElementById('exp3d-total');
+  if (totEl) totEl.textContent = total > 0 ? 'Total ' + _p3Money(total, 2) : '';
+
+  if (!total) {
+    wrap.innerHTML = '<div style="height:240px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:13px">No expenses yet — add one to see the breakdown.</div>';
+    return;
+  }
+
+  // ── Geometry ──
+  const W = 720, H = 440, cx = 360, cy = 196, rx = 128, ry = 68, depth = 38;
+  const E0 = 8, E1 = 20;                         // resting / hover explosion distance
+  const P = (a, ox = 0, oy = 0) => [cx + ox + rx * Math.cos(a), cy + oy + ry * Math.sin(a)];
+  const f = n => n.toFixed(2);
+
+  // A category that is 0.01% of the total would be an invisible sliver, so every
+  // slice is drawn at least MIN_SHARE of the circle (the rest is shrunk to fit);
+  // the % shown in labels / tooltips is always the TRUE share.
+  const MIN_SHARE = Math.min(0.06, 0.6 / rows.length);
+  const wts = rows.map(r => Math.max(r.value / total, MIN_SHARE));
+  const wsum = wts.reduce((x, y) => x + y, 0);
+  let a = -Math.PI / 2;
+  rows.forEach((r, i) => {
+    r.pct = r.value / total * 100;
+    r.a0 = a; r.a1 = a + (wts[i] / wsum) * Math.PI * 2; r.mid = (r.a0 + r.a1) / 2; a = r.a1;
+    r.dx = Math.cos(r.mid) * E0; r.dy = Math.sin(r.mid) * E0 * (ry / rx);
+    r.hx = Math.cos(r.mid) * E1; r.hy = Math.sin(r.mid) * E1 * (ry / rx);
+  });
+
+  // ── Defs: gradients per slice + blurred shadow ──
+  let defs = '<filter id="p3-blur" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="14"/></filter>';
+  rows.forEach(r => {
+    defs += `<linearGradient id="p3t${r.i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${_p3Shade(r.color, .22)}"/><stop offset="1" stop-color="${_p3Shade(r.color, -.06)}"/></linearGradient>
+      <linearGradient id="p3w${r.i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${_p3Shade(r.color, -.30)}"/><stop offset="1" stop-color="${_p3Shade(r.color, -.55)}"/></linearGradient>`;
+  });
+
+  // ── Slices, painted back → front so nearer slices overlap farther ones ──
+  const full = rows.length === 1;
+  let slices = '';
+  [...rows].sort((p, q) => Math.sin(p.mid) - Math.sin(q.mid)).forEach(r => {
+    let body = '';
+    const [x0, y0] = P(r.a0), [x1, y1] = P(r.a1);
+    if (full) {
+      body += `<path d="M${cx - rx},${cy} L${cx - rx},${cy + depth} A${rx},${ry} 0 0 0 ${cx + rx},${cy + depth} L${cx + rx},${cy} A${rx},${ry} 0 0 1 ${cx - rx},${cy} Z" fill="url(#p3w${r.i})"/>`;
+      body += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#p3t${r.i})"/>`;
+    } else {
+      // flat cut faces — only the ones that face the viewer
+      if (Math.cos(r.a0) < 0) body += `<path d="M${cx},${cy} L${f(x0)},${f(y0)} L${f(x0)},${f(y0 + depth)} L${cx},${cy + depth} Z" fill="${_p3Shade(r.color, -.38)}"/>`;
+      if (Math.cos(r.a1) > 0) body += `<path d="M${cx},${cy} L${f(x1)},${f(y1)} L${f(x1)},${f(y1 + depth)} L${cx},${cy + depth} Z" fill="${_p3Shade(r.color, -.26)}"/>`;
+      // curved wall — only the front half of the pie (sin θ > 0) is visible
+      const s = Math.max(r.a0, 0), e = Math.min(r.a1, Math.PI);
+      if (e > s + 1e-4) {
+        const [sx, sy] = P(s), [ex, ey] = P(e), lg = (e - s) > Math.PI ? 1 : 0;
+        body += `<path d="M${f(sx)},${f(sy)} A${rx},${ry} 0 ${lg} 1 ${f(ex)},${f(ey)} L${f(ex)},${f(ey + depth)} A${rx},${ry} 0 ${lg} 0 ${f(sx)},${f(sy + depth)} Z" fill="url(#p3w${r.i})"/>`;
+      }
+      // top face
+      body += `<path d="M${cx},${cy} L${f(x0)},${f(y0)} A${rx},${ry} 0 ${(r.a1 - r.a0) > Math.PI ? 1 : 0} 1 ${f(x1)},${f(y1)} Z" fill="url(#p3t${r.i})" stroke="${_p3Shade(r.color, .35)}" stroke-opacity=".35" stroke-width="1"/>`;
+    }
+    // % on the slice
+    if (r.pct >= 5 || (rows.length > 1 && (r.a1 - r.a0) > 0.5 && r.pct >= 1)) {
+      const [tx, ty] = [cx + Math.cos(r.mid) * rx * (full ? 0 : .6), cy + Math.sin(r.mid) * ry * (full ? 0 : .6)];
+      body += `<text x="${f(tx)}" y="${f(ty)}" text-anchor="middle" dominant-baseline="middle" style="font:800 ${r.pct >= 10 ? 17 : 13}px var(--font);fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.28);stroke-width:2.5px;pointer-events:none">${r.pct >= 10 ? r.pct.toFixed(0) : _p3Pct(r.pct)}%</text>`;
+    }
+    slices += `<g class="p3-slice" data-i="${r.i}" style="cursor:pointer;transition:transform .28s ease, opacity .25s ease;transform:translate(${f(r.dx)}px,${f(r.dy)}px)">${body}</g>`;
+  });
+
+  // ── Call-outs: lettered badge + name pill + amount, with a leader line ──
+  // Side = which half of the pie the slice sits in; if one side gets crowded,
+  // the slices nearest the vertical axis hop to the other side so labels stay readable.
+  const right = rows.filter(r => Math.cos(r.mid) >= 0), left = rows.filter(r => Math.cos(r.mid) < 0);
+  while (left.length - right.length > 1) { left.sort((p, q) => Math.cos(q.mid) - Math.cos(p.mid)); right.push(left.shift()); }
+  while (right.length - left.length > 1) { right.sort((p, q) => Math.cos(p.mid) - Math.cos(q.mid)); left.push(right.shift()); }
+  right.forEach(r => r.right = true); left.forEach(r => r.right = false);
+  // Label slots are evenly spaced; the slot order is chosen (brute force, ≤7 per
+  // side) so leader lines never cross each other and stay as short as possible.
+  const place = list => {
+    list.forEach(r => { r.ax = cx + r.dx + Math.cos(r.mid) * rx; r.ay = cy + r.dy + Math.sin(r.mid) * ry + (Math.sin(r.mid) > 0 ? depth * .35 : 0); });
+    const n = list.length; if (!n) return;
+    const gap = 64, minY = 40, maxY = H - 58, X = list[0].right ? 546 : 174;
+    const mean = list.reduce((t, r) => t + r.ay, 0) / n;
+    const start = Math.min(Math.max(mean - (n - 1) * gap / 2, minY), maxY - (n - 1) * gap);
+    const slots = list.map((_, k) => start + k * gap);
+    const cross = (p1, p2, p3, p4) => {
+      const d = (a1, b1, c1) => (c1[0] - a1[0]) * (b1[1] - a1[1]) - (c1[1] - a1[1]) * (b1[0] - a1[0]);
+      return d(p1, p2, p3) * d(p1, p2, p4) < 0 && d(p3, p4, p1) * d(p3, p4, p2) < 0;
+    };
+    let best = null, bestCost = Infinity;
+    const perm = (arr, k) => {
+      if (k === arr.length) {
+        let cost = 0; const segs = arr.map((idx, i) => [[list[idx].ax, list[idx].ay], [X, slots[i]]]);
+        segs.forEach(sg => { cost += Math.hypot(sg[1][0] - sg[0][0], sg[1][1] - sg[0][1]); });
+        for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) if (cross(segs[i][0], segs[i][1], segs[j][0], segs[j][1])) cost += 5000;
+        if (cost < bestCost) { bestCost = cost; best = arr.slice(); }
+        return;
+      }
+      for (let i = k; i < arr.length; i++) { [arr[k], arr[i]] = [arr[i], arr[k]]; perm(arr, k + 1); [arr[k], arr[i]] = [arr[i], arr[k]]; }
+    };
+    perm(list.map((_, i) => i), 0);
+    best.forEach((idx, slot) => { list[idx].ly = n === 1 ? Math.min(Math.max(list[idx].ay, minY), maxY) : slots[slot]; });
+  };
+  place(right); place(left);
+
+  let callouts = '';
+  rows.forEach(r => {
+    const isR = r.right, dir = isR ? 1 : -1;
+    const edgeX = isR ? 566 : 154, elbowX = isR ? 546 : 174;
+    const label = r.name.length > 12 ? r.name.slice(0, 11) + '…' : r.name;
+    const pw = Math.round(label.length * 7.8 + 22);
+    const badgeX = edgeX + dir * 13, pillX0 = isR ? edgeX + 32 : edgeX - 32 - pw, textX = isR ? edgeX + 32 : edgeX - 32;
+    callouts += `<g class="p3-call" data-i="${r.i}" style="cursor:pointer;transition:opacity .25s ease">
+      <polyline points="${f(r.ax)},${f(r.ay)} ${elbowX},${f(r.ly)} ${edgeX},${f(r.ly)}" fill="none" stroke="${r.color}" stroke-width="1.6" stroke-opacity=".8"/>
+      <circle cx="${f(r.ax)}" cy="${f(r.ay)}" r="3.4" fill="${r.color}"/>
+      <circle cx="${badgeX}" cy="${f(r.ly)}" r="12" fill="${r.color}"/>
+      <text x="${badgeX}" y="${f(r.ly)}" text-anchor="middle" dominant-baseline="central" style="font:800 13px var(--font);fill:#fff">${r.letter}</text>
+      <rect x="${pillX0}" y="${f(r.ly - 12)}" width="${pw}" height="24" rx="12" fill="${r.color}"/>
+      <text x="${pillX0 + pw / 2}" y="${f(r.ly)}" text-anchor="middle" dominant-baseline="central" style="font:800 12px var(--font);fill:#fff;letter-spacing:.3px">${_p3Esc(label.toUpperCase())}</text>
+      <text x="${textX}" y="${f(r.ly + 28)}" text-anchor="${isR ? 'start' : 'end'}" style="font:700 14.5px var(--font);fill:var(--text-primary)">${_p3Money(r.value)}</text>
+      <text x="${textX}" y="${f(r.ly + 44)}" text-anchor="${isR ? 'start' : 'end'}" style="font:500 11.5px var(--font);fill:var(--text-secondary)">${_p3Pct(r.pct)}%  ·  ${r.count} expense${r.count !== 1 ? 's' : ''}</text>
+    </g>`;
+  });
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;overflow:visible" role="img" aria-label="3D pie chart of expenses by category">
+      <defs>${defs}</defs>
+      <ellipse cx="${cx + 36}" cy="${cy + depth + 24}" rx="${rx * 1.08}" ry="${ry * .95}" fill="rgba(0,0,0,.55)" filter="url(#p3-blur)"/>
+      ${slices}${callouts}
+    </svg>
+    <div id="exp3d-tip" style="position:absolute;display:none;pointer-events:none;z-index:5;background:var(--bg-card-hover);border:1px solid var(--border-light);border-radius:10px;padding:8px 12px;font-size:12px;box-shadow:var(--shadow);white-space:nowrap"></div>`;
+
+  // ── Interaction ──
+  const tip = document.getElementById('exp3d-tip');
+  const sel = () => _expCatFilter && rows.find(r => r.name === _expCatFilter.name);
+  const paint = hoverI => {
+    const s = sel();
+    wrap.querySelectorAll('.p3-slice').forEach(g => {
+      const r = rows[+g.dataset.i], lift = (r.i === hoverI) || (s && s.i === r.i);
+      g.style.transform = `translate(${f(lift ? r.hx : r.dx)}px,${f(lift ? r.hy : r.dy)}px)`;
+      g.style.opacity = (s && s.i !== r.i && r.i !== hoverI) ? .45 : 1;
+    });
+    wrap.querySelectorAll('.p3-call').forEach(g => { g.style.opacity = (s && s.i !== +g.dataset.i && +g.dataset.i !== hoverI) ? .45 : 1; });
+  };
+  const showTip = (i, ev) => {
+    const r = rows[i], box = wrap.getBoundingClientRect();
+    tip.innerHTML = `<div style="font-weight:800;color:${r.color};margin-bottom:2px">${r.letter} · ${_p3Esc(r.name)}</div>
+      <div style="color:var(--text-primary);font-weight:700">${_p3Money(r.value, 2)} <span style="color:var(--text-secondary);font-weight:500">(${_p3Pct(r.pct)}%)</span></div>
+      <div style="color:var(--text-secondary)">${r.count} expense${r.count !== 1 ? 's' : ''} · click to filter the table</div>`;
+    tip.style.display = 'block';
+    let x = ev.clientX - box.left + 14, y = ev.clientY - box.top + 14;
+    if (x + tip.offsetWidth > box.width) x = ev.clientX - box.left - tip.offsetWidth - 14;
+    tip.style.left = Math.max(0, x) + 'px'; tip.style.top = y + 'px';
+  };
+  wrap.querySelectorAll('.p3-slice, .p3-call').forEach(g => {
+    const i = +g.dataset.i;
+    g.addEventListener('mouseenter', () => paint(i));
+    g.addEventListener('mousemove', ev => showTip(i, ev));
+    g.addEventListener('mouseleave', () => { tip.style.display = 'none'; paint(-1); });
+    g.addEventListener('click', () => expToggleCategory(i));
+  });
+  paint(-1);
+}
+
+// One filter drives pie, monthly bars and the table together.
+function expToggleCategory(i) {
+  const r = _expPieRows[i]; if (!r) return;
+  _expCatFilter = (_expCatFilter && _expCatFilter.name === r.name) ? null : { name: r.name, cats: r.cats };
+  _expRefreshViews();
+}
+function _expRefreshViews() {
+  renderExpense3DPie(_expenseCache || []);
+  renderExpenseMonthly(_expenseCache || [], false);
+  renderExpenseTable();
+}
+function clearExpenseFilter() { _expCatFilter = null; _expRefreshViews(); }
+
+// ═══════════════════════════════════════════════════════
+// EXPENSES — MONTHLY 3D STACKED COLUMNS (pure SVG)
+// Each month is one extruded column stacked by category, using the SAME
+// colours/letters as the 3D pie so the two charts read side by side.
+// ═══════════════════════════════════════════════════════
+function _p3Compact(n) {
+  n = Number(n);
+  if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 ? 1 : 0).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n % 1e3 ? 1 : 0).replace(/\.0$/, '') + 'k';
+  return String(Math.round(n));
+}
+function _p3NiceMax(v) {                       // axis top + step giving ~4-6 clean ticks
+  const raw = v / 5, mag = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(st => st >= raw) || mag * 10;
+  return { step, max: Math.ceil(v / step) * step };
+}
+
+function renderExpenseMonthly(expenses, animate) {
+  const wrap = document.getElementById('exp-month-wrap');
+  if (!wrap) return;
+  const rows = _expPieRows || [];
+  const rowOf = {};
+  rows.forEach(r => r.cats.forEach(c => { rowOf[c] = r; }));
+
+  // month → { rowIndex → amount }
+  const byMonth = {};
+  expenses.forEach(e => {
+    const m = (e.expense_date || '').slice(0, 7), r = rowOf[e.category_name || 'Uncategorized'];
+    if (!m || !r) return;
+    (byMonth[m] = byMonth[m] || {})[r.i] = ((byMonth[m] || {})[r.i] || 0) + Number(e.amount || 0);
+  });
+  const months = Object.keys(byMonth).sort().slice(-12);
+  if (!months.length) {
+    wrap.innerHTML = '<div style="height:240px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:13px">No expenses yet — add one to see the monthly trend.</div>';
+    return;
+  }
+  const monthTotal = m => Object.values(byMonth[m]).reduce((a, b) => a + b, 0);
+  const peak = Math.max(...months.map(monthTotal));
+  const { step, max } = _p3NiceMax(peak);
+
+  // ── Geometry (same box as the pie so both cards line up) ──
+  const W = 720, H = 440, L = 58, R = 22, T = 46, B = 62, DX = 15, DY = -9;
+  const yBot = H - B, ph = yBot - T, plotW = W - L - R - DX;
+  const slot = plotW / months.length, bw = Math.min(74, slot * .56);
+  // Every non-zero category keeps at least MINPX of height so tiny amounts stay
+  // visible; the scale is tightened until the tallest (boosted) column still fits.
+  const MINPX = 9;
+  const segPx = (v, sc) => Math.max(v * sc, MINPX);
+  let sc = ph / max;
+  for (let k = 0; k < 6; k++) {
+    const tallest = Math.max(...months.map(m => Object.values(byMonth[m]).reduce((t, v) => t + (v > 0 ? segPx(v, sc) : 0), 0)));
+    if (tallest <= ph + .5) break;
+    sc *= ph / tallest * .995;
+  }
+  const f = n => n.toFixed(1);
+  const sel = _expCatFilter && rows.find(r => r.name === _expCatFilter.name);
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  let defs = '<filter id="m3-blur" x="-50%" y="-200%" width="200%" height="500%"><feGaussianBlur stdDeviation="5"/></filter>';
+  rows.forEach(r => { defs += `<linearGradient id="m3f${r.i}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${_p3Shade(r.color, .2)}"/><stop offset="1" stop-color="${_p3Shade(r.color, -.08)}"/></linearGradient>`; });
+
+  // grid + y axis
+  let grid = `<polygon points="${L},${yBot} ${L + plotW},${yBot} ${L + plotW + DX},${yBot + DY} ${L + DX},${yBot + DY}" fill="var(--border)" fill-opacity=".35"/>`;
+  for (let v = 0; v <= max + 1e-9; v += step) {
+    const y = yBot - v * sc;
+    grid += `<line x1="${L + DX}" y1="${f(y + DY)}" x2="${L + plotW + DX}" y2="${f(y + DY)}" stroke="var(--border)" stroke-opacity="${v === 0 ? 0 : .9}" stroke-dasharray="3 5"/>
+      <line x1="${L}" y1="${f(y)}" x2="${L + DX}" y2="${f(y + DY)}" stroke="var(--border)" stroke-opacity=".9"/>
+      <text x="${L - 8}" y="${f(y)}" text-anchor="end" dy="0.35em" style="font:600 11px var(--font);fill:var(--text-secondary)">${_p3Compact(v)}</text>`;
+  }
+
+  // columns
+  let bars = '';
+  months.forEach((m, mi) => {
+    const x = L + slot * mi + (slot - bw) / 2;
+    const [yy, mm] = m.split('-');
+    const lbl = (MN[(+mm) - 1] || mm) + " '" + yy.slice(2);
+    const cats = rows.filter(r => byMonth[m][r.i] > 0);
+    let accPx = 0, segs = '';
+    cats.forEach((r, k) => {
+      const v = byMonth[m][r.i], hPx = segPx(v, sc), y1 = yBot - accPx, y0 = y1 - hPx, last = k === cats.length - 1;
+      const dim = sel && sel.i !== r.i;
+      segs += `<g class="m3-seg" data-i="${r.i}" data-m="${m}" style="cursor:pointer;transition:opacity .25s ease;opacity:${dim ? .35 : 1}">
+        <polygon points="${f(x + bw)},${f(y0)} ${f(x + bw + DX)},${f(y0 + DY)} ${f(x + bw + DX)},${f(y1 + DY)} ${f(x + bw)},${f(y1)}" fill="${_p3Shade(r.color, -.38)}"/>
+        ${last ? `<polygon points="${f(x)},${f(y0)} ${f(x + bw)},${f(y0)} ${f(x + bw + DX)},${f(y0 + DY)} ${f(x + DX)},${f(y0 + DY)}" fill="${_p3Shade(r.color, .32)}"/>` : ''}
+        <rect x="${f(x)}" y="${f(y0)}" width="${f(bw)}" height="${f(Math.max(y1 - y0, .5))}" fill="url(#m3f${r.i})" stroke="rgba(255,255,255,.28)" stroke-width="1"/>
+        ${(y1 - y0) >= 16 && bw >= 34 ? `<text x="${f(x + bw / 2)}" y="${f((y0 + y1) / 2)}" text-anchor="middle" dy="0.35em" style="font:800 11px var(--font);fill:#fff;pointer-events:none;paint-order:stroke;stroke:rgba(0,0,0,.25);stroke-width:2px">${r.letter}</text>` : ''}
+      </g>`;
+      accPx += hPx;
+    });
+    const tot = monthTotal(m), topY = yBot - accPx;
+    bars += `<g class="m3-bar" style="${animate ? `animation:m3rise .55s cubic-bezier(.2,.8,.2,1) ${mi * 70}ms both` : ''}">
+      <ellipse cx="${f(x + bw / 2 + DX / 2 + 6)}" cy="${f(yBot + 2)}" rx="${f(bw * .75)}" ry="6" fill="rgba(0,0,0,.4)" filter="url(#m3-blur)"/>
+      ${segs}
+      <text x="${f(x + bw / 2 + DX / 2)}" y="${f(topY + DY - 9)}" text-anchor="middle" style="font:800 12px var(--font);fill:var(--text-primary)">${_p3Compact(tot)}</text>
+    </g>
+    <text x="${f(x + bw / 2 + DX / 2)}" y="${yBot + 24}" text-anchor="middle" style="font:700 12px var(--font);fill:var(--text-secondary)">${lbl}</text>`;
+  });
+
+  // legend — same letters/colours as the pie call-outs
+  const legend = rows.map(r => {
+    const dim = sel && sel.i !== r.i;
+    return `<span class="m3-leg" data-i="${r.i}" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text-secondary);opacity:${dim ? .4 : 1};transition:opacity .2s">
+      <span style="width:16px;height:16px;border-radius:50%;background:${r.color};color:#fff;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">${r.letter}</span>${_p3Esc(r.name)}</span>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <style>@keyframes m3rise{from{transform:translateY(26px);opacity:0}to{transform:none;opacity:1}}</style>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;overflow:visible" role="img" aria-label="3D stacked monthly expenses chart">
+      <defs>${defs}</defs>${grid}${bars}
+    </svg>
+    <div style="display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center;margin-top:6px">${legend}</div>
+    <div id="exp-month-tip" style="position:absolute;display:none;pointer-events:none;z-index:5;background:var(--bg-card-hover);border:1px solid var(--border-light);border-radius:10px;padding:8px 12px;font-size:12px;box-shadow:var(--shadow);white-space:nowrap"></div>`;
+
+  // interaction
+  const tip = document.getElementById('exp-month-tip');
+  wrap.querySelectorAll('.m3-seg').forEach(g => {
+    const r = rows[+g.dataset.i], m = g.dataset.m;
+    const show = ev => {
+      const box = wrap.getBoundingClientRect(), v = byMonth[m][r.i], tot = monthTotal(m);
+      const [yy, mm] = m.split('-');
+      tip.innerHTML = `<div style="font-weight:800;color:${r.color};margin-bottom:2px">${r.letter} · ${_p3Esc(r.name)}</div>
+        <div style="color:var(--text-primary);font-weight:700">${_p3Money(v, 2)} <span style="color:var(--text-secondary);font-weight:500">in ${MN[(+mm) - 1]} ${yy}</span></div>
+        <div style="color:var(--text-secondary)">Month total ${_p3Money(tot, 2)} · click to filter</div>`;
+      tip.style.display = 'block';
+      let x = ev.clientX - box.left + 14; if (x + tip.offsetWidth > box.width) x = ev.clientX - box.left - tip.offsetWidth - 14;
+      tip.style.left = Math.max(0, x) + 'px'; tip.style.top = (ev.clientY - box.top + 14) + 'px';
+    };
+    g.addEventListener('mouseenter', () => { if (!sel) wrap.querySelectorAll('.m3-seg').forEach(o => { o.style.opacity = o === g || o.dataset.i === g.dataset.i ? 1 : .4; }); });
+    g.addEventListener('mousemove', show);
+    g.addEventListener('mouseleave', () => { tip.style.display = 'none'; if (!sel) wrap.querySelectorAll('.m3-seg').forEach(o => { o.style.opacity = 1; }); });
+    g.addEventListener('click', () => expToggleCategory(r.i));
+  });
+  wrap.querySelectorAll('.m3-leg').forEach(el => el.addEventListener('click', () => expToggleCategory(+el.dataset.i)));
+}
+
+function renderExpenseTable() {
+  const list = _expCatFilter ? _expenseCache.filter(e => _expCatFilter.cats.includes(e.category_name || 'Uncategorized')) : _expenseCache;
+  document.getElementById('expenses-table').innerHTML = list.map(e=>`
     <tr>
       <td>${e.expense_date}</td>
       <td><span class="badge badge-blue">${e.category_name}</span></td>
@@ -2936,33 +3286,27 @@ async function renderExpenses() {
           <button class="btn btn-ghost btn-xs" onclick="deleteExpense(${e.id})" style="color:var(--red)"><i class="fa fa-trash"></i></button>
         </div>
       </td>
-    </tr>`).join('');
-
-  if (charts.expCat) charts.expCat.destroy();
-  const catTotals = {};
-  _expenseCache.forEach(e => catTotals[e.category_name] = (catTotals[e.category_name]||0)+Number(e.amount));
-  const ec = document.getElementById('expenseChart');
-  if (ec) charts.expCat = new Chart(ec, {
-    type: 'doughnut',
-    data: { labels: Object.keys(catTotals), datasets: [{ data: Object.values(catTotals), backgroundColor: CHART_PALETTE, borderColor: '#061518', borderWidth: 2, spacing: 2 }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ color:'#9fc9c6', font:{size:11}, usePointStyle:true, pointStyle:'circle' } } }, cutout:'60%' }
-  });
-
-  if (charts.expMonth) charts.expMonth.destroy();
-  const emc = document.getElementById('expMonthChart');
-  if (emc) {
-    const monthTotals = {};
-    _expenseCache.forEach(e => {
-      const m = (e.expense_date||'').slice(0,7); // YYYY-MM
-      monthTotals[m] = (monthTotals[m]||0) + Number(e.amount);
-    });
-    const labels = Object.keys(monthTotals).sort();
-    charts.expMonth = new Chart(emc, {
-      type: 'bar',
-      data: { labels, datasets:[{ label:'Expenses (Rs.)', data:labels.map(l=>monthTotals[l]), backgroundColor:'rgba(204,107,100,.55)', borderColor:'rgba(204,107,100,1)', borderWidth:2, borderRadius:6 }] },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#9fc9c6',font:{size:11}}}}, scales:{ x:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}}, y:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}} } }
-    });
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:18px">No expenses to show.</td></tr>';
+  const chip = document.getElementById('exp-filter-chip');
+  if (chip) {
+    if (_expCatFilter) {
+      const sum = list.reduce((s, e) => s + Number(e.amount || 0), 0);
+      chip.style.display = 'flex';
+      chip.innerHTML = `<span>Showing <strong>${_p3Esc(_expCatFilter.name)}</strong> — ${list.length} expense${list.length !== 1 ? 's' : ''}, ${_p3Money(sum, 2)}</span>
+        <button class="btn btn-ghost btn-xs" onclick="clearExpenseFilter()"><i class="fa fa-times"></i> Clear filter</button>`;
+    } else chip.style.display = 'none';
   }
+}
+
+async function renderExpenses() {
+  const data = await ExpensesAPI.list({ page_size: 500 });
+  _expenseCache = data.results || data;
+  // A selected slice that no longer exists (expense edited/deleted) is dropped.
+  if (_expCatFilter && !_expenseCache.some(e => _expCatFilter.cats.includes(e.category_name || 'Uncategorized'))) _expCatFilter = null;
+  renderExpenseTable();
+  renderExpense3DPie(_expenseCache);
+
+  renderExpenseMonthly(_expenseCache, true);
 }
 
 function openExpenseModal() {
@@ -3175,61 +3519,200 @@ function _reportDateParams() {
   return params;
 }
 
+// ═══════════════════════════════════════════════════════
+// REPORTS — MODERN MONTHLY SALES TREND (pure SVG)
+// Smooth gradient area, glowing line, peak marker, hover guide + tooltip,
+// and KPI chips (total / best month / change vs last month).
+// ═══════════════════════════════════════════════════════
+function renderRptSalesTrend(series) {
+  const wrap = document.getElementById('rpt-sales-wrap');
+  if (!wrap) return;
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthly = {};
+  (series || []).forEach(s => {
+    const m = (s.day || '').slice(0, 7);
+    if (m) monthly[m] = (monthly[m] || 0) + Number(s.total || 0);
+  });
+  let keys = Object.keys(monthly).sort();
+  if (!keys.length) {
+    wrap.innerHTML = '<div style="height:240px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:13px">No sales in this period yet.</div>';
+    return;
+  }
+  // fill months with no sales so the trend is honest (a gap = Rs.0, not skipped)
+  const months = [];
+  let [y, mo] = keys[0].split('-').map(Number);
+  const [ey, em] = keys[keys.length - 1].split('-').map(Number);
+  while (y < ey || (y === ey && mo <= em)) { months.push(y + '-' + String(mo).padStart(2, '0')); if (++mo > 12) { mo = 1; y++; } }
+  const vals = months.map(m => monthly[m] || 0);
+  const n = months.length;
+  const label = m => { const [yy, mm] = m.split('-'); return MN[+mm - 1] + " '" + yy.slice(2); };
+  const longLabel = m => { const [yy, mm] = m.split('-'); return MN[+mm - 1] + ' ' + yy; };
+
+  const total = vals.reduce((a, b) => a + b, 0);
+  const peakVal = Math.max(...vals), peakIdx = vals.indexOf(peakVal);
+  const last = vals[n - 1], prev = n > 1 ? vals[n - 2] : null;
+  const chg = prev === null ? null : (prev > 0 ? (last - prev) / prev * 100 : (last > 0 ? 100 : 0));
+
+  // geometry
+  const W = 720, H = 290, L = 54, R = 26, T = 34, B = 40;
+  const yBot = H - B, ph = yBot - T, pw = W - L - R;
+  const { step, max } = _p3NiceMax(peakVal || 1);
+  const X = i => n === 1 ? L + pw / 2 : L + pw * i / (n - 1);
+  const Y = v => yBot - v / max * ph;
+  const f = k => k.toFixed(1);
+  const pts = vals.map((v, i) => [X(i), Y(v)]);
+
+  // smooth (no-overshoot) curve: horizontal tangents at every point
+  let line = `M${f(pts[0][0])},${f(pts[0][1])}`;
+  for (let i = 1; i < n; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], xm = (x0 + x1) / 2;
+    line += ` C${f(xm)},${f(y0)} ${f(xm)},${f(y1)} ${f(x1)},${f(y1)}`;
+  }
+  const area = n === 1
+    ? `M${f(pts[0][0] - 60)},${yBot} L${f(pts[0][0] - 60)},${f(pts[0][1])} L${f(pts[0][0] + 60)},${f(pts[0][1])} L${f(pts[0][0] + 60)},${yBot} Z`
+    : `${line} L${f(pts[n - 1][0])},${yBot} L${f(pts[0][0])},${yBot} Z`;
+
+  let grid = '';
+  for (let v = 0; v <= max + 1e-9; v += step) {
+    const yy = Y(v);
+    grid += `<line x1="${L}" y1="${f(yy)}" x2="${W - R}" y2="${f(yy)}" stroke="var(--border)" stroke-opacity="${v === 0 ? 1 : .8}" ${v === 0 ? '' : 'stroke-dasharray="3 5"'}/>
+      <text x="${L - 9}" y="${f(yy)}" text-anchor="end" dy="0.35em" style="font:600 11px var(--font);fill:var(--text-secondary)">${_p3Compact(v)}</text>`;
+  }
+  const showEvery = Math.ceil(n / 8);
+  let xl = '', dots = '', hits = '';
+  const colW = n === 1 ? pw : pw / (n - 1);
+  vals.forEach((v, i) => {
+    const [px, py] = pts[i];
+    if (i % showEvery === 0 || i === n - 1) xl += `<text x="${f(px)}" y="${yBot + 24}" text-anchor="middle" style="font:700 12px var(--font);fill:var(--text-secondary)">${label(months[i])}</text>`;
+    const isLast = i === n - 1;
+    dots += `<g class="rs-dot" data-i="${i}">
+      ${isLast ? `<circle cx="${f(px)}" cy="${f(py)}" r="9" fill="#00a9a5" opacity=".25" style="animation:rsPulse 1.8s ease-out infinite;transform-origin:${f(px)}px ${f(py)}px"/>` : ''}
+      <circle class="rs-pt" cx="${f(px)}" cy="${f(py)}" r="${isLast ? 5.5 : 4.5}" fill="#fff" stroke="#00a9a5" stroke-width="2.6" style="transition:r .15s"/></g>`;
+    hits += `<rect class="rs-hit" data-i="${i}" x="${f(px - colW / 2)}" y="${T - 14}" width="${f(colW)}" height="${ph + 14}" fill="transparent" style="cursor:crosshair"/>`;
+  });
+  const peakX = pts[peakIdx][0], peakY = pts[peakIdx][1];
+  const pill = `Peak ${_p3Compact(peakVal)}`, pillW = pill.length * 7 + 18;
+  const peakTag = n > 1 && peakVal > 0 ? `<g transform="translate(${f(Math.min(Math.max(peakX, L + pillW / 2), W - R - pillW / 2))},${f(peakY - 24)})">
+      <rect x="${-pillW / 2}" y="-11" width="${pillW}" height="22" rx="11" fill="#00a9a5"/>
+      <path d="M-5,11 L0,17 L5,11 Z" fill="#00a9a5" transform="translate(${f(peakX - Math.min(Math.max(peakX, L + pillW / 2), W - R - pillW / 2))},0)"/>
+      <text x="0" y="0" text-anchor="middle" dy="0.35em" style="font:800 11.5px var(--font);fill:#fff">${pill}</text></g>` : '';
+
+  const chip = (t, v, sub, col) => `<div style="flex:1;min-width:120px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:9px 12px">
+      <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-secondary)">${t}</div>
+      <div style="font-size:16px;font-weight:800;color:${col || 'var(--text-primary)'};margin-top:2px">${v}</div>
+      <div style="font-size:11px;color:var(--text-secondary)">${sub}</div></div>`;
+  const chgTxt = chg === null ? '—' : (chg >= 0 ? '▲ ' : '▼ ') + Math.min(Math.abs(chg), 9999).toFixed(1) + '%';
+  const chips = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+    ${chip('Total revenue', _p3Money(total), n + ' month' + (n !== 1 ? 's' : ''), '#00a9a5')}
+    ${chip('Best month', _p3Money(peakVal), longLabel(months[peakIdx]))}
+    ${chip('Last vs previous', chgTxt, chg === null ? 'only one month so far' : label(months[n - 2]) + ' → ' + label(months[n - 1]), chg === null ? '' : (chg >= 0 ? 'var(--green)' : 'var(--red)'))}
+  </div>`;
+
+  wrap.innerHTML = `${chips}
+    <style>@keyframes rsPulse{0%{transform:scale(.6);opacity:.5}100%{transform:scale(1.9);opacity:0}}
+      @keyframes rsDraw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+      @keyframes rsFade{from{opacity:0}to{opacity:1}}</style>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;overflow:visible" role="img" aria-label="Monthly sales trend">
+      <defs>
+        <linearGradient id="rs-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00a9a5" stop-opacity=".38"/><stop offset="1" stop-color="#00a9a5" stop-opacity="0"/></linearGradient>
+        <linearGradient id="rs-stroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#36d1c4"/><stop offset="1" stop-color="#00a9a5"/></linearGradient>
+        <filter id="rs-glow" x="-10%" y="-40%" width="120%" height="180%"><feGaussianBlur stdDeviation="5"/></filter>
+      </defs>
+      ${grid}${xl}
+      <path d="${area}" fill="url(#rs-fill)" style="animation:rsFade .9s ease both"/>
+      ${n > 1 ? `<path d="${line}" fill="none" stroke="#00a9a5" stroke-width="7" stroke-opacity=".35" filter="url(#rs-glow)" stroke-linecap="round"/>
+      <path d="${line}" fill="none" stroke="url(#rs-stroke)" stroke-width="3.2" stroke-linecap="round" pathLength="1" stroke-dasharray="1" style="animation:rsDraw 1s ease-out both"/>` : ''}
+      <line id="rs-guide" x1="0" y1="${T - 6}" x2="0" y2="${yBot}" stroke="#00a9a5" stroke-opacity=".55" stroke-dasharray="4 4" style="display:none"/>
+      ${dots}${peakTag}${hits}
+    </svg>
+    <div id="rs-tip" style="position:absolute;display:none;pointer-events:none;z-index:5;background:var(--bg-card-hover);border:1px solid var(--border-light);border-radius:10px;padding:8px 12px;font-size:12px;box-shadow:var(--shadow);white-space:nowrap"></div>`;
+
+  const tip = document.getElementById('rs-tip'), guide = document.getElementById('rs-guide');
+  const svg = wrap.querySelector('svg');
+  wrap.querySelectorAll('.rs-hit').forEach(h => {
+    const i = +h.dataset.i;
+    const move = ev => {
+      const box = wrap.getBoundingClientRect(), v = vals[i], p = i > 0 ? vals[i - 1] : null;
+      const d = p === null ? null : (p > 0 ? (v - p) / p * 100 : (v > 0 ? 100 : 0));
+      tip.innerHTML = `<div style="font-weight:800;color:#00a9a5;margin-bottom:2px">${longLabel(months[i])}</div>
+        <div style="color:var(--text-primary);font-weight:700">${_p3Money(v, 2)}</div>
+        <div style="color:${d === null ? 'var(--text-secondary)' : d >= 0 ? 'var(--green)' : 'var(--red)'}">${d === null ? 'First month' : (d >= 0 ? '▲ ' : '▼ ') + Math.min(Math.abs(d), 9999).toFixed(1) + '% vs ' + label(months[i - 1])}</div>`;
+      tip.style.display = 'block';
+      let x = ev.clientX - box.left + 14; if (x + tip.offsetWidth > box.width) x = ev.clientX - box.left - tip.offsetWidth - 14;
+      tip.style.left = Math.max(0, x) + 'px'; tip.style.top = Math.max(0, ev.clientY - box.top - 60) + 'px';
+    };
+    h.addEventListener('mouseenter', () => {
+      guide.setAttribute('x1', pts[i][0]); guide.setAttribute('x2', pts[i][0]); guide.style.display = '';
+      wrap.querySelectorAll('.rs-pt').forEach((c, k) => c.setAttribute('r', k === i ? 7 : (k === n - 1 ? 5.5 : 4.5)));
+    });
+    h.addEventListener('mousemove', move);
+    h.addEventListener('mouseleave', () => {
+      tip.style.display = 'none'; guide.style.display = 'none';
+      wrap.querySelectorAll('.rs-pt').forEach((c, k) => c.setAttribute('r', k === n - 1 ? 5.5 : 4.5));
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// REPORTS — PROFIT & LOSS as compact stat cards
+// ═══════════════════════════════════════════════════════
+function renderPLCards(pl) {
+  const income = Number(pl.income) || 0, expenses = Number(pl.expenses) || 0;
+  const cogs = Number(pl.cost_of_goods_sold) || 0, net = Number(pl.net_profit) || 0;
+  const gross = income - cogs;
+  const money = v => (v < 0 ? '-' : '') + 'Rs.' + Math.abs(v).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const margin = income > 0 ? net / income * 100 : null;
+  const marginTxt = margin === null ? 'n/a' : (Math.abs(margin) > 999 ? (margin < 0 ? '< -999%' : '> 999%') : margin.toFixed(1) + '%');
+
+  const card = (icon, color, glow, title, value, sub) => `
+    <div class="pl-card" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;gap:11px;align-items:center;transition:transform .18s ease, box-shadow .18s ease;min-width:0"
+         onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 20px rgba(0,0,0,.16)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+      <div style="flex:none;width:38px;height:38px;border-radius:11px;background:${glow};color:${color};display:flex;align-items:center;justify-content:center;font-size:16px"><i class="fa ${icon}"></i></div>
+      <div style="min-width:0">
+        <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-secondary)">${title}</div>
+        <div style="font-size:17px;font-weight:800;color:${color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</div>
+        <div style="font-size:11px;color:var(--text-secondary)">${sub}</div>
+      </div>
+    </div>`;
+
+  const profit = net >= 0, nc = profit ? 'var(--green)' : 'var(--red)', ng = profit ? 'var(--green-glow)' : 'var(--red-glow)';
+  document.getElementById('pl-summary').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+      ${card('fa-chart-line', 'var(--green)', 'var(--green-glow)', 'Total Income', money(income), 'Sales received')}
+      ${card('fa-wallet', 'var(--red)', 'var(--red-glow)', 'Total Expenses', money(expenses), 'Operating costs')}
+      ${card('fa-boxes', 'var(--accent)', 'var(--accent-glow)', 'Cost of Goods', money(cogs), 'Cost of items sold')}
+      ${card('fa-coins', gross >= 0 ? 'var(--cyan)' : 'var(--red)', gross >= 0 ? 'rgba(6,182,212,.15)' : 'var(--red-glow)', 'Gross Profit', money(gross), 'Income − cost of goods')}
+      <div style="grid-column:1/-1;background:linear-gradient(135deg,${ng},transparent);border:1px solid ${profit ? 'rgba(16,185,129,.35)' : 'rgba(239,68,68,.35)'};border-radius:16px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0">
+          <div style="flex:none;width:46px;height:46px;border-radius:13px;background:${nc};color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px"><i class="fa ${profit ? 'fa-trophy' : 'fa-arrow-trend-down'}"></i></div>
+          <div>
+            <div style="font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--text-secondary)">${profit ? 'Net Profit' : 'Net Loss'}</div>
+            <div style="font-size:24px;font-weight:900;color:${nc};line-height:1.15">${money(net)}</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-secondary)">Profit margin</div>
+          <div style="display:inline-block;margin-top:3px;padding:4px 12px;border-radius:999px;background:${ng};color:${nc};font-size:14px;font-weight:800">${marginTxt}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
 async function renderReports() {
   // Real 6-month revenue/profit trend from the backend's daily sales chart,
   // rolled up into monthly buckets for this line chart.
-  if (charts.rptSales) charts.rptSales.destroy();
-  const rc = document.getElementById('rptSalesChart');
-  if (rc) {
-    let series = [];
-    try {
-      const chartData = await DashboardAPI.salesChart(180);
-      series = chartData.series || [];
-    } catch (_) { /* manager+ only — leave empty for other roles */ }
-    const monthlyTotals = {};
-    series.forEach(s => {
-      const month = (s.day || '').slice(0, 7);
-      monthlyTotals[month] = (monthlyTotals[month] || 0) + Number(s.total);
-    });
-    const labels = Object.keys(monthlyTotals).sort();
-    charts.rptSales = new Chart(rc, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Revenue (Rs.)', data: labels.map(l => monthlyTotals[l]),
-          borderColor: 'rgba(0,169,165,1)', backgroundColor: 'rgba(0,169,165,0.12)',
-          borderWidth: 2.5, tension: 0.4, fill: true, pointBackgroundColor: '#00a9a5', pointRadius: 4,
-        }]
-      },
-      options: { responsive:true,maintainAspectRatio:false, plugins:{legend:{labels:{color:'#9fc9c6',font:{size:11}}}}, scales:{ x:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}}, y:{grid:{color:'#14434a'},ticks:{color:'#9fc9c6'}} } }
-    });
-  }
+  if (charts.rptSales) { charts.rptSales.destroy(); charts.rptSales = null; }
+  let series = [];
+  try {
+    const chartData = await DashboardAPI.salesChart(180);
+    series = chartData.series || [];
+  } catch (_) { /* manager+ only — leave empty for other roles */ }
+  renderRptSalesTrend(series);
 
   // Real Profit & Loss summary
   try {
     const pl = await FinanceAPI.profitLoss(_reportDateParams());
-    const netProfit = Number(pl.net_profit);
-    document.getElementById('pl-summary').innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:12px">
-        <div class="flex-between" style="padding:12px;background:var(--green-glow);border-radius:8px;border:1px solid rgba(16,185,129,.2)">
-          <span style="font-size:13px;font-weight:600">💹 Total Income</span>
-          <span style="font-size:16px;font-weight:800;color:var(--green)">Rs.${Number(pl.income).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
-        </div>
-        <div class="flex-between" style="padding:12px;background:var(--red-glow);border-radius:8px;border:1px solid rgba(239,68,68,.2)">
-          <span style="font-size:13px;font-weight:600">📉 Total Expenses</span>
-          <span style="font-size:16px;font-weight:800;color:var(--red)">Rs.${Number(pl.expenses).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
-        </div>
-        <div class="flex-between" style="padding:12px;background:var(--accent-glow);border-radius:8px;border:1px solid rgba(234,108,77,.2)">
-          <span style="font-size:13px;font-weight:600">📊 Cost of Goods Sold</span>
-          <span style="font-size:16px;font-weight:800;color:var(--accent)">Rs.${Number(pl.cost_of_goods_sold).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
-        </div>
-        <div class="divider"></div>
-        <div class="flex-between" style="padding:14px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-light)">
-          <span style="font-size:15px;font-weight:700">🏆 Net Profit</span>
-          <span style="font-size:20px;font-weight:800;color:${netProfit>=0?'var(--green)':'var(--red)'}">Rs.${Math.abs(netProfit).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>
-        </div>
-      </div>`;
+    renderPLCards(pl);
   } catch (_) {
     document.getElementById('pl-summary').innerHTML = '<div style="color:var(--text-muted);font-size:13px">Manager access required to view P&L</div>';
   }

@@ -1164,6 +1164,118 @@ function renderSalesBubbleSvg(host, series, days) {
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Sales overview, last ${days} days" style="display:block;font-family:'Plus Jakarta Sans',sans-serif">${g}</svg>`;
 }
 
+// ═══════════════════════════════════════════════════════
+// SALES OVERVIEW — RESPONSIVE BUBBLE CHART (plain SVG, no library)
+// Measures the real size of its box and lays everything out for THAT size —
+// margins from the widest axis label, tick count from the height, bubble size
+// from the room per day, fonts scaled with the box — so it stays tidy at any
+// browser zoom (100% / 70% / 60%…), window size or sidebar state. Redraws on resize.
+// ═══════════════════════════════════════════════════════
+let _salesBubbleState = { series: [], days: 7, w: 0, h: 0 };
+
+function _drawSalesBubble() {
+  const host = document.getElementById('salesChart');
+  if (!host || !host.offsetParent) return;
+  const { series, days } = _salesBubbleState;
+  const w = Math.max(260, Math.floor(host.clientWidth)), h = Math.max(240, Math.floor(host.clientHeight));
+  const animate = _salesBubbleState.w === 0;            // pop-in only the first time
+  _salesBubbleState.w = w; _salesBubbleState.h = h;
+  host.style.position = 'relative';
+
+  const ck = _ckTheme();
+  const pad2 = n => String(n).padStart(2, '0');
+  const iso = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const byDay = {};
+  series.forEach(s => { byDay[String(s.day).slice(0, 10)] = s; });
+  const pts = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+    const s = byDay[iso(d)];
+    pts.push({ d, total: s ? Number(s.total) || 0 : 0, orders: s ? Number(s.orders) || 0 : 0 });
+  }
+  const maxTotal = Math.max(...pts.map(p => p.total));
+  if (!(maxTotal > 0)) {
+    host.innerHTML = `<div class="rpie-empty"><i class="fa fa-chart-line"></i><span>No sales in the last ${days} days</span></div>`;
+    return;
+  }
+
+  // one scale factor drives every font / gap, bounded so nothing gets silly
+  const s = Math.max(0.82, Math.min(1.4, Math.min(w / 720, h / 380)));
+  const fTick = 11 * s, fLbl = 10.5 * s, fTitle = 11 * s;
+
+  // y axis: tick count follows the height, labels are compact
+  const nTicks = Math.max(3, Math.min(6, Math.floor(h / (62 * s))));
+  const rough = maxTotal * 1.12 / nTicks, mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(v => v >= rough) || rough;
+  const yMax = step * nTicks;
+  const fmt = v => v >= 1e6 ? 'Rs. ' + (Math.round(v / 1e5) / 10) + 'M' : v >= 1000 ? 'Rs. ' + (Math.round(v / 100) / 10) + 'k' : 'Rs. ' + Math.round(v);
+
+  // margins come from what has to fit (axis title never collides with the numbers)
+  const widest = fmt(yMax).length;
+  const tickW = widest * fTick * 0.62;
+  const titleW = fTitle + 8 * s;
+  const L = Math.round(titleW + tickW + 18 * s), R = Math.round(16 * s);
+  const T = Math.round(30 * s), B = Math.round(58 * s);
+  const pw = w - L - R, ph = h - T - B;
+  const n = pts.length;
+  const slot = pw / n;
+  const xAt = i => L + (i + 0.5) * slot;
+  const yAt = v => T + ph - (v / yMax) * ph;
+
+  const maxOrders = Math.max(...pts.map(p => p.orders), 1);
+  const rMax = Math.max(6, Math.min(slot * 0.42, ph * 0.13, 34 * s));
+  const rMin = Math.max(3.5, rMax * 0.36);
+
+  let g = '';
+  for (let k = 0; k <= nTicks; k++) {
+    const v = step * k, y = yAt(v);
+    g += `<line x1="${L}" y1="${y.toFixed(1)}" x2="${w - R}" y2="${y.toFixed(1)}" stroke="${ck.grid}" stroke-width="1"/>`;
+    g += `<text x="${L - 8 * s}" y="${(y + fTick * 0.35).toFixed(1)}" text-anchor="end" font-size="${fTick.toFixed(1)}" fill="${ck.text}">${fmt(v)}</text>`;
+  }
+  g += `<text transform="translate(${(fTitle * 0.9).toFixed(1)} ${(T + ph / 2).toFixed(1)}) rotate(-90)" text-anchor="middle" font-size="${fTitle.toFixed(1)}" fill="${ck.text}">Revenue (Rs.)</text>`;
+
+  // x labels: only as many as fit
+  const labW = 54 * s;
+  const every = Math.max(1, Math.ceil(labW / slot));
+  let bubbles = '';
+  pts.forEach((p, i) => {
+    const x = xAt(i), y = yAt(p.total);
+    const showLbl = (n - 1 - i) % every === 0;
+    if (showLbl) g += `<text x="${x.toFixed(1)}" y="${(h - B + 20 * s).toFixed(1)}" text-anchor="middle" font-size="${fTick.toFixed(1)}" fill="${ck.text}">${p.d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>`;
+    if (p.total <= 0) { g += `<circle cx="${x.toFixed(1)}" cy="${yAt(0).toFixed(1)}" r="${(3 * s).toFixed(1)}" fill="${ck.grid}"/>`; return; }
+    const r = rMin + Math.sqrt(p.orders / maxOrders) * (rMax - rMin);
+    const col = CHART_PALETTE[i % CHART_PALETTE.length];
+    g += `<line x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yAt(0).toFixed(1)}" stroke="${col}" stroke-opacity=".25" stroke-dasharray="3 3"/>`;
+    bubbles += `<g class="sb-b" data-i="${i}" style="${animate ? `animation:sbPop .55s cubic-bezier(.2,.8,.2,1) ${i * 45}ms both;` : ''}transform-box:fill-box;transform-origin:center;cursor:pointer">
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${col}" fill-opacity=".82" stroke="${col}" stroke-width="1.5"/></g>`;
+    // value label above the bubble when there is room for it
+    if (slot >= 46 * s) bubbles += `<text x="${x.toFixed(1)}" y="${Math.max(fLbl + 2, y - r - 6 * s).toFixed(1)}" text-anchor="middle" font-size="${fLbl.toFixed(1)}" font-weight="700" fill="${ck.text}" style="pointer-events:none">${fmt(p.total)}</text>`;
+  });
+  // legend
+  const ly = h - 10 * s;
+  g += `<circle cx="${(L + 6 * s).toFixed(1)}" cy="${(ly - fTick * 0.3).toFixed(1)}" r="${(5 * s).toFixed(1)}" fill="${CHART_PALETTE[0]}"/><text x="${(L + 16 * s).toFixed(1)}" y="${ly.toFixed(1)}" font-size="${fTick.toFixed(1)}" fill="${ck.text}">Bubble size = orders that day</text>`;
+
+  host.innerHTML = `<style>@keyframes sbPop{from{transform:scale(.2);opacity:0}to{transform:scale(1);opacity:1}}</style>
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Sales overview, last ${days} days" style="display:block;font-family:'Plus Jakarta Sans',sans-serif">${g}${bubbles}</svg>
+    <div id="sb-tip" style="position:absolute;display:none;pointer-events:none;z-index:5;background:var(--bg-card-hover);border:1px solid var(--border-light);border-radius:10px;padding:8px 12px;font-size:12px;box-shadow:var(--shadow);white-space:nowrap"></div>`;
+
+  const tip = document.getElementById('sb-tip');
+  host.querySelectorAll('.sb-b').forEach(el => {
+    const p = pts[+el.dataset.i], col = CHART_PALETTE[+el.dataset.i % CHART_PALETTE.length];
+    el.addEventListener('mousemove', ev => {
+      const box = host.getBoundingClientRect();
+      tip.innerHTML = `<div style="font-weight:800;color:${col};margin-bottom:2px">${p.d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+        <div style="color:var(--text-primary);font-weight:700">Revenue: Rs. ${p.total.toLocaleString('en-US', { maximumFractionDigits: 2 })}</div>
+        <div style="color:var(--text-secondary)">Orders: ${p.orders}</div>`;
+      tip.style.display = 'block';
+      let x = ev.clientX - box.left + 14; if (x + tip.offsetWidth > box.width) x = ev.clientX - box.left - tip.offsetWidth - 14;
+      tip.style.left = Math.max(0, x) + 'px'; tip.style.top = Math.max(0, ev.clientY - box.top - tip.offsetHeight - 10) + 'px';
+      el.firstElementChild.setAttribute('fill-opacity', '1');
+    });
+    el.addEventListener('mouseleave', () => { tip.style.display = 'none'; el.firstElementChild.setAttribute('fill-opacity', '.82'); });
+  });
+}
+
 // Sales Overview: the card sits in a 2-column grid row and is stretched to the
 // height of the taller neighbour (Category Breakdown), which used to leave an
 // empty strip under the chart. Measure the card and let the chart fill it
@@ -1186,7 +1298,7 @@ function _refitSalesChart() {
   if (!sc || !sc.offsetParent) return;
   const before = sc.clientHeight;
   const h = _fitSalesChartHeight(sc);
-  if (Math.abs(h - before) > 2 && charts.sales && typeof charts.sales.render === 'function') charts.sales.render();
+  if (Math.abs(h - before) > 2) _drawSalesBubble();
 }
 let _salesFitBound = false;
 function _bindSalesChartFit() {
@@ -1199,9 +1311,23 @@ function _bindSalesChartFit() {
       const sc = document.getElementById('salesChart');
       if (!sc || !sc.offsetParent) return;
       _fitSalesChartHeight(sc);
-      if (charts.sales && typeof charts.sales.render === 'function') charts.sales.render();
-    }, 150);
+      _drawSalesBubble();
+    }, 120);
   });
+  // Also follow the box itself (sidebar collapse, split view, zoom): redraw when its size really changes.
+  if (typeof ResizeObserver !== 'undefined') {
+    const sc = document.getElementById('salesChart');
+    if (sc) {
+      let raf = 0;
+      new ResizeObserver(() => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          if (!sc.offsetParent) return;
+          if (Math.abs(sc.clientWidth - _salesBubbleState.w) > 1 || Math.abs(sc.clientHeight - _salesBubbleState.h) > 1) _drawSalesBubble();
+        });
+      }).observe(sc);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1252,65 +1378,16 @@ async function loadSalesOverview(days) {
   // day with fewer but bigger orders looks different from a day with lots
   // of small ones, instead of both just being "a bar this tall".
   const sc = document.getElementById('salesChart');
-  if (sc && typeof CanvasJS !== 'undefined') {
-    const chartData = await DashboardAPI.salesChart(days);
-    const series = chartData.series || [];
-    const ck = _ckTheme();
-    const palette = CHART_PALETTE;
-
-    const dayLabels = series.map(s => new Date(s.day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    const dataPoints = series.map((s, i) => ({
-      x: i,
-      y: Number(s.total),
-      z: Math.max(Number(s.orders) || 1, 1),
-      name: new Date(s.day + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-      color: palette[i % palette.length],
-    }));
-
-    _fitSalesChartHeight(sc);
-    _bindSalesChartFit();
-    charts.sales = new CanvasJS.Chart('salesChart', {
-      backgroundColor: 'transparent',
-      animationEnabled: true,
-      theme: ck.theme,
-      axisX: {
-        // Fixed: valueType 'dateTime' with a day interval was rounding each
-        // point's exact timestamp to the nearest tick independently, so two
-        // different days could both land on the same rendered tick (the
-        // screenshot showed "Sep 10" printed twice). Each point now sits at
-        // a plain integer index (0, 1, 2…) and dayLabels supplies its real
-        // date text, so every tick is guaranteed to be its own unique day.
-        interval: Math.max(1, Math.ceil(dataPoints.length / 10)), minimum: -0.5, maximum: dataPoints.length - 0.5,
-        labelFormatter: (e) => dayLabels[Math.round(e.value)] || '',
-        titleFontColor: ck.text, labelFontColor: ck.text,
-        gridColor: ck.grid, lineColor: ck.grid, tickColor: ck.grid,
-      },
-      axisY: {
-        title: 'Revenue (Rs.)', includeZero: true, titleFontColor: ck.text, labelFontColor: ck.text,
-        gridColor: ck.grid, lineColor: ck.grid, tickColor: ck.grid,
-        labelFormatter: (e) => e.value >= 1000 ? 'Rs. ' + (e.value / 1000) + 'k' : 'Rs. ' + e.value,
-      },
-      legend: { fontColor: ck.text, fontFamily: "'Plus Jakarta Sans', sans-serif" },
-      data: [{
-        type: 'bubble',
-        showInLegend: true,
-        legendText: 'Bubble size = orders that day',
-        legendMarkerType: 'circle', legendMarkerColor: CHART_PALETTE[0],
-        toolTipContent: '<b>{name}</b><br/>Revenue: Rs. {y}<br/>Orders: {z}',
-        dataPoints,
-      }]
-    });
-    charts.sales.render();
-    setTimeout(_refitSalesChart, 300);
-  } else if (sc) {
-    // Fallback only: CanvasJS (CDN) did not load -> same bubble chart in plain SVG.
+  if (sc) {
     try {
+      const chartData = await DashboardAPI.salesChart(days);
       _fitSalesChartHeight(sc);
-      const res = await DashboardAPI.salesChart(days);
-      renderSalesBubbleSvg(sc, res.series || [], days);
-    } catch (e) { sc.innerHTML = ''; }
+      _bindSalesChartFit();
+      _salesBubbleState = { series: chartData.series || [], days, w: 0, h: 0 };
+      _drawSalesBubble();
+      setTimeout(_refitSalesChart, 300);
+    } catch (e) { sc.innerHTML = ''; console.error('Sales overview:', e); }
   }
-
 }
 
 async function renderCharts(summary) {

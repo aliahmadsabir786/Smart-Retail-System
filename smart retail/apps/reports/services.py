@@ -182,30 +182,30 @@ def expense_report(date_from=None, date_to=None):
     return rows, columns
 
 
-def profit_report(date_from=None, date_to=None):
+def _profit_amount_label(date_from, date_to):
+    """Column header for the amount column: 'This Year' when the range is the
+    current calendar year (Jan 1 onwards), otherwise a neutral 'Amount'."""
+    from datetime import date
+    today = date.today()
+    if date_from and date_from.month == 1 and date_from.day == 1 and date_from.year == today.year \
+            and (not date_to or date_to.year == today.year):
+        return "This Year"
+    return "Amount"
+
+
+def profit_report(date_from=None, date_to=None, include_closing_stock=True):
     """
-    Row-per-line P&L statement for the Reports table/print/export: Total
-    Income, then Expenses broken out as individual line items (name,
-    category, date, amount) followed by their total — same layout as a
-    standard P&L statement — then Cost of Goods Sold and Net Profit/(Loss).
+    Profit & Loss STATEMENT in the standard trading-account layout (Sales,
+    Sales Adjustments, Net Sales, Cost of Goods Sold, Gross Profit, Other
+    Incomes, Expenses, Net Profit) with an amount column and a % column
+    (each line as a % of total Sales). Every figure comes from the POS data.
+    Row dicts also carry `kind` / `_bold` so the screen, A4 print and the
+    Excel/PDF exports can style headings, sub-totals and totals.
     """
     from apps.finance import services as finance_services
-    pl = finance_services.get_profit_and_loss(date_from, date_to)
-    columns = [("description", "Description"), ("date", "Date"), ("amount", "Amount")]
-
-    rows = [{"description": "Total Income", "date": "", "amount": str(pl["income"])}]
-    rows.append({"description": "", "date": "", "amount": ""})
-    rows.append({"description": "Expenses", "date": "", "amount": ""})
-    for item in pl["expense_items"]:
-        label = f"{item['title']} ({item['category']})" if item["category"] else item["title"]
-        rows.append({"description": label, "date": item["date"], "amount": str(item["amount"])})
-    rows.append({"description": "Total Expenses", "date": "", "amount": str(pl["expenses"])})
-    rows.append({"description": "", "date": "", "amount": ""})
-    rows.append({"description": "Cost of Goods Sold", "date": "", "amount": str(pl["cost_of_goods_sold"])})
-    rows.append({"description": "Gross Profit", "date": "", "amount": str(pl["gross_profit"])})
-    rows.append({
-        "description": "Net Profit" if pl["is_profit"] else "Net Loss",
-        "date": "", "amount": str(pl["net_profit"]),
-    })
-
-    return rows, columns
+    stmt = finance_services.get_profit_loss_statement(date_from, date_to, include_closing_stock)
+    columns = [
+        ("code", "Code"), ("description", "Description"),
+        ("amount", _profit_amount_label(date_from, date_to)), ("percent", "%"),
+    ]
+    return stmt["rows"], columns

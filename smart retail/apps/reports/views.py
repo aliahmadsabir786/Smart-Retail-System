@@ -66,7 +66,8 @@ class BaseReportView(APIView):
         rows, columns, title = self.get_data(request)
         count = len(rows)
         display_rows = self._with_totals_row(rows, columns)
-        file_response = export_response(request, display_rows, columns, self.report_slug, title=title)
+        file_response = export_response(request, display_rows, columns, self.report_slug, title=title,
+                                        header_lines=getattr(self, "header_lines", None))
         if file_response is not None:
             return file_response
         return Response({"success": True, "count": count, "results": display_rows})
@@ -115,9 +116,15 @@ class ProfitReportView(_DateRangeReportView):
     report_slug = "profit_report"
 
     def get_data(self, request):
+        from apps.settings.models import CompanySettings
         date_from, date_to = self._date_range(request)
-        rows, columns = services.profit_report(date_from, date_to)
-        return rows, columns, "Profit & Loss Report"
+        # ?closing_stock=0 leaves the closing-stock deduction out of Cost of Goods Sold
+        include_closing = str(request.query_params.get("closing_stock", "1")).lower() not in ("0", "false", "no")
+        rows, columns = services.profit_report(date_from, date_to, include_closing)
+        company = CompanySettings.load()
+        period = f"From {date_from or '—'} to {date_to or '—'}"
+        self.header_lines = [company.company_name or "SmartRetail Store", "PROFIT & LOSS STATEMENT", period]
+        return rows, columns, "Profit & Loss Statement"
 
 
 class CustomerReportView(BaseReportView):

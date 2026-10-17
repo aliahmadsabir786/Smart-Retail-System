@@ -3853,6 +3853,83 @@ async function renderProductBubbleChart() {
   charts.prodBubble.render();
 }
 
+// ═══════════════════════════════════════════════════════
+// PROFIT & LOSS STATEMENT (trading-account layout, from POS data)
+// SALES / SALES ADJUSTMENTS / NET SALES / COST OF GOODS SOLD / GROSS PROFIT /
+// OTHER INCOMES / EXPENSES / NET PROFIT — amount column + % of total sales.
+// ═══════════════════════════════════════════════════════
+// Query params for the report endpoints (dates + the P&L closing-stock switch).
+function _reportParams(slug) {
+  const params = _reportDateParams();
+  if (slug === 'profit') params.closing_stock = (document.getElementById('rpt-closing')?.checked === false) ? 0 : 1;
+  return params;
+}
+
+// Same rule the backend uses for the amount column's header.
+function _plAmountLabel() {
+  const from = document.getElementById('rpt-from')?.value, to = document.getElementById('rpt-to')?.value;
+  const yr = new Date().getFullYear();
+  if (from === `${yr}-01-01` && (!to || to.slice(0, 4) === String(yr))) return 'This Year';
+  return 'Amount';
+}
+
+function _plStatementHtml(rows, amountLabel, print) {
+  const ink = print ? '#111' : 'var(--text-primary)';
+  const mute = print ? '#555' : 'var(--text-secondary)';
+  const rule = print ? '#222' : 'var(--text-secondary)';
+  const num = 'font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap';
+  const neg = a => String(a).trim().startsWith('-');
+  const body = rows.map(r => {
+    const d = _p3Esc(r.description || '');
+    switch (r.kind) {
+      case 'spacer':
+        return `<tr><td colspan="4" style="height:${print ? 8 : 12}px;padding:0"></td></tr>`;
+      case 'heading':
+      case 'heading_u':
+        return `<tr><td colspan="4" style="padding:3px 0;font-weight:800;letter-spacing:.3px;${r.kind === 'heading_u' ? 'text-decoration:underline;' : ''}">${d}</td></tr>`;
+      case 'line':
+        return `<tr>
+          <td style="padding:3px 0 3px 14px;width:96px;font-family:monospace;font-size:12px;color:${mute}">${_p3Esc(r.code || '')}</td>
+          <td style="padding:3px 8px">${d}</td>
+          <td style="${num};padding:3px 8px;${neg(r.amount) ? 'color:#dc2626' : ''}">${r.amount}</td>
+          <td style="${num};padding:3px 0 3px 8px;width:72px;color:${mute}">${r.percent}</td></tr>`;
+      case 'subtotal':
+        return `<tr><td></td><td></td>
+          <td style="${num};padding:3px 8px;border-top:1px solid ${rule}">${r.amount}</td>
+          <td style="${num};padding:3px 0 3px 8px;border-top:1px solid ${rule};color:${mute}">${r.percent}</td></tr>`;
+      case 'total':
+        return `<tr>
+          <td colspan="2" style="padding:6px 0;font-weight:800">${d}</td>
+          <td style="${num};padding:6px 8px;font-weight:800;border-top:1px solid ${rule};${neg(r.amount) ? 'color:#dc2626' : ''}">${r.amount}</td>
+          <td style="${num};padding:6px 0 6px 8px;font-weight:700;border-top:1px solid ${rule};color:${mute}">${r.percent}</td></tr>`;
+      default: return '';
+    }
+  }).join('');
+  return `<table style="width:100%;border-collapse:collapse;font-size:${print ? 12 : 13}px;color:${ink}">
+    <thead><tr style="border-bottom:1px solid ${rule}">
+      <th colspan="2"></th>
+      <th style="${num};padding:4px 8px;font-weight:800">${amountLabel}</th>
+      <th style="${num};padding:4px 0 4px 8px;font-weight:800;width:72px">%</th>
+    </tr></thead><tbody>${body}</tbody></table>`;
+}
+
+async function _renderPLStatement(rows) {
+  if (!_companySettingsCache) { try { _companySettingsCache = await SettingsAPI.getCompany(); } catch (_) {} }
+  const s = _companySettingsCache || {};
+  const from = document.getElementById('rpt-from')?.value, to = document.getElementById('rpt-to')?.value;
+  const closing = document.getElementById('rpt-closing')?.checked !== false;
+  const el = document.getElementById('report-statement');
+  el.innerHTML = `<div style="max-width:880px">
+      <div style="margin-bottom:14px">
+        <div style="font-size:18px;font-weight:900">${_p3Esc(s.company_name || 'SmartRetail Store')}</div>
+        <div style="font-size:12px;color:var(--text-secondary)">${[s.address, [s.phone, s.email].filter(Boolean).join(' · ')].filter(Boolean).map(_p3Esc).join(' — ')}</div>
+        <div style="margin-top:8px;font-size:13px;font-weight:800;letter-spacing:.5px">PROFIT &amp; LOSS STATEMENT</div>
+        <div style="font-size:12px;color:var(--text-secondary)">From ${from || '…'} to ${to || '…'}${closing ? '' : ' · closing stock not deducted'}</div>
+      </div>
+      ${_plStatementHtml(rows, _plAmountLabel(), false)}
+    </div>`;
+}
+
 let _currentReportSlug = 'sales';
 
 async function generateReport() {
@@ -3864,11 +3941,20 @@ async function generateReport() {
     expenses: 'Expense Report', profit: 'Profit & Loss Report', customers: 'Customer Report',
     suppliers: 'Supplier Report', tax: 'Tax Report',
   };
-  document.getElementById('report-table-title').textContent = titleMap[slug] || 'Report';
+  document.getElementById('report-table-title').textContent = slug === 'profit' ? 'Profit & Loss Statement' : (titleMap[slug] || 'Report');
+
+  // The statement replaces the generic table for Profit & Loss only.
+  const stmtEl = document.getElementById('report-statement');
+  const tableWrap = document.getElementById('report-table').closest('.table-wrap');
+  const closingWrap = document.getElementById('rpt-closing-wrap');
+  if (closingWrap) closingWrap.style.display = slug === 'profit' ? 'inline-flex' : 'none';
+  if (stmtEl) stmtEl.style.display = slug === 'profit' ? 'block' : 'none';
+  if (tableWrap) tableWrap.style.display = slug === 'profit' ? 'none' : '';
 
   try {
-    const data = await ReportsAPI.fetch(slug, _reportDateParams());
+    const data = await ReportsAPI.fetch(slug, _reportParams(slug));
     let rows = data.results || [];
+    if (slug === 'profit') { await _renderPLStatement(rows); return; }
     // Derive columns from the first row's keys (backend already sends
     // human-friendly values as strings) — falls back to an empty table
     // with just a "No data" message if there are no rows yet. If a Total
@@ -3903,7 +3989,7 @@ async function generateReport() {
 
 async function exportCurrentReport(format) {
   try {
-    await ReportsAPI.download(_currentReportSlug, format, _reportDateParams());
+    await ReportsAPI.download(_currentReportSlug, format, _reportParams(_currentReportSlug));
     toast(`${format.toUpperCase()} export downloaded`, 'success');
   } catch (err) {
     toast(err.message || 'Export failed', 'error');
@@ -4256,51 +4342,17 @@ async function printReportA4() {
   };
   const reportTitle = titleMap[_currentReportSlug] || 'Report';
 
-  // Profit & Loss has a fundamentally different shape (one summary, not a
-  // list of transactions) — it gets its own card layout instead of being
-  // forced into the generic row/column table used by every other report.
+  // Profit & Loss prints as the standard statement (company header comes from _printA4).
   if (_currentReportSlug === 'profit') {
-    let pl;
+    let data;
     try {
-      pl = await FinanceAPI.profitLoss(_reportDateParams());
+      data = await ReportsAPI.fetch('profit', _reportParams('profit'));
     } catch (err) {
       toast(err.message || 'Failed to load Profit & Loss', 'error');
       return;
     }
-    const fmt = n => Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    const netProfit = Number(pl.net_profit);
-    const expenseRows = (pl.expense_items||[]).map(it => `
-          <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:6px 10px 6px 24px;color:#444">${it.title}${it.category?` <span style="color:#999">(${it.category})</span>`:''}</td>
-            <td style="padding:6px 10px;font-size:12px;color:#777">${it.date}</td>
-            <td style="padding:6px 10px;text-align:right">Rs.${fmt(it.amount)}</td>
-          </tr>`).join('');
-    const body = `
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <tbody>
-          <tr style="border-bottom:1px solid #e5e7eb">
-            <td style="padding:12px 10px;font-weight:700" colspan="2">💹 Total Income</td>
-            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#16a34a">Rs.${fmt(pl.income)}</td>
-          </tr>
-          <tr>
-            <td style="padding:12px 10px 4px;font-weight:700" colspan="3">📉 Expenses</td>
-          </tr>
-          ${expenseRows || '<tr><td style="padding:6px 10px 6px 24px;color:#999" colspan="3">No expenses in this period</td></tr>'}
-          <tr style="border-bottom:1px solid #e5e7eb;border-top:1px solid #e5e7eb">
-            <td style="padding:10px;font-weight:700" colspan="2">Total Expenses</td>
-            <td style="padding:10px;text-align:right;font-weight:800;color:#dc2626">Rs.${fmt(pl.expenses)}</td>
-          </tr>
-          <tr style="border-bottom:1px solid #e5e7eb">
-            <td style="padding:12px 10px;font-weight:700" colspan="2">📊 Cost of Goods Sold</td>
-            <td style="padding:12px 10px;text-align:right;font-weight:800;color:#00a9a5">Rs.${fmt(pl.cost_of_goods_sold)}</td>
-          </tr>
-          <tr style="background:#f8fafc">
-            <td style="padding:16px 10px;font-weight:900;font-size:15px" colspan="2">🏆 Net Profit</td>
-            <td style="padding:16px 10px;text-align:right;font-weight:900;font-size:18px;color:${netProfit>=0?'#16a34a':'#dc2626'}">Rs.${fmt(Math.abs(netProfit))}${netProfit<0?' (Loss)':''}</td>
-          </tr>
-        </tbody>
-      </table>`;
-    _printA4(body, reportTitle);
+    if (!_companySettingsCache) { try { _companySettingsCache = await SettingsAPI.getCompany(); } catch (_) {} }
+    _printA4(_plStatementHtml(data.results || [], _plAmountLabel(), true), 'Profit & Loss Statement');
     return;
   }
 

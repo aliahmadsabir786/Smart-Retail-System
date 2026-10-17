@@ -1405,6 +1405,9 @@
             <option value="suppliers">Supplier Report</option>
             <option value="tax">Tax Report</option>
           </select>
+          <label id="rpt-closing-wrap" style="display:none;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-secondary);cursor:pointer" title="Ticked: closing stock is deducted from Cost of Goods Sold (standard trading account). Unticked: COGS = Opening + Purchases - Returns, with no closing-stock line.">
+            <input type="checkbox" id="rpt-closing" checked onchange="generateReport()"> Deduct closing stock
+          </label>
           <button class="btn btn-accent btn-sm" onclick="generateReport()"><i class="fa fa-filter"></i> Generate</button>
         </div>
         <div class="grid-2">
@@ -1436,6 +1439,7 @@
               <tbody id="report-table"></tbody>
             </table>
           </div>
+          <div id="report-statement" style="display:none;padding:18px 22px"></div>
         </div>
       </div>
 

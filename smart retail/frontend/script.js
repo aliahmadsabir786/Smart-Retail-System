@@ -742,12 +742,12 @@ function quickLogin(email, password) {
 // button under it actually works" in sync; a role that isn't listed for a
 // page would hit a 403 from the backend anyway if we let it in.
 const ROLE_PAGES = {
-  manager: ['dashboard','pos','booking','saleslips','salereturn','orders','ordersummary',
+  manager: ['dashboard','pos','posgroup','posbills','booking','saleslips','salereturn','orders','ordersummary',
             'products','inventory','stockreport','purchases','purchasereturn','suppliers',
             'customers','collection','expenses','ledger','balancesheet','accounting',
             'reports','supplyroutes','bankrec'],
   inventory_manager: ['products','inventory','stockreport','purchases','purchasereturn','suppliers'],
-  cashier: ['pos','booking','saleslips','salereturn','orders','customers','collection'],
+  cashier: ['pos','posgroup','posbills','booking','saleslips','salereturn','orders','customers','collection'],
   salesperson: ['booking','saleslips'],
 };
 
@@ -844,6 +844,7 @@ function hasPermission(page) {
 const pageTitles = {
   dashboard: 'Dashboard Overview',
   pos: 'POS Terminal',
+  posbills: 'POS Bills',
   booking: 'Order Booking',
   saleslips: 'Sale Slips',
   salereturn: 'Sale Return',
@@ -877,6 +878,7 @@ function navigate(page) {
   const nav = document.querySelector(`.nav-item[data-page="${page}"]`);
   if (nav) nav.classList.add('active');
   document.getElementById('page-title').textContent = pageTitles[page] || page;
+  if (page === 'pos' || page === 'posbills') posToggleGroup(true);   // keep the POS Terminal group open on its own pages
   const renders = {
     dashboard: renderDashboard,
     products: renderProducts,
@@ -895,6 +897,7 @@ function navigate(page) {
     ordersummary: openOrderSummaryTab,
     users: renderUsers,
     pos: initPOS,
+    posbills: renderPosBills,
     booking: initBooking,
     saleslips: renderSaleSlips,
     salereturn: renderSaleReturn,
@@ -1563,7 +1566,7 @@ function renderCategoryPolarPie(host, catCounts) {
 // ═══════════════════════════════════════════════════════
 function initPOS() {
   document.getElementById('pos-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'short',year:'numeric',month:'short',day:'numeric'});
-  document.getElementById('pos-invoice').textContent = 'INV-' + String(invoiceCounter).padStart(4,'0');
+  document.getElementById('pos-invoice').textContent = _posEditSaleId ? _posEditInvoice : 'INV-' + String(invoiceCounter).padStart(4,'0');
   populatePosCategories();
   renderPosProducts();
   updateCartUI();
@@ -1750,7 +1753,9 @@ async function processPayment() {
 
   if (selectedPayment === 'cash') {
     const cash = parseFloat(document.getElementById('cash-received').value)||0;
-    if (cash < total) { toast('Insufficient cash received!', 'error'); return; }
+    // While editing an existing bill the cash box may be left empty — the bill is simply re-collected at the new total.
+    const cashBoxEmpty = document.getElementById('cash-received').value === '';
+    if (cash < total && !(_posEditSaleId && cashBoxEmpty)) { toast('Insufficient cash received!', 'error'); return; }
   }
 
   if (total <= 0) {
@@ -1771,14 +1776,29 @@ async function processPayment() {
       tax_percent: i.taxRate||0,
     }));
 
-    const sale = await SalesAPI.create({
+    const salePayload = {
       warehouse: warehouseId,
       customer: custId ? parseInt(custId) : null,
       items,
       discount_amount: discountAmt,
-      notes: '',
-    });
+      notes: 'POS Terminal',   // marks this as a counter sale → always prints on the 73mm slip
+    };
+    const editingId = _posEditSaleId;   // set when a bill from POS Bills is being edited
+    let sale;
+    if (editingId) {
+      // Same invoice number, same row — the backend reverses the old items and applies the new ones.
+      sale = await SalesAPI.edit(editingId, salePayload);
+      if (sale.edit_unchanged) {
+        toast('No changes made — the bill was kept exactly as it is.', 'success');
+        cart = []; document.getElementById('cart-discount').value = 0; document.getElementById('cash-received').value = '';
+        await posExitEdit();
+        return;
+      }
+    } else {
+      sale = await SalesAPI.create(salePayload);
+    }
     _slipsLoaded = false; // new sale — Sale Slips list must refetch next time it's opened
+    _pbLoaded = false;    // …and so must the POS Bills list
 
     // Record the payment immediately (this UI is a cash-register checkout,
     // not a credit-sale flow) so the invoice shows as PAID.
@@ -1786,6 +1806,7 @@ async function processPayment() {
       amount: sale.total_amount,
       method: _posPaymentMethodMap[selectedPayment] || 'other',
     });
+    if (editingId) sale = await SalesAPI.get(sale.id);   // fresh copy with the new payment, for the receipt
 
     _lastOrder = sale;
     showReceipt(sale);
@@ -1794,7 +1815,8 @@ async function processPayment() {
     document.getElementById('cash-received').value = '';
     updateCartUI();
     renderPosProducts();      // refresh stock levels shown in the grid
-    toast(`Payment processed! Invoice ${sale.invoice_number}`, 'success');
+    if (editingId) await posExitEdit();
+    toast(editingId ? `Bill updated! Invoice ${sale.invoice_number}` : `Payment processed! Invoice ${sale.invoice_number}`, 'success');
   } catch (err) {
     toast(err.message || 'Failed to process payment', 'error');
   } finally {
@@ -1809,10 +1831,40 @@ async function processPayment() {
 // (see .rcp-item-name in CSS) instead of squeezing into one row and
 // overlapping the price — that's what was making long product names look
 // messy on the thermal printout.
-function _buildReceiptContentHtml(sale) {
-  const cashReceived = parseFloat(document.getElementById('cash-received')?.value) || Number(sale.total_amount);
+// Product table for the counter-sale slip: Sr. | Product | Price | Qty | Disc | Total,
+// closed by a "Gross Total" row (total qty, total discount, total amount) — the
+// same layout as a classic POS slip. The product name sits in its own column and
+// wraps inside it, so long names never run into the numbers. "Total" is the line
+// amount before tax (price x qty - line discount); tax and any bill-level
+// discount are still itemised in the totals block underneath.
+function _buildReceiptItemsTable(sale) {
+  const money = v => Number(v || 0).toFixed(2);
+  const rows = (sale.items || []).map(i => {
+    const qty = Number(i.quantity) || 0;
+    const sub = i.line_subtotal != null ? Number(i.line_subtotal) : qty * Number(i.unit_price || 0);
+    const disc = Number(i.line_discount) || 0;
+    const tot = sub - disc;
+    return `<tr>
+      <td class="c-prod">${_p3Esc(i.product_name || '')}</td>
+      <td class="c-num">${money(i.unit_price)}</td>
+      <td class="c-num c-qty">${qty}</td>
+      <td class="c-num">${money(tot)}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="rcp-table">
+    <colgroup><col style="width:44%"><col style="width:21%"><col style="width:9%"><col style="width:26%"></colgroup>
+    <thead><tr><th class="c-prod">Product</th><th class="c-num">Price</th><th class="c-num">Qty</th><th class="c-num">Total</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function _buildReceiptContentHtml(sale, opts) {
+  // reprint = printing an older bill from Sale Slips etc.: nothing may be read
+  // from the live POS screen (cash-received box, bill-name box, selected payment).
+  const reprint = !!(opts && opts.reprint);
+  const cashReceived = reprint ? Number(sale.total_amount) : (parseFloat(document.getElementById('cash-received')?.value) || Number(sale.total_amount));
   const change = Math.max(0, cashReceived - Number(sale.total_amount));
-  const paymentMethod = (sale.payments && sale.payments[0]) ? sale.payments[0].method : selectedPayment;
+  const paymentMethod = String((sale.payments && sale.payments[0]) ? sale.payments[0].method : (reprint ? (sale.payment_status || 'unpaid') : selectedPayment));
   const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
   const storeName = s.company_name || 'SmartRetail Store';
   const storeAddress = s.address || '';
@@ -1820,11 +1872,13 @@ function _buildReceiptContentHtml(sale) {
   const storeEmail = s.email || '';
   const headerNote = s.invoice_header_note || 'Thank you for shopping with us!';
   const footerNote = s.invoice_footer_note || 'All sales are final. Visit us again!';
-  const billName = document.getElementById('bill-customer-name')?.value?.trim();
-  const billContact = document.getElementById('bill-customer-contact')?.value?.trim();
+  const billName = reprint ? '' : document.getElementById('bill-customer-name')?.value?.trim();
+  const billContact = reprint ? '' : document.getElementById('bill-customer-contact')?.value?.trim();
+  const cashierName = reprint ? (sale.served_by_name || '—') : (currentUser.full_name || currentUser.email);
 
-  return `
-    <div class="rcp-center" style="font-size:16px;font-weight:700">🏪 ${storeName}</div>
+  return `<div class="rcp-wm-wrap"><div class="rcp-watermark">${storeName}</div><div class="rcp-wm-content">
+    ${s.logo ? `<div class="rcp-center"><img class="rcp-logo" src="${s.logo}" alt=""></div>` : ''}
+    <div class="rcp-center" style="font-size:16px;font-weight:700">${storeName}</div>
     ${storeAddress ? `<div class="rcp-center" style="font-size:11px">${storeAddress}</div>` : ''}
     ${storePhone   ? `<div class="rcp-center" style="font-size:11px">Tel: ${storePhone}</div>` : ''}
     ${storeEmail   ? `<div class="rcp-center" style="font-size:11px">${storeEmail}</div>` : ''}
@@ -1833,14 +1887,9 @@ function _buildReceiptContentHtml(sale) {
     <div class="rcp-row"><span>Date:</span><span>${(sale.created_at||'').replace('T',' ').slice(0,19)}</span></div>
     <div class="rcp-row"><span>Customer:</span><span>${billName || sale.customer_name || 'Walk-in'}</span></div>
     ${billContact ? `<div class="rcp-row"><span>Contact:</span><span>${billContact}</span></div>` : ''}
-    <div class="rcp-row"><span>Cashier:</span><span>${currentUser.full_name||currentUser.email}</span></div>
+    <div class="rcp-row"><span>Cashier:</span><span>${cashierName}</span></div>
     <div class="rcp-line"></div>
-    <div style="font-weight:700;margin-bottom:4px">ITEMS</div>
-    ${sale.items.map(i => `
-      <div class="rcp-item">
-        <div class="rcp-item-name">${i.product_name}</div>
-        <div class="rcp-row"><span>${i.quantity} x Rs.${Number(i.unit_price).toFixed(2)}</span><span>Rs.${Number(i.line_total).toFixed(2)}</span></div>
-      </div>`).join('')}
+    ${_buildReceiptItemsTable(sale)}
     <div class="rcp-line"></div>
     <div class="rcp-row"><span>Subtotal:</span><span>Rs.${Number(sale.subtotal).toFixed(2)}</span></div>
     ${Number(sale.discount_amount)>0?`<div class="rcp-row"><span>Discount:</span><span>-Rs.${Number(sale.discount_amount).toFixed(2)}</span></div>`:''}
@@ -1848,12 +1897,13 @@ function _buildReceiptContentHtml(sale) {
     <div class="rcp-line"></div>
     <div class="rcp-row" style="font-size:14px;font-weight:700"><span>TOTAL:</span><span>Rs.${Number(sale.total_amount).toFixed(2)}</span></div>
     <div class="rcp-row"><span>Payment:</span><span>${paymentMethod.toUpperCase()}</span></div>
-    ${paymentMethod==='cash'?`<div class="rcp-row"><span>Cash Received:</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
+    ${(paymentMethod==='cash' && !reprint)?`<div class="rcp-row"><span>Cash Received:</span><span>Rs.${cashReceived.toFixed(2)}</span></div><div class="rcp-row"><span>Change:</span><span>Rs.${change.toFixed(2)}</span></div>`:''}
     <div class="rcp-line"></div>
     <div class="rcp-center" style="font-size:11px">${headerNote}</div>
     <div class="rcp-center" style="font-size:10px;margin-top:4px">${footerNote}</div>
     <div class="rcp-center" style="font-size:10px;margin-top:4px">|||||||||||||||||||||||||||</div>
-    <div class="rcp-center" style="font-family:var(--mono);font-size:10px">${sale.invoice_number}</div>`;
+    <div class="rcp-center" style="font-family:var(--mono);font-size:10px">${sale.invoice_number}</div>
+  </div></div>`;
 }
 
 function showReceipt(sale) {
@@ -1874,11 +1924,349 @@ function showReceipt(sale) {
 // the page instead of a blank printout.
 function printPosReceipt() {
   if (!_lastOrder) { toast('No receipt to print yet!', 'error'); return; }
+  printThermalSlip(_lastOrder, { reprint: false });
+}
+
+// A bill made from the POS Terminal (walk-in counter sale) always prints on the
+// 73mm slip — right after checkout AND whenever it is printed again later
+// (Sale Slips list, slip details…). Bills with the "POS Terminal" note are POS
+// bills; older POS bills were saved with empty notes, while every Order Booking
+// bill carries an "Order Booking …" note, so an empty note also means POS.
+function _isPosTerminalSale(sale) {
+  const n = String((sale && sale.notes) || '').trim();
+  return n === '' || /^POS Terminal/i.test(n);
+}
+
+async function printThermalSlip(sale, opts) {
   const printArea = document.getElementById('print-area');
-  printArea.innerHTML = `<div class="thermal-receipt">${_buildReceiptContentHtml(_lastOrder)}</div>`;
+  printArea.innerHTML = `<div class="thermal-receipt">${_buildReceiptContentHtml(sale, opts)}</div>`;
   printArea.style.display = 'block';
+  // The business logo must be loaded before the print dialog opens, or it prints as an empty gap.
+  const imgs = Array.from(printArea.querySelectorAll('img'));
+  if (imgs.length) {
+    await Promise.race([
+      Promise.all(imgs.map(im => (im.complete ? 1 : new Promise(r => { im.onload = im.onerror = r; })))),
+      new Promise(r => setTimeout(r, 2000)),
+    ]);
+  }
   window.print();
   setTimeout(() => { printArea.style.display = 'none'; }, 1000);
+}
+
+
+// ═══════════════════════════════════════════════════════
+// POS TERMINAL → POS BILLS
+// Every bill made from the POS Terminal is listed here (and no longer in Sale
+// Slips). View, print, edit, cancel and return all happen from this page:
+//   • Edit   → the bill's items are loaded back into the POS Terminal; saving
+//              keeps the SAME invoice number (marked "Edited") and re-collects
+//              the payment at the new total.
+//   • Cancel → full return (stock + customer balance restored).
+//   • Return → pick the items / quantities to take back (partial return).
+// ═══════════════════════════════════════════════════════
+let _pbCache = [];
+let _pbLoaded = false;
+let _pbReturnSaleId = null;
+let _posEditSaleId = null;     // id of the POS bill currently loaded in the terminal for editing
+let _posEditInvoice = '';
+
+const _PB_ACTIVE = ['completed', 'edited', 'partially_returned'];   // statuses that can still be edited / cancelled / returned
+
+// Sidebar group (POS Terminal ▸ Billing Terminal / POS Bills)
+function posToggleGroup(force) {
+  const g = document.getElementById('pos-nav-group');
+  if (!g) return;
+  const open = typeof force === 'boolean' ? force : !g.classList.contains('open');
+  g.classList.toggle('open', open);
+  try { localStorage.setItem('pos_group_open', open ? '1' : '0'); } catch (_) { /* private mode */ }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  let open = true;
+  try { open = localStorage.getItem('pos_group_open') !== '0'; } catch (_) { /* default open */ }
+  posToggleGroup(open);
+});
+
+function _pbEsc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function _pbStatusBadge(status) {
+  const map = {
+    completed:          ['badge-green',  'Completed'],
+    edited:             ['badge-blue',   'Edited'],
+    partially_returned: ['badge-yellow', 'Partially Returned'],
+    returned:           ['badge-red',    'Returned'],
+    cancelled:          ['badge-red',    'Cancelled'],
+  };
+  const [cls, label] = map[status] || ['badge-red', status || '—'];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function _pbTodayLocal() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+async function renderPosBills(forceRefresh) {
+  const dateEl = document.getElementById('pb-date');
+  if (dateEl && dateEl.dataset.init !== '1') { dateEl.value = _pbTodayLocal(); dateEl.dataset.init = '1'; }   // opens on today's bills
+
+  if (!_pbLoaded || forceRefresh === true) {
+    try {
+      const data = await SalesAPI.list({ page_size: 500, ordering: '-created_at' });
+      _pbCache = (data.results || data).filter(b => _isPosTerminalSale(b) && b.status !== 'draft');
+      _pbLoaded = true;
+    } catch (err) {
+      toast(err.message || 'Failed to load POS bills', 'error');
+      return;
+    }
+  }
+
+  const dateFilter    = dateEl ? dateEl.value : '';
+  const statusFilter  = document.getElementById('pb-status')?.value || '';
+  const searchFilter  = (document.getElementById('pb-search')?.value || '').toLowerCase().trim();
+  const cashierFilter = (document.getElementById('pb-cashier')?.value || '').toLowerCase().trim();
+
+  const bills = _pbCache.filter(b =>
+    (!statusFilter  || (statusFilter === 'returned' ? ['returned', 'cancelled'].includes(b.status) : b.status === statusFilter)) &&
+    (!dateFilter    || (b.created_at || '').slice(0, 10) === dateFilter) &&
+    (!searchFilter  || (b.invoice_number || '').toLowerCase().includes(searchFilter) ||
+                       (b.customer_name || 'walk-in').toLowerCase().includes(searchFilter)) &&
+    (!cashierFilter || (b.served_by_name || '').toLowerCase().includes(cashierFilter))
+  );
+
+  const tbody = document.getElementById('pb-tbody');
+  const label = document.getElementById('pb-count-label');
+  if (!tbody) return;
+  const sum = bills.reduce((a, b) => a + (Number(b.total_amount) || 0), 0);
+  if (label) label.textContent = bills.length + ' bill' + (bills.length !== 1 ? 's' : '') + ' · Rs.' + sum.toFixed(2);
+
+  if (!bills.length) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:28px;color:var(--text-muted)">No POS bills found for these filters.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = bills.map(b => {
+    const active = _PB_ACTIVE.includes(b.status);
+    const method = (b.payments && b.payments[0] && b.payments[0].method) ? String(b.payments[0].method).replace(/_/g, ' ').toUpperCase() : '—';
+    const nItems = (b.items || []).length;
+    return `<tr>
+      <td class="td-mono fw-700" style="color:var(--cyan)">${_pbEsc(b.invoice_number)}</td>
+      <td>${_pbEsc((b.created_at || '').replace('T', ' ').slice(0, 16))}</td>
+      <td>${_pbEsc(b.customer_name || 'Walk-in')}</td>
+      <td>${_pbEsc(b.served_by_name || '—')}</td>
+      <td>${nItems} item${nItems !== 1 ? 's' : ''}</td>
+      <td class="fw-700">Rs.${Number(b.total_amount).toFixed(2)}</td>
+      <td>${method}</td>
+      <td>${_pbStatusBadge(b.status)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" title="View details" onclick="pbView(${b.id})"><i class="fa fa-eye"></i></button>
+        <button class="btn btn-ghost btn-sm" title="Print slip (73mm)" onclick="pbPrint(${b.id})"><i class="fa fa-print"></i></button>
+        ${active ? `
+        <button class="btn btn-ghost btn-sm" title="Edit bill" onclick="pbEdit(${b.id})"><i class="fa fa-pen"></i></button>
+        <button class="btn btn-ghost btn-sm" title="Return items" onclick="pbOpenReturn(${b.id})"><i class="fa fa-undo"></i></button>
+        <button class="btn btn-red btn-sm" title="Cancel bill (full return)" onclick="pbCancel(${b.id})"><i class="fa fa-ban"></i></button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function clearPosBillsFilters() {
+  const ids = ['pb-date', 'pb-status', 'pb-search', 'pb-cashier'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderPosBills();
+}
+
+function _pbFind(id) { return _pbCache.find(x => x.id === id); }
+
+function pbView(id) {
+  const b = _pbFind(id);
+  if (!b) return;
+  const active = _PB_ACTIVE.includes(b.status);
+  const method = (b.payments && b.payments[0] && b.payments[0].method) ? String(b.payments[0].method).replace(/_/g, ' ').toUpperCase() : '—';
+  document.getElementById('od-title').textContent = 'POS Bill — ' + b.invoice_number;
+  document.getElementById('order-detail-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">CUSTOMER</div><div style="font-weight:600">${_pbEsc(b.customer_name || 'Walk-in')}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">INVOICE</div><div style="font-weight:700;color:var(--cyan);font-family:var(--mono)">${_pbEsc(b.invoice_number)}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">DATE &amp; TIME</div><div style="font-weight:600">${_pbEsc((b.created_at || '').replace('T', ' ').slice(0, 16))}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">CASHIER</div><div style="font-weight:600">${_pbEsc(b.served_by_name || '—')}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">PAYMENT</div><div style="font-weight:600">${method}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">STATUS</div>${_pbStatusBadge(b.status)}</div>
+    </div>
+    <table>
+      <thead><tr><th>Product</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead>
+      <tbody>${(b.items || []).filter(it => (it.quantity - Number(it.quantity_returned || 0)) > 0).map(it => {
+        const netQty = it.quantity - Number(it.quantity_returned || 0);
+        const netAmt = it.quantity ? Number(it.line_total) * (netQty / it.quantity) : 0;
+        return `<tr>
+          <td>📦 ${_pbEsc(it.product_name || '—')}${Number(it.quantity_returned) > 0 ? `<div style="font-size:10px;color:var(--red)">${it.quantity_returned} returned</div>` : ''}</td>
+          <td>Rs.${Number(it.unit_price).toFixed(2)}</td>
+          <td class="fw-700">${netQty}</td>
+          <td class="fw-700 text-green">Rs.${netAmt.toFixed(2)}</td>
+        </tr>`; }).join('')}</tbody>
+    </table>
+    <div style="margin-top:16px;text-align:right">
+      ${Number(b.discount_amount) > 0 ? `<div style="font-size:12px;color:var(--red);margin-bottom:4px">Discount: -Rs.${Number(b.discount_amount).toFixed(2)}</div>` : ''}
+      ${Number(b.tax_amount) > 0 ? `<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Tax: +Rs.${Number(b.tax_amount).toFixed(2)}</div>` : ''}
+      <div style="font-size:16px;font-weight:800;margin-bottom:6px">Bill Total: Rs.${Number(b.total_amount).toFixed(2)}</div>
+    </div>
+    ${['returned', 'partially_returned'].includes(b.status) ? `<div style="font-size:11px;color:var(--text-muted);text-align:right;margin-top:-4px">Bill Total already reflects the return.</div>` : ''}
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
+      ${active ? `
+        <button class="btn btn-red btn-sm" onclick="closeModal('order-detail-modal');pbCancel(${b.id})"><i class="fa fa-ban"></i> Cancel Bill</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('order-detail-modal');pbOpenReturn(${b.id})"><i class="fa fa-undo"></i> Return Items</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('order-detail-modal');pbEdit(${b.id})"><i class="fa fa-pen"></i> Edit Bill</button>` : ''}
+      <button class="btn btn-accent btn-sm" onclick="pbPrint(${b.id})"><i class="fa fa-print"></i> Print Slip (73mm)</button>
+    </div>`;
+  openModal('order-detail-modal');
+}
+
+function pbPrint(id) {
+  const b = _pbFind(id);
+  if (!b) return;
+  printThermalSlip(b, { reprint: true });
+}
+
+// ── Cancel = full return of everything still on the bill ──
+async function pbCancel(id) {
+  if (!(await confirmModal('Stock and customer balance will be restored via a full return.', { title: 'Cancel POS Bill?', confirmText: 'Cancel Bill', icon: 'fa-ban' }))) return;
+  try {
+    const sale = await SalesAPI.get(id);
+    const items = (sale.items || [])
+      .filter(i => (i.quantity - Number(i.quantity_returned || 0)) > 0)
+      .map(i => ({ sale_item: i.id, quantity: i.quantity - Number(i.quantity_returned || 0) }));
+    if (!items.length) { toast('Nothing left to cancel — already fully returned.', 'warning'); return; }
+    await SalesAPI.processReturn(id, { items, reason: 'Cancelled from POS Bills' });
+    _pbLoaded = false; _slipsLoaded = false; _posProductCache = [];
+    await renderPosBills(true);
+    toast('POS bill cancelled — stock and balance restored', 'warning');
+  } catch (err) {
+    toast(err.message || 'Failed to cancel bill', 'error');
+  }
+}
+
+// ── Return = pick items / quantities (partial return) ──
+async function pbOpenReturn(id) {
+  try {
+    const sale = await SalesAPI.get(id);
+    const rows = (sale.items || [])
+      .map(i => ({ id: i.id, name: i.product_name, price: Number(i.unit_price), sold: i.quantity, returned: Number(i.quantity_returned || 0) }))
+      .filter(r => r.sold - r.returned > 0);
+    if (!rows.length) { toast('Nothing left to return — already fully returned.', 'warning'); return; }
+    _pbReturnSaleId = id;
+    document.getElementById('pb-return-title').textContent = 'Return Items — ' + sale.invoice_number;
+    document.getElementById('pb-return-body').innerHTML = `
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Enter how many of each item the customer is returning. Returned items go back into stock and the bill total is reduced.</div>
+      <table>
+        <thead><tr><th>Product</th><th>Rate</th><th>Sold</th><th>Already returned</th><th style="width:130px">Return Qty</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td>📦 ${_pbEsc(r.name || '—')}</td>
+          <td>Rs.${r.price.toFixed(2)}</td>
+          <td>${r.sold}</td>
+          <td>${r.returned}</td>
+          <td><input type="number" class="form-input pb-ret-qty" data-item="${r.id}" data-max="${r.sold - r.returned}" min="0" max="${r.sold - r.returned}" step="1" value="0" style="padding:6px 10px;width:110px"></td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    openModal('pb-return-modal');
+  } catch (err) {
+    toast(err.message || 'Failed to load the bill', 'error');
+  }
+}
+
+async function pbConfirmReturn() {
+  const inputs = Array.from(document.querySelectorAll('#pb-return-body .pb-ret-qty'));
+  const items = [];
+  for (const el of inputs) {
+    const qty = Number(el.value) || 0;
+    const max = Number(el.dataset.max) || 0;
+    if (qty < 0 || !Number.isInteger(qty)) { toast('Return quantity must be a whole number.', 'error'); return; }
+    if (qty > max) { toast(`Cannot return more than ${max} of an item (what is left on the bill).`, 'error'); return; }
+    if (qty > 0) items.push({ sale_item: Number(el.dataset.item), quantity: qty });
+  }
+  if (!items.length) { toast('Enter a return quantity for at least one item.', 'warning'); return; }
+  const btn = document.getElementById('pb-return-confirm');
+  if (btn) btn.disabled = true;
+  try {
+    await SalesAPI.processReturn(_pbReturnSaleId, { items, reason: 'Returned from POS Bills' });
+    closeModal('pb-return-modal');
+    _pbLoaded = false; _slipsLoaded = false; _posProductCache = [];
+    await renderPosBills(true);
+    toast('Items returned — stock and bill total updated', 'success');
+  } catch (err) {
+    toast(err.message || 'Failed to process the return', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Edit = load the bill back into the POS Terminal ──
+async function pbEdit(id) {
+  if (cart.length && !_posEditSaleId) {
+    if (!(await confirmModal('The POS Terminal already has items in its cart. They will be replaced by this bill\'s items.', { title: 'Replace Current Cart?', confirmText: 'Replace', icon: 'fa-pen', danger: false }))) return;
+  }
+  try {
+    const sale = await SalesAPI.get(id);
+    if (!_PB_ACTIVE.includes(sale.status)) { toast('This bill can no longer be edited.', 'warning'); return; }
+    const lines = (sale.items || []).filter(i => (i.quantity - Number(i.quantity_returned || 0)) > 0);
+    if (!lines.length) { toast('Nothing left on this bill to edit.', 'warning'); return; }
+
+    await _loadPosProducts();   // fresh stock — then add back what this bill currently holds (the edit reverses it first)
+    cart = lines.map(i => {
+      const remaining = i.quantity - Number(i.quantity_returned || 0);
+      _posStockByProduct[i.product] = (_posStockByProduct[i.product] || 0) + remaining;
+      const prod = _posProductCache.find(p => p.id === i.product);
+      return { id: i.product, name: i.product_name, price: Number(i.unit_price) || 0, qty: remaining, icon: '📦', taxRate: Number(i.tax_percent) || 0, barcode: (prod && prod.barcode) || '' };
+    });
+
+    _posEditSaleId = sale.id;
+    _posEditInvoice = sale.invoice_number;
+
+    navigate('pos');
+    await updatePosCustomers();
+    const custSel = document.getElementById('pos-customer');
+    if (custSel) custSel.value = sale.customer ? String(sale.customer) : '';
+
+    const lineSum = cart.reduce((a, c) => a + c.price * c.qty, 0);
+    const pct = lineSum > 0 ? Math.round((Number(sale.discount_amount) || 0) / lineSum * 10000) / 100 : 0;
+    document.getElementById('cart-discount').value = pct;
+    document.getElementById('cash-received').value = '';
+
+    const m = (sale.payments && sale.payments[0] && sale.payments[0].method) || 'cash';
+    const uiMethod = m === 'mobile_wallet' ? 'digital' : (m === 'card' ? 'card' : 'cash');
+    document.querySelectorAll('.payment-method').forEach(el => {
+      if ((el.getAttribute('onclick') || '').includes(`'${uiMethod}'`)) selectPayment(el, uiMethod);
+    });
+
+    document.getElementById('pos-edit-invoice').textContent = sale.invoice_number;
+    document.getElementById('pos-edit-banner').style.display = 'flex';
+    document.getElementById('pos-invoice').textContent = sale.invoice_number;
+    updateCartUI();
+    renderPosProducts();
+    toast(`Editing ${sale.invoice_number} — change the items, then press the pay button to save.`, 'success');
+  } catch (err) {
+    toast(err.message || 'Failed to open the bill for editing', 'error');
+  }
+}
+
+// Leaves edit mode (after saving, or when the user cancels) and restores real stock figures.
+async function posExitEdit() {
+  _posEditSaleId = null;
+  _posEditInvoice = '';
+  const banner = document.getElementById('pos-edit-banner');
+  if (banner) banner.style.display = 'none';
+  const inv = document.getElementById('pos-invoice');
+  if (inv) inv.textContent = 'INV-' + String(invoiceCounter).padStart(4, '0');
+  try { await _loadPosProducts(); } catch (_) { /* keep cached stock */ }
+  renderPosProducts();
+  updateCartUI();
+}
+
+async function posCancelEdit() {
+  if (!_posEditSaleId) return;
+  cart = [];
+  document.getElementById('cart-discount').value = 0;
+  document.getElementById('cash-received').value = '';
+  await posExitEdit();
+  toast('Edit cancelled — the bill was not changed.', 'warning');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -5477,7 +5865,7 @@ function viewSlipDetail(id) {
         <button class="btn btn-red btn-sm" onclick="voidSlipFromModal(${b.id}, '${b.invoice_number}')" title="Restocks it, clears the balance, and removes it completely — not kept as 'returned'"><i class="fa fa-trash"></i> Delete Invoice</button>
         <button class="btn btn-ghost btn-sm" onclick="editCompletedSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit Invoice</button>
       ` : ''}
-      <button class="btn btn-accent btn-sm" onclick="printSingleSlipA4(${b.id})"><i class="fa fa-print"></i> Print A4</button>
+      <button class="btn btn-accent btn-sm" onclick="printSingleSlipA4(${b.id})"><i class="fa fa-print"></i> ${_isPosTerminalSale(b) ? 'Print Slip (73mm)' : 'Print A4'}</button>
     </div>`;
   openModal('order-detail-modal');
 }
@@ -5801,6 +6189,7 @@ async function printSingleSlipA4(id) {
   if (b) { const i = _slipsCache.findIndex(x => x.id === id); if (i >= 0) _slipsCache[i] = b; }
   else b = _slipsCache.find(x=>x.id===id);
   if (!b) { toast('Booking not found','error'); return; }
+  if (_isPosTerminalSale(b)) { printThermalSlip(b, { reprint: true }); return; }   // POS Terminal bill → 73mm slip
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = buildSlipA4Html(b);
   await animatedPrint('slip', printArea);
@@ -5826,6 +6215,7 @@ async function printAllSlipsA4(mode) {
   // All" printed every salesman's slips even when the table was filtered
   // down to one username.
   const slips = _slipsCache.filter(b =>
+    !_isPosTerminalSale(b) &&   // POS Terminal bills live under POS Terminal → POS Bills
     (statusFilter ? b.status === statusFilter : (b.status!=='returned' && b.status!=='cancelled')) &&
     (!dateFilter     || (b.created_at||'').slice(0,10) === dateFilter) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
@@ -9300,6 +9690,7 @@ window.renderSaleSlips = async function(forceRefresh) {
   }
 
   const slips = _slipsCache.filter(b =>
+    !_isPosTerminalSale(b) &&   // POS Terminal bills live under POS Terminal → POS Bills
     (statusFilter ? b.status === statusFilter : b.status !== 'cancelled') &&
     (!dateFilter     || (b.created_at||'').slice(0,10) === dateFilter) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&

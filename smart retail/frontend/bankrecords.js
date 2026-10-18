@@ -50,6 +50,7 @@
   const money = (n) => 'Rs.' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const role = () => ((typeof currentUser !== 'undefined' && currentUser && currentUser.role) || (TokenStore.getUser() || {}).role || '');
   const isAdmin = () => ['super_admin', 'admin'].includes(role());
+  const isManager = () => ['super_admin', 'admin', 'manager'].includes(role());
   const results = (d) => (d && d.results) || d || [];
   const qs = (o) => Object.entries(o).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   const fail = (e) => toast((e && e.message) || 'Something went wrong', 'error');
@@ -909,7 +910,7 @@
         ['From Account', a.from_label || '—'], ['To / Recipient', a.to_label || '—'], ['Recipient Bank', a.recipient_bank || '—'],
         ['Recipient Account Title', a.recipient_account_title || '—'], ['Recipient Account No.', a.recipient_account_number || '—'], ['Recipient IBAN', a.recipient_iban || '—'],
         ['Purpose', a.purpose || '—'], ['Status', a.status_label + (a.status_reason ? ` — ${a.status_reason}` : '')], ['Entered By', a.created_by_name || '—']];
-      const admin = isAdmin() && !['cancelled', 'reversed'].includes(a.status);
+      const admin = isManager() && !['cancelled', 'reversed'].includes(a.status);
       const bar = `<div class="br-actbar">
         ${admin ? `<button class="br-act-btn edit" onclick="brEdit(${a.id})"><i class="fa fa-pen"></i> Edit</button>
           ${['pending', 'recorded'].includes(a.status) ? `<button class="br-act-btn done" onclick="brStatus(${a.id},'completed')"><i class="fa fa-check"></i> Mark Completed</button>` : ''}

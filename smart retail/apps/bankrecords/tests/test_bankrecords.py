@@ -126,16 +126,16 @@ class TestApi:
             r = self._client(make_user(role)).get("/api/v1/bank-records/activities/")
             assert r.status_code == 403
 
-    def test_manager_can_add_but_not_edit_or_cancel(self, hbl):
+    def test_manager_can_add_edit_and_cancel_records(self, hbl):
         c = self._client(make_user("manager"))
         r = c.post("/api/v1/bank-records/activities/", dict(
             activity_type="payment", date="2026-10-04", time="11:35:00", from_account=hbl.id,
             recipient_name="Ali", amount="50000"), format="json")
         assert r.status_code == 201, r.content
         pk = r.json()["id"]
-        assert c.patch(f"/api/v1/bank-records/activities/{pk}/", {"notes": "x"}, format="json").status_code == 403
+        assert c.patch(f"/api/v1/bank-records/activities/{pk}/", {"notes": "x"}, format="json").status_code == 200
         assert c.post(f"/api/v1/bank-records/activities/{pk}/status/",
-                      {"status": "cancelled", "reason": "r"}, format="json").status_code == 403
+                      {"status": "cancelled", "reason": "r"}, format="json").status_code == 200
 
     def test_no_delete_endpoint(self, admin, hbl):
         c = self._client(admin)

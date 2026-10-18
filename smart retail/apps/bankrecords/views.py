@@ -142,6 +142,13 @@ class PaymentContactViewSet(_Base):
 
 
 class BankActivityViewSet(_Base):
+    # Managers may also edit a bank record and change its status
+    # (complete / cancel / reverse); everything else stays as in _Base.
+    def get_permissions(self):
+        if self.action in {"partial_update", "update", "status"}:
+            return [IsManagerOrAbove()]
+        return super().get_permissions()
+
     queryset = (BankActivity.objects
                 .select_related("from_account__bank", "to_account__bank", "recipient", "created_by")
                 .prefetch_related("attachments"))

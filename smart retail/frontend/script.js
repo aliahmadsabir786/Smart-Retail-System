@@ -4813,8 +4813,6 @@ async function newBookingForm(editId, editCompletedInPlace) {
   document.getElementById('booking-list-wrap').style.display = 'none';
   setTimeout(()=>document.getElementById('booking-form-wrap').scrollIntoView({behavior:'smooth'}),50);
 
-  await _loadBookingLookups();
-
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('bk-date').value = today;
   document.getElementById('bk-invoice').value = 'Assigned on save';
@@ -4828,6 +4826,12 @@ async function newBookingForm(editId, editCompletedInPlace) {
   document.getElementById('bk-acc-display').value = '';
   document.getElementById('bk-customer-info').style.display = 'none';
   _bookingItems = [{ productId:'', name:'', rate:0, qty:0, cartons:0, ppc:1 }];
+  document.getElementById('booking-form-title').textContent = editId ? 'Loading…' : '📝 New Order Booking';
+  // Wipe the previous bill from the screen RIGHT NOW (before the network call
+  // below), otherwise the old bill stays visible for a few seconds.
+  try { renderBookingItemRows(); calcBookingTotals(); } catch (e) {}
+
+  await _loadBookingLookups();
 
   if (editId && editCompletedInPlace) {
     // Editing an already-finalized invoice IN PLACE — same invoice_number,
@@ -5240,7 +5244,7 @@ function renderBookingItemRows() {
     const lineTotal = priceWithTax-discAmt;
     const prodLabel = item.productId ? (item.icon||'\u{1F4E6}')+' '+item.name : '';
     return `<tr id="bk-row-${i}">
-      <td style="padding:5px 8px;position:relative">
+      <td class="bk-c bk-c-prod" style="padding:5px 8px;position:relative">
         <div style="position:relative">
           <input class="form-input bk-prod-search" id="bk-prod-input-${i}"
             placeholder="\u{1F50D} Search product by name or SKU..."
@@ -5255,23 +5259,23 @@ function renderBookingItemRows() {
         </div>
 
       </td>
-      <td style="padding:5px 8px">
+      <td class="bk-c bk-c-rate" data-label="Rate" style="padding:5px 8px">
         <input class="form-input" id="bk-rate-${i}" type="text" inputmode="decimal" value="${item.rate||0}"
           style="padding:7px 10px;font-size:12px;width:88px"
           onclick="setTimeout(()=>this.select())" oninput="updateBookingItem(${i},'rate',this.value)">
       </td>
-      <td style="padding:5px 8px">
+      <td class="bk-c bk-c-qty" data-label="Qty" style="padding:5px 8px">
         <input class="form-input bk-qty-input" id="bk-qty-${i}" type="text" inputmode="numeric" value="${item.qty||0}"
           style="padding:7px 10px;font-size:12px;width:75px"
           onclick="setTimeout(()=>this.select())" oninput="updateBookingItem(${i},'qty',this.value)">
       </td>
-      <td style="padding:5px 8px">
+      <td class="bk-c bk-c-unit" data-label="Unit" style="padding:5px 8px">
         <select class="form-input" style="padding:5px 8px;font-size:12px;width:90px"
           onchange="updateBookingItemStr(${i},'unit',this.value)">
           ${units.map(u=>`<option value="${u}" ${unit===u?'selected':''}>${u}</option>`).join('')}
         </select>
       </td>
-      <td style="padding:5px 8px">
+      <td class="bk-c bk-c-cart" data-label="Cartons" style="padding:5px 8px">
         <div style="display:flex;align-items:center;gap:4px">
           <input class="form-input" id="bk-cartons-${i}" type="text" inputmode="numeric" value="${item.cartons||0}"
             style="padding:7px 10px;font-size:12px;width:65px"
@@ -5279,23 +5283,23 @@ function renderBookingItemRows() {
           <span style="font-size:9px;color:var(--text-muted);white-space:nowrap">x${ppc}</span>
         </div>
       </td>
-      <td style="padding:5px 8px;text-align:center;font-weight:700;color:var(--cyan);font-size:13px">
+      <td class="bk-c bk-c-pcs" data-label="Total Pcs" style="padding:5px 8px;text-align:center;font-weight:700;color:var(--cyan);font-size:13px">
         ${totalPcs}<span style="font-size:9px;color:var(--text-muted)"> ${unit==='Carton'?'pcs':unit}</span>
       </td>
-      <td style="padding:5px 8px">
+      <td class="bk-c bk-c-disc" data-label="Disc %" style="padding:5px 8px">
         <input class="form-input" id="bk-disc-${i}" type="text" inputmode="decimal" value="${discPct||0}"
           title="Extra discount on this line only — does not change the product's saved price"
           style="padding:7px 10px;font-size:12px;width:60px;color:var(--green)"
           onclick="setTimeout(()=>this.select())" oninput="updateBookingItem(${i},'discPct',this.value)">
       </td>
-      <td style="padding:5px 8px;text-align:center">
+      <td class="bk-c bk-c-tax" data-label="Tax" style="padding:5px 8px;text-align:center">
         ${taxPct>0
           ? `<span title="Auto tax from product" style="background:rgba(245,158,11,.18);color:var(--yellow);font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;font-family:var(--mono)">${taxPct}%</span>`
           : `<span style="color:var(--text-muted);font-size:10px;font-family:var(--mono)">--</span>`}
       </td>
-      <td style="padding:5px 8px;text-align:right;font-weight:700;color:var(--green);font-size:13px;font-family:var(--mono)">Rs.${lineTotal.toFixed(2)}</td>
-      <td style="padding:5px 8px;text-align:center">
-        <button class="btn btn-ghost btn-xs" onclick="removeBookingItemRow(${i})" style="color:var(--red)"><i class="fa fa-trash"></i></button>
+      <td class="bk-c bk-c-total" data-label="Line Total" style="padding:5px 8px;text-align:right;font-weight:700;color:var(--green);font-size:13px;font-family:var(--mono)">Rs.${lineTotal.toFixed(2)}</td>
+      <td class="bk-c bk-c-del" style="padding:5px 8px;text-align:center">
+        <button class="btn btn-ghost btn-xs" aria-label="Remove item" onclick="removeBookingItemRow(${i})" style="color:var(--red)"><i class="fa fa-trash"></i></button>
       </td>
     </tr>`;
   }).join('');
@@ -5339,6 +5343,11 @@ function _bkProdFloatEl() {
     // it if the row it belongs to has since scrolled out of view entirely.
     window.addEventListener('scroll', () => { if (_bkProdActiveRow !== null) _bkProdReposition(); }, true);
     window.addEventListener('resize', () => { if (_bkProdActiveRow !== null) _bkProdReposition(); });
+    // Keyboard opening/closing changes the visual viewport without a window resize.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => { if (_bkProdActiveRow !== null) _bkProdReposition(); });
+      window.visualViewport.addEventListener('scroll', () => { if (_bkProdActiveRow !== null) _bkProdReposition(); });
+    }
   }
   return el;
 }
@@ -5350,8 +5359,15 @@ function _bkProdReposition() {
   if (!inp || !drop) return;
   const r = inp.getBoundingClientRect();
   const dropMaxHeight = 260;
-  const spaceBelow = window.innerHeight - r.bottom;
-  const spaceAbove = r.top;
+  // On a phone the on-screen keyboard covers the lower part of the screen.
+  // visualViewport is the part the user can actually see, so measure room
+  // against that — otherwise the list opens "below" the input but behind
+  // the keyboard and looks like nothing happened.
+  const vv = window.visualViewport;
+  const visTop = vv ? vv.offsetTop : 0;
+  const visBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+  const spaceBelow = visBottom - r.bottom;
+  const spaceAbove = r.top - visTop;
   // Fixed: this always opened the dropdown below the input, with no check
   // for whether there was actually room on screen. Once several product
   // rows had been added, the next empty row sat near the bottom of the
@@ -5782,17 +5798,17 @@ async function renderBookingList() {
         const isHeld = b.status === 'draft';
         return `
         <tr${isHeld?' style="background:rgba(234,179,8,.05)"':''}>
-          <td class="td-mono" style="color:var(--cyan)">${b.invoice_number}</td>
-          <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
-          <td class="fw-700">${b.customer_name||'Walk-in'}</td>
-          <td><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
-          <td>${b.items.length} item(s)</td>
-          <td class="fw-700 text-green">Rs.${Number(b.total_amount).toFixed(2)}</td>
-          <td class="${Number(b.previous_balance) < 0 ? 'text-green' : 'text-red'}">${Number(b.previous_balance) < 0 ? '(Advance) ' : ''}Rs.${Math.abs(Number(b.previous_balance)).toFixed(2)}</td>
-          <td class="fw-700 text-yellow">Rs.${(Number(b.total_amount)+Number(b.previous_balance)).toFixed(2)}</td>
-          <td><span class="badge badge-blue">${b.payment_status}</span></td>
-          <td><span class="badge ${badgeClass}">${label}</span></td>
-          <td>
+          <td class="td-mono" data-label="Invoice" style="color:var(--cyan)">${b.invoice_number}</td>
+          <td data-label="Date" style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
+          <td class="fw-700" data-label="Customer">${b.customer_name||'Walk-in'}</td>
+          <td data-label="Account No"><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
+          <td data-label="Items">${b.items.length} item(s)</td>
+          <td class="fw-700 text-green" data-label="Amount">Rs.${Number(b.total_amount).toFixed(2)}</td>
+          <td data-label="Prev Balance" class="${Number(b.previous_balance) < 0 ? 'text-green' : 'text-red'}">${Number(b.previous_balance) < 0 ? '(Advance) ' : ''}Rs.${Math.abs(Number(b.previous_balance)).toFixed(2)}</td>
+          <td class="fw-700 text-yellow" data-label="Net Payable">Rs.${(Number(b.total_amount)+Number(b.previous_balance)).toFixed(2)}</td>
+          <td data-label="Payment"><span class="badge badge-blue">${b.payment_status}</span></td>
+          <td data-label="Status"><span class="badge ${badgeClass}">${label}</span></td>
+          <td class="m-actions">
             <div class="flex-gap">
               <button class="btn btn-ghost btn-xs" onclick="viewOrder('${b.invoice_number}')" title="View"><i class="fa fa-eye"></i></button>
               ${isHeld ? `
@@ -5834,6 +5850,7 @@ function viewSlipDetail(id) {
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">PAYMENT</div><div style="font-weight:600">${(b.payments[0]?.method)||'—'}</div></div>
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">STATUS</div><span class="badge ${b.status==='completed'?'badge-green':b.status==='edited'?'badge-blue':'badge-red'}">${b.status==='edited'?'Edited':b.status}</span></div>
     </div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table>
       <thead><tr><th>Product</th><th>Rate</th><th>Qty</th><th>Amount</th></tr></thead>
       <tbody>${b.items.filter(it => (it.quantity - Number(it.quantity_returned||0)) > 0).map(it=>{
@@ -5848,6 +5865,7 @@ function viewSlipDetail(id) {
           <td class="fw-700 text-green">Rs.${netAmt.toFixed(2)}</td>
         </tr>`;}).join('')}</tbody>
     </table>
+    </div>
     <div style="margin-top:16px;text-align:right">
       ${Number(b.discount_amount)>0?`<div style="font-size:12px;color:var(--red);margin-bottom:4px">Discount: -Rs.${Number(b.discount_amount).toFixed(2)}</div>`:''}
       ${Number(b.tax_amount)>0?`<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Tax: +Rs.${Number(b.tax_amount).toFixed(2)}</div>`:''}
@@ -5856,7 +5874,7 @@ function viewSlipDetail(id) {
     </div>
     ${['returned','partially_returned'].includes(b.status) ? `<div style="font-size:11px;color:var(--text-muted);text-align:right;margin-top:-4px">Bill Total already reflects the return.</div>` : ''}
     ${b.notes?`<div style="margin-top:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;font-size:12px"><strong>Notes:</strong> ${b.notes}</div>`:''}
-    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+    <div class="slip-detail-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;justify-content:flex-end">
       ${b.status === 'draft' ? `
         <button class="btn btn-red btn-sm" onclick="deleteSlipFromModal(${b.id}, '${b.invoice_number}')"><i class="fa fa-trash"></i> Delete</button>
         <button class="btn btn-ghost btn-sm" onclick="editSlipFromModal(${b.id})"><i class="fa fa-edit"></i> Edit</button>
@@ -8605,7 +8623,13 @@ let _osBookingsCache = [];
     requestAnimationFrame(() => {
       const pRect = panel.getBoundingClientRect();
       const overflowX = pRect.right - (window.innerWidth - 8);
-      if (overflowX > 0) panel.style.left = Math.round(rect.left - overflowX) + 'px';
+      if (overflowX > 0) panel.style.left = Math.round(Math.max(8, rect.left - overflowX)) + 'px';
+      // Phones: if there isn't room below the field, open it above instead.
+      const overflowY = pRect.bottom - (window.innerHeight - 8);
+      if (overflowY > 0) {
+        const above = rect.top - 8 - pRect.height;
+        panel.style.top = Math.round(above >= 8 ? above : Math.max(8, window.innerHeight - 8 - pRect.height)) + 'px';
+      }
     });
     activePanel = panel;
     displayEl.classList.add('dt-active');
@@ -9717,20 +9741,20 @@ window.renderSaleSlips = async function(forceRefresh) {
     const hasTax  = Number(b.tax_amount) > 0;
     const hasDisc = Number(b.discount_amount) > 0;
     return `<tr>
-      <td class="td-mono" style="font-weight:700">${b.invoice_number}</td>
-      <td style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
-      <td style="font-weight:600">${b.customer_name||'Walk-in'}
+      <td class="td-mono" data-label="Invoice" style="font-weight:700">${b.invoice_number}</td>
+      <td data-label="Date" style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
+      <td data-label="Customer" style="font-weight:600">${b.customer_name||'Walk-in'}
         ${b.served_by_name ? `<div style="font-size:10px;color:var(--text-muted)"><i class="fa fa-user-tag"></i> ${b.served_by_name}</div>` : ''}
       </td>
-      <td class="td-mono">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>
-      <td style="text-align:center">${b.items?.length||0}</td>
-      <td class="fw-700 td-mono">Rs.${Number(b.subtotal).toFixed(2)}
+      <td class="td-mono" data-label="Account">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>
+      <td data-label="Items" style="text-align:center">${b.items?.length||0}</td>
+      <td class="fw-700 td-mono" data-label="Amount">Rs.${Number(b.subtotal).toFixed(2)}
         ${hasTax ? `<div style="font-size:10px;color:var(--yellow)">+Rs.${Number(b.tax_amount).toFixed(2)} tax</div>` : ''}
         ${hasDisc ? `<div style="font-size:10px;color:var(--green)">-Rs.${Number(b.discount_amount).toFixed(2)} disc</div>` : ''}
       </td>
-      <td class="fw-700 td-mono" style="color:var(--yellow)">Rs.${Number(b.total_amount).toFixed(2)}</td>
-      <td><span class="badge ${statusClass}">${b.status.replace(/_/g,' ')}</span></td>
-      <td>
+      <td class="fw-700 td-mono" data-label="Net Payable" style="color:var(--yellow)">Rs.${Number(b.total_amount).toFixed(2)}</td>
+      <td data-label="Status"><span class="badge ${statusClass}">${b.status.replace(/_/g,' ')}</span></td>
+      <td class="m-actions">
         <div style="display:flex;gap:4px;flex-wrap:nowrap">
           <button class="btn btn-ghost btn-xs" onclick="viewSlipDetail(${b.id})" title="View Details"><i class="fa fa-eye"></i></button>
           <button class="btn btn-ghost btn-xs" onclick="printSingleSlipA4(${b.id})" title="Print"><i class="fa fa-print"></i></button>

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>SmartRetail ERP – Inventory & POS Management System</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%AA%3C/text%3E%3C/svg%3E">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
@@ -641,14 +641,14 @@
 
         <!-- BOOKING FORM -->
         <div id="booking-form-wrap" style="display:none">
-          <div class="card" style="margin-bottom:20px">
+          <div class="card bk-form-card" style="margin-bottom:20px">
             <div class="card-header">
               <div class="card-title" id="booking-form-title">📝 New Order Booking</div>
               <button class="btn btn-ghost btn-xs" onclick="closeBookingForm()"><i class="fa fa-times"></i> Cancel</button>
             </div>
             <div class="card-body">
               <!-- Row 1: Date, Invoice, Account No -->
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+              <div class="bk-g3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
                 <div class="form-group-inline" style="margin-bottom:0">
                   <label>Booking Date *</label>
                   <input class="form-input" type="date" id="bk-date" style="padding:9px 12px">
@@ -667,7 +667,7 @@
               </div>
 
               <!-- Row 2: Customer selection -->
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+              <div class="bk-g2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
                 <div class="form-group-inline" style="margin-bottom:0">
                   <label style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                     <span>Customer Name *</span>
@@ -696,7 +696,7 @@
 
               <!-- Customer ledger info -->
               <div id="bk-customer-info" style="display:none;margin-bottom:16px">
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+                <div class="bk-info-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
                   <div style="background:var(--red-glow);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:12px">
                     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">PREVIOUS BALANCE</div>
                     <div style="font-size:18px;font-weight:800;color:var(--red)" id="bk-prev-balance">$0.00</div>
@@ -714,12 +714,12 @@
 
               <!-- Products table -->
               <div style="margin-bottom:12px">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <div class="bk-items-head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
                   <div style="font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Order Items</div>
                   <div style="font-size:11px;color:var(--text-muted)">A new row appears automatically once you enter a quantity</div>
                 </div>
-                <div style="overflow-x:auto;overflow-y:visible">
-                  <table style="width:100%;border-collapse:collapse">
+                <div class="bk-items-wrap" style="overflow-x:auto;overflow-y:visible">
+                  <table class="bk-items-table" style="width:100%;border-collapse:collapse">
                     <thead>
                       <tr>
                         <th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--bg-secondary);width:30%">Product</th>
@@ -740,7 +740,7 @@
               </div>
 
               <!-- Totals + notes -->
-              <div style="display:grid;grid-template-columns:1fr auto;gap:20px;margin-top:16px">
+              <div class="bk-tot-grid" style="display:grid;grid-template-columns:1fr auto;gap:20px;margin-top:16px">
                 <div>
                   <div class="form-group-inline" style="margin-bottom:12px">
                     <label>Notes / Remarks</label>
@@ -756,7 +756,7 @@
                     </select>
                   </div>
                 </div>
-                <div style="min-width:300px">
+                <div class="bk-tot-box" style="min-width:300px">
                   <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:16px">
 
                     <!-- Base Amount -->
@@ -784,7 +784,7 @@
                     </div>
 
                     <!-- Bill Discount -->
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px;color:var(--text-secondary)">
+                    <div class="bk-disc-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px;color:var(--text-secondary)">
                       <span style="display:flex;align-items:center;gap:4px">
                         <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0"></span>
                         Bill Discount
@@ -817,7 +817,7 @@
               </div>
 
               <!-- Action buttons -->
-              <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+              <div class="bk-actions" style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
                 <button class="btn btn-ghost" onclick="closeBookingForm()"><i class="fa fa-times"></i> Cancel</button>
                 <button class="btn btn-accent" onclick="saveBooking('saved')"><i class="fa fa-check-circle"></i> Save Booking</button>
               </div>
@@ -829,7 +829,7 @@
         <div id="booking-list-wrap">
           <div class="card" id="bk-list-card">
             <div class="card-header">
-              <div style="display:flex;gap:10px;flex:1;flex-wrap:wrap">
+              <div class="bk-filters" style="display:flex;gap:10px;flex:1;flex-wrap:wrap">
                 <div class="search-bar" style="flex:1;min-width:200px">
                   <i class="fa fa-search"></i>
                   <input type="text" id="bk-search" placeholder="Search by invoice, customer, account..." oninput="renderBookingList()">
@@ -849,10 +849,10 @@
                   <input type="text" id="bk-date-filter-display" class="dt-picker-input" placeholder="Select date" readonly>
                 </div>
               </div>
-              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('bk-date-filter').value='';syncDtDisplay('bk-date-filter');document.getElementById('bk-name-search').value='';document.getElementById('bk-search').value='';renderBookingList()"><i class="fa fa-times"></i> Clear</button>
+              <button class="btn btn-ghost btn-sm bk-clear" onclick="document.getElementById('bk-date-filter').value='';syncDtDisplay('bk-date-filter');document.getElementById('bk-name-search').value='';document.getElementById('bk-search').value='';renderBookingList()"><i class="fa fa-times"></i> Clear</button>
             </div>
             <div class="table-wrap">
-              <table>
+              <table class="m-cards">
                 <thead>
                   <tr>
                     <th>Invoice</th><th>Date</th><th>Customer</th><th>Account No</th>
@@ -948,7 +948,7 @@
         <!-- Date filter + bulk print -->
         <div class="card" style="margin-bottom:16px">
           <div class="card-body" style="padding:16px">
-            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="ss-filters" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
               <div class="form-group-inline" style="margin-bottom:0">
                 <label>Select Date</label>
                 <div class="dt-picker-wrap">
@@ -992,11 +992,11 @@
                   <input type="text" id="ss-area" placeholder="Filter by area..." oninput="renderSaleSlips()" style="font-size:13px">
                 </div>
               </div>
-              <button class="btn btn-ghost btn-sm" onclick="clearSaleSlipsFilters()" title="Clear all filters">
+              <button class="btn btn-ghost btn-sm ss-clear" onclick="clearSaleSlipsFilters()" title="Clear all filters">
                 <i class="fa fa-times"></i> Clear Filters
               </button>
             </div>
-            <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+            <div class="ss-actions" style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
               <button class="btn btn-accent btn-sm" onclick="printAllSlipsA4()">
                 <i class="fa fa-print"></i> Print All (Filtered)
               </button>
@@ -1019,7 +1019,7 @@
             <div style="font-size:12px;color:var(--text-secondary)" id="ss-count-label">— slips</div>
           </div>
           <div class="table-wrap">
-            <table>
+            <table class="m-cards">
               <thead>
                 <tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Account</th><th>Items</th><th>Amount</th><th>Net Payable</th><th>Status</th><th>Actions</th></tr>
               </thead>

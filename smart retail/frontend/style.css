@@ -305,7 +305,7 @@ body {
   /* Chart */
   .chart-container { height: 190px; }
   /* Toast */
-  #toast-container { bottom: 16px; right: 12px; left: 12px; }
+  #toast-container { top: auto; bottom: 16px; right: 12px; left: 12px; max-width: none; }
   .toast { min-width: 0; width: 100%; }
   /* Notif panel */
   #notif-panel { right: 10px; left: 10px; width: auto !important; }
@@ -402,7 +402,7 @@ body {
   /* Notif */
   #notif-panel { right: 8px; left: 8px; width: auto !important; top: 58px; }
   /* Toast */
-  #toast-container { bottom: 14px; right: 10px; left: 10px; }
+  #toast-container { top: auto; bottom: 14px; right: 10px; left: 10px; }
   .toast { min-width: 0; font-size: 12px; }
   /* Misc */
   .flex-gap { gap: 6px; }
@@ -1556,7 +1556,9 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   position: fixed; top: 24px; right: 24px; z-index: 10000;
   display: flex; flex-direction: column; gap: 10px;
   max-width: 380px;
+  pointer-events: none; /* container must never swallow clicks */
 }
+#toast-container > * { pointer-events: auto; }
 .toast {
   position: relative; overflow: hidden;
   display: flex; align-items: flex-start; gap: 12px;
@@ -3093,4 +3095,377 @@ body.light-mode .theme-toggle:hover { background: linear-gradient(135deg, #6366f
   .col-prev-card { grid-template-columns: 1fr; padding: 10px 4px; }
   .col-prev-seg { padding: 8px 14px; }
   .col-prev-seg + .col-prev-seg { border-left: 0; border-top: 1px solid var(--border); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SALESPERSON PORTAL — MOBILE / TABLET RESPONSIVE
+   Pages covered: Order Booking (#page-booking) and Sale Slips
+   (#page-saleslips) — the two screens a salesperson uses on the shop floor.
+   Everything below sits inside media queries and is scoped to those pages
+   (plus the slip-detail modal), so the desktop layout is untouched.
+   Many of these elements carry inline styles, hence the !important flags.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Tablet & below (≤ 991px) ────────────────────────────────────────── */
+@media (max-width: 991px) {
+  /* Never let the page itself scroll sideways. "clip" (not "hidden") so the
+     page does not become a scroll container — that would break the sticky
+     Save bar below. */
+  #page-booking, #page-saleslips { max-width: 100%; overflow-x: clip; }
+
+  /* Order items → one card per product instead of a 10-column table */
+  #page-booking .bk-items-wrap { overflow: visible !important; }
+  #page-booking .bk-items-table,
+  #page-booking .bk-items-table tbody { display: block; width: 100%; }
+  #page-booking .bk-items-table thead { display: none; }
+  #page-booking .bk-items-table tr {
+    display: grid;
+    position: relative;
+    grid-template-columns: 1.5fr 1fr 1fr 1fr 1.1fr 44px;
+    grid-template-areas:
+      "prod prod rate qty  unit del"
+      "cart pcs  disc tax  total total";
+    gap: 8px 8px;
+    align-items: end;
+    padding: 12px;
+    margin-bottom: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  #page-booking .bk-items-table td.bk-c {
+    display: block;
+    padding: 0 !important;
+    border: 0 !important;
+    min-width: 0;
+    white-space: normal;
+    text-align: left !important;
+  }
+  #page-booking .bk-items-table td.bk-c::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  #page-booking .bk-items-table td.bk-c-prod::before,
+  #page-booking .bk-items-table td.bk-c-del::before { content: none; }
+  #page-booking .bk-c-prod  { grid-area: prod; }
+  #page-booking .bk-c-rate  { grid-area: rate; }
+  #page-booking .bk-c-qty   { grid-area: qty; }
+  #page-booking .bk-c-unit  { grid-area: unit; }
+  #page-booking .bk-c-cart  { grid-area: cart; }
+  #page-booking .bk-c-pcs   { grid-area: pcs; }
+  #page-booking .bk-c-disc  { grid-area: disc; }
+  #page-booking .bk-c-tax   { grid-area: tax; }
+  #page-booking .bk-items-table td.bk-c.bk-c-total { grid-area: total; text-align: right !important; }
+  #page-booking .bk-c-total::before { text-align: right; }
+  #page-booking .bk-c-del   { grid-area: del; align-self: end; }
+  #page-booking .bk-c-total { font-size: 15px !important; }
+  #page-booking .bk-c-pcs   { font-size: 14px !important; }
+  #page-booking .bk-c-tax   { font-size: 12px; }
+
+  /* Fields inside an item card fill their grid cell */
+  #page-booking .bk-items-table .form-input,
+  #page-booking .bk-items-table select {
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    min-height: 42px;
+    padding: 9px 10px !important;
+  }
+  #page-booking .bk-items-table .bk-c-cart > div { gap: 6px !important; }
+  #page-booking .bk-items-table .bk-c-cart .form-input { flex: 1 1 auto; }
+  #page-booking .bk-items-table .bk-c-del .btn {
+    width: 44px; height: 42px; padding: 0 !important;
+    justify-content: center; font-size: 14px;
+  }
+
+}
+
+/* ── Phones & small tablets (≤ 767px) ────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Comfortable, zoom-free typing: iOS zooms into any field under 16px */
+  #page-booking .form-input,
+  #page-booking select,
+  #page-booking textarea,
+  #page-booking .search-bar input,
+  #page-booking .dt-picker-input,
+  #page-saleslips .form-input,
+  #page-saleslips select,
+  #page-saleslips .search-bar input,
+  #page-saleslips .dt-picker-input,
+  #bk-discount {
+    font-size: 16px !important;
+  }
+  #page-booking .form-input,
+  #page-booking select,
+  #page-saleslips .form-input,
+  #page-saleslips select { min-height: 44px; }
+  #page-booking .btn,
+  #page-saleslips .btn { min-height: 40px; }
+  #page-booking .form-group-inline label,
+  #page-saleslips .form-group-inline label { font-size: 11px; }
+
+  /* Page header buttons: two equal buttons side by side */
+  #page-booking .page-header-actions .btn,
+  #page-saleslips .page-header-actions .btn {
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+    font-size: 12px;
+    padding: 9px 10px;
+  }
+
+  /* ── Booking form ─────────────────────────────────── */
+  #page-booking .bk-form-card { overflow: visible; }
+  #page-booking .bk-form-card > .card-header { border-radius: var(--radius) var(--radius) 0 0; }
+  #page-booking .bk-g3 {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 12px !important;
+    margin-bottom: 12px !important;
+  }
+  #page-booking .bk-g3 > :last-child { grid-column: 1 / -1; }
+  #page-booking .bk-g2 {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    margin-bottom: 12px !important;
+  }
+  #page-booking .bk-info-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+  #page-booking .bk-info-grid > :first-child { grid-column: 1 / -1; }
+  #page-booking .bk-info-grid > div { padding: 10px !important; min-width: 0; }
+  #page-booking .bk-info-grid > div > div:last-child {
+    font-size: 15px !important;
+    word-break: break-word;
+  }
+  #page-booking #bk-cust-drop,
+  #bk-prod-float-drop { max-height: 50vh !important; }
+
+  #page-booking .bk-items-head { flex-wrap: wrap; gap: 4px; }
+  #page-booking .bk-items-head > div:last-child { display: none; }
+
+  /* Totals + notes stack; totals box takes the full width */
+  #page-booking .bk-tot-grid { grid-template-columns: 1fr !important; gap: 14px !important; }
+  #page-booking .bk-tot-box { min-width: 0 !important; width: 100%; }
+  #page-booking .bk-disc-row { flex-wrap: wrap; gap: 6px; }
+  #page-booking #bk-discount { width: 92px !important; padding: 6px 8px !important; }
+  #page-booking #bk-notes { min-height: 70px; }
+
+  /* Save / Cancel stay pinned to the bottom of the screen while scrolling,
+     so the order can be saved without scrolling back down the whole bill */
+  #page-booking .bk-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    margin: 16px -14px -14px !important;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -6px 18px rgba(0,0,0,.18);
+    gap: 10px !important;
+  }
+  #page-booking .bk-actions .btn { flex: 1; justify-content: center; min-height: 46px; font-size: 14px; }
+  #page-booking .bk-actions .btn-accent { flex: 2; }
+
+  /* ── Bookings list filters ────────────────────────── */
+  #page-booking .bk-filters { gap: 8px !important; width: 100%; }
+  #page-booking .bk-filters > * {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  #page-booking .bk-clear { width: 100%; justify-content: center; }
+  #page-booking .dt-picker-wrap,
+  #page-saleslips .dt-picker-wrap {
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 12px;
+  }
+  #page-booking .dt-picker-input,
+  #page-saleslips .dt-picker-input { width: 100%; min-height: 42px; padding: 0 !important; }
+
+  /* ── Sale Slips filters ───────────────────────────── */
+  #page-saleslips .ss-filters {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px !important;
+    align-items: end;
+  }
+  #page-saleslips .ss-filters > .form-group-inline { min-width: 0; width: 100%; }
+  #page-saleslips .ss-filters .search-bar { min-width: 0 !important; width: 100%; }
+  #page-saleslips .ss-filters select { width: 100% !important; }
+  #page-saleslips .ss-filters .ss-clear { grid-column: 1 / -1; justify-content: center; }
+  #page-saleslips .ss-actions { gap: 8px !important; }
+  #page-saleslips .ss-actions .btn { flex: 1 1 calc(50% - 4px); justify-content: center; }
+
+  /* ── List tables turned into tap-friendly cards ──── */
+  #page-booking .table-wrap,
+  #page-saleslips .table-wrap { overflow-x: visible; }
+  .m-cards, .m-cards tbody { display: block; width: 100%; }
+  /* the generic ".table-wrap table { min-width: 480px }" rule would keep the
+     cards 480px wide and push them off a phone screen */
+  .table-wrap table.m-cards { min-width: 0 !important; width: 100% !important; }
+  .m-cards thead { display: none; }
+  .m-cards tr {
+    display: block;
+    margin: 0 0 12px;
+    padding: 4px 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .m-cards td {
+    display: block;
+    position: relative;
+    min-height: 34px;
+    padding: 8px 12px 8px 46% !important;
+    text-align: right !important;
+    white-space: normal !important;
+    border: 0 !important;
+    border-bottom: 1px dashed var(--border) !important;
+    word-break: break-word;
+  }
+  .m-cards td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 12px;
+    top: 8px;
+    width: calc(46% - 20px);
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .m-cards td[data-label="Invoice"] {
+    font-size: 14px !important;
+    font-weight: 800;
+  }
+  .m-cards td.m-actions {
+    padding: 10px 12px !important;
+    text-align: left !important;
+    border-bottom: 0 !important;
+  }
+  .m-cards td.m-actions::before { content: none; }
+  .m-cards td.m-actions .flex-gap,
+  .m-cards td.m-actions > div { flex-wrap: wrap !important; gap: 8px !important; }
+  .m-cards td.m-actions .btn {
+    min-width: 44px; min-height: 40px;
+    justify-content: center;
+    font-size: 14px; padding: 8px 12px;
+  }
+  /* "No bookings found" / "No sale slips found" placeholder row */
+  .m-cards td:not([data-label]):not(.m-actions) {
+    padding: 28px 12px !important;
+    text-align: center !important;
+    border-bottom: 0 !important;
+  }
+
+  /* ── Slip details pop-up ──────────────────────────── */
+  #order-detail-modal .modal-body { overflow-x: hidden; }
+  #order-detail-modal .slip-detail-actions .btn { flex: 1 1 calc(50% - 4px); justify-content: center; }
+}
+
+/* ── Small phones (≤ 480px) ──────────────────────────────────────────── */
+@media (max-width: 480px) {
+  /* Item card: 3 columns, four tidy rows */
+  #page-booking .bk-items-table tr {
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-areas:
+      "prod prod prod"
+      "rate qty  unit"
+      "cart pcs  disc"
+      "tax  total total";
+    padding: 12px 12px 10px;
+  }
+  /* Remove button floats in the card's top-right corner */
+  #page-booking .bk-c-del {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    grid-area: auto;
+  }
+  #page-booking .bk-items-table td.bk-c.bk-c-prod { padding-right: 52px !important; }
+  #page-booking .bk-c-total { font-size: 16px !important; }
+
+  #page-saleslips .ss-filters { grid-template-columns: 1fr; }
+  #page-saleslips .ss-actions .btn,
+  #page-booking .page-header-actions .btn,
+  #page-saleslips .page-header-actions .btn { flex: 1 1 100%; }
+  #order-detail-modal .slip-detail-actions .btn { flex: 1 1 100%; }
+}
+
+/* ── Very small phones (≤ 360px) ─────────────────────────────────────── */
+@media (max-width: 360px) {
+  #page-booking .bk-g3 { grid-template-columns: 1fr !important; }
+  #page-booking .bk-info-grid { grid-template-columns: 1fr !important; }
+  #page-booking .bk-items-table tr { gap: 8px 6px; padding: 10px 9px 8px; }
+  .m-cards td { padding-left: 44% !important; }
+  .m-cards td::before { width: calc(44% - 20px); }
+}
+
+/* ── Phone held sideways (short screens) ─────────────────────────────── */
+@media (max-width: 991px) and (max-height: 480px) and (orientation: landscape) {
+  #page-booking .bk-actions { position: static; box-shadow: none; margin-bottom: 0 !important; }
+}
+
+/* Mobile browsers: 100vh is taller than the visible screen (the address bar
+   and toolbar eat into it), which pushed the bottom of every page — including
+   the Save Booking bar — out of reach. dvh tracks the real visible height. */
+@media (max-width: 991px) {
+  .main { height: 100vh; height: 100dvh; }
+  .sidebar { height: 100vh; height: 100dvh; }
+}
+
+
+/* Shared top bar + page padding while the salesperson pages are open.
+   On phones the generic "hide the search box" and "smaller padding" rules
+   are overridden by later base rules, which squeezed the page title down to
+   0px wide and wasted 24px each side. Scoped with :has() so other pages are
+   not affected. */
+@media (max-width: 991px) {
+  .main:has(:is(#page-booking, #page-saleslips).active) .topbar-search { display: none; }
+  .main:has(:is(#page-booking, #page-saleslips).active) .topbar-title {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .main:has(:is(#page-booking, #page-saleslips).active) .topbar-actions { margin-left: auto; }
+}
+@media (max-width: 767px) {
+  .content:has(:is(#page-booking, #page-saleslips).active) { padding: 12px; }
+}
+@media (max-width: 480px) {
+  .content:has(:is(#page-booking, #page-saleslips).active) { padding: 10px; }
+  .main:has(:is(#page-booking, #page-saleslips).active) .topbar-title { max-width: none; font-size: 14px; }
+}
+
+/* ── Salesperson pages: final phone fixes ────────────────────────────── */
+@media (max-width: 767px) {
+  /* custom dropdown wrapper copies the inline 150px width — make it full width */
+  #page-saleslips .ss-filters .cs-wrap,
+  #page-booking .bk-filters .cs-wrap { width: 100% !important; min-width: 0 !important; }
+  #page-saleslips .cs-trigger,
+  #page-booking .cs-trigger { min-height: 44px; font-size: 16px !important; width: 100%; }
+  /* old rule forced 11px inside item rows -> iOS zoom; beat it */
+  #page-booking #bk-items-tbody .cs-trigger { font-size: 16px !important; padding: 9px 10px !important; min-height: 42px; }
+  /* older generic rule made these rows a column; we want 2 per row */
+  #page-saleslips div.ss-actions[style] { flex-direction: row !important; align-items: stretch !important; }
+}
+@media (max-width: 480px) {
+  #page-saleslips div.ss-actions[style] { flex-direction: column !important; }
+}
+
+@media (max-width: 767px) {
+  /* slip detail: let product names wrap so Amount fits without side-scrolling */
+  #order-detail-body table td, #order-detail-body table th { white-space: normal !important; padding: 8px 6px !important; }
 }

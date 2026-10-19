@@ -8585,7 +8585,13 @@ let _osBookingsCache = [];
   // The panel is now `position:fixed` (see openPanel below) so it doesn't
   // travel with any scrollable container — close it on scroll/resize
   // rather than leaving it floating over the wrong spot.
-  window.addEventListener('scroll', () => closeActivePanel(), true);
+  // BUT scrolling the hour/minute lists INSIDE the panel is a scroll event too
+  // (captured here) — it used to close the panel the moment you scrolled it,
+  // or when a pick re-centred the list.
+  window.addEventListener('scroll', (e) => {
+    if (activePanel && e.target && e.target.nodeType === 1 && activePanel.contains(e.target)) return;
+    closeActivePanel();
+  }, true);
   window.addEventListener('resize', () => closeActivePanel());
 
   const pad = n => String(n).padStart(2,'0');
@@ -8703,7 +8709,17 @@ let _osBookingsCache = [];
     const panel = document.createElement('div');
     panel.className = 'dt-picker-panel dt-time';
 
+    function centerSelected(){
+      // Centre each list on its selected row by moving ONLY that list's own
+      // scrollTop (scrollIntoView would also scroll the page behind it).
+      panel.querySelectorAll('.dt-time-col').forEach(col => {
+        const el = col.querySelector('.dt-time-opt.selected');
+        if (el) col.scrollTop = el.offsetTop - (col.clientHeight - el.offsetHeight) / 2;
+      });
+    }
     function render(){
+      // Keep each list where the user had scrolled it across re-renders.
+      const prevTops = Array.from(panel.querySelectorAll('.dt-time-col')).map(c => c.scrollTop);
       const hours = Array.from({length:12}, (_,i)=>i+1);
       const mins  = Array.from({length:60}, (_,i)=>i);
       panel.innerHTML = `
@@ -8725,7 +8741,8 @@ let _osBookingsCache = [];
       panel.querySelectorAll('[data-ap]').forEach(el => { el.onclick = (e)=>{ e.stopPropagation(); ampm=el.dataset.ap; if(h24===null) h24=0; commit(); }; });
       panel.querySelector('.dt-time-now-btn').onclick = (e)=>{ e.stopPropagation(); const t=new Date(); onSelect(`${pad(t.getHours())}:${pad(t.getMinutes())}`); closeActivePanel(); };
       panel.querySelector('.dt-time-clear-btn').onclick = (e)=>{ e.stopPropagation(); onSelect(''); closeActivePanel(); };
-      panel.querySelectorAll('.dt-time-opt.selected').forEach(el => el.scrollIntoView({block:'center'}));
+      if (prevTops.length) panel.querySelectorAll('.dt-time-col').forEach((c, i) => { c.scrollTop = prevTops[i] || 0; });
+      else if (panel.isConnected) centerSelected();
     }
     function commit(){
       if (h12 === null) h12 = 12;
@@ -8735,6 +8752,7 @@ let _osBookingsCache = [];
     }
     render();
     openPanel(panel, wrap, displayEl);
+    centerSelected();
   }
 
   window.wireModernDateTimeInputs = function(){

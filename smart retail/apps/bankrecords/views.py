@@ -13,7 +13,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from apps.core.exceptions import ServiceException
-from apps.core.permissions import IsAdminOrAbove, IsManagerOrAbove
+from apps.core.permissions import IsManagerOrAbove
 from . import services
 from .models import (
     ActivityType, Bank, BankAccount, BankActivity, BankActivityChange, BankAttachment,
@@ -67,14 +67,13 @@ def _company_header_flowables(styles):
 
 
 class _Base(viewsets.ModelViewSet):
-    """Shared rules: managers (and above) read + add; only admins edit.
+    """Shared rules: managers (and above) read, add and edit.
     Nothing here is ever deleted — use status / cancel / reverse instead."""
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_backends = []
 
     def get_permissions(self):
-        admin_actions = {"partial_update", "update", "status", "destroy_attachment"}
-        return [(IsAdminOrAbove if self.action in admin_actions else IsManagerOrAbove)()]
+        return [IsManagerOrAbove()]
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
@@ -142,13 +141,6 @@ class PaymentContactViewSet(_Base):
 
 
 class BankActivityViewSet(_Base):
-    # Managers may also edit a bank record and change its status
-    # (complete / cancel / reverse); everything else stays as in _Base.
-    def get_permissions(self):
-        if self.action in {"partial_update", "update", "status"}:
-            return [IsManagerOrAbove()]
-        return super().get_permissions()
-
     queryset = (BankActivity.objects
                 .select_related("from_account__bank", "to_account__bank", "recipient", "created_by")
                 .prefetch_related("attachments"))
@@ -282,7 +274,7 @@ class AttachmentViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     filter_backends = []
 
     def get_permissions(self):
-        return [(IsAdminOrAbove if self.action == "destroy_attachment" else IsManagerOrAbove)()]
+        return [IsManagerOrAbove()]
 
     @action(detail=True, methods=["get"], url_path="file")
     def file(self, request, pk=None):

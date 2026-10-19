@@ -884,7 +884,7 @@
             <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
               <div class="form-group-inline" style="margin-bottom:0">
                 <label>Date</label>
-                <input type="date" class="form-input" id="pb-date" onchange="renderPosBills()" style="padding:9px 12px;width:160px">
+                <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="pb-date" onchange="renderPosBills()"><input type="text" id="pb-date-display" class="dt-picker-input" placeholder="Select date" readonly></div>
               </div>
               <div class="form-group-inline" style="margin-bottom:0">
                 <label>Status</label>
@@ -954,6 +954,20 @@
                 <div class="dt-picker-wrap">
                   <input type="hidden" id="ss-date" oninput="renderSaleSlips()">
                   <input type="text" id="ss-date-display" class="dt-picker-input" placeholder="Select date" readonly>
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Time From</label>
+                <div class="dt-picker-wrap dt-boxed">
+                  <input type="hidden" id="ss-time-from" onchange="renderSaleSlips()">
+                  <input type="text" id="ss-time-from-display" class="dt-picker-input dt-time-input" placeholder="Any time" readonly>
+                </div>
+              </div>
+              <div class="form-group-inline" style="margin-bottom:0">
+                <label>Time To</label>
+                <div class="dt-picker-wrap dt-boxed">
+                  <input type="hidden" id="ss-time-to" onchange="renderSaleSlips()">
+                  <input type="text" id="ss-time-to-display" class="dt-picker-input dt-time-input" placeholder="Any time" readonly>
                 </div>
               </div>
               <div class="form-group-inline" style="margin-bottom:0">
@@ -1366,11 +1380,11 @@
               </div>
               <div class="form-group-inline" style="margin-bottom:0">
                 <label>From Date</label>
-                <input class="form-input" type="date" id="pr-date-from" style="padding:9px 12px" onchange="renderPurchaseReturns()">
+                <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="pr-date-from" onchange="renderPurchaseReturns()"><input type="text" id="pr-date-from-display" class="dt-picker-input" placeholder="From date" readonly></div>
               </div>
               <div class="form-group-inline" style="margin-bottom:0">
                 <label>To Date</label>
-                <input class="form-input" type="date" id="pr-date-to" style="padding:9px 12px" onchange="renderPurchaseReturns()">
+                <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="pr-date-to" onchange="renderPurchaseReturns()"><input type="text" id="pr-date-to-display" class="dt-picker-input" placeholder="To date" readonly></div>
               </div>
               <button class="btn btn-ghost btn-sm" onclick="clearPrFilters()"><i class="fa fa-times"></i> Clear</button>
             </div>
@@ -1470,8 +1484,8 @@
           </div>
         </div>
         <div class="filter-bar mb-16">
-          <input type="date" class="form-input" id="rpt-from" style="padding:9px 12px;width:160px">
-          <input type="date" class="form-input" id="rpt-to" style="padding:9px 12px;width:160px">
+          <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="rpt-from"><input type="text" id="rpt-from-display" class="dt-picker-input" placeholder="From date" readonly></div>
+          <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="rpt-to"><input type="text" id="rpt-to-display" class="dt-picker-input" placeholder="To date" readonly></div>
           <select class="form-input" id="rpt-type" style="padding:9px 12px;width:200px" onchange="generateReport()">
             <option value="sales">Sales Report</option>
             <option value="inventory">Inventory Report</option>
@@ -1784,8 +1798,8 @@
           <div class="card-header">
             <div class="card-title" id="ldg-table-title">Transaction History</div>
             <div style="display:flex;gap:8px">
-              <input type="date" class="form-input" id="ldg-from" style="padding:8px 12px;width:150px" oninput="loadLedgerAccount()">
-              <input type="date" class="form-input" id="ldg-to" style="padding:8px 12px;width:150px" oninput="loadLedgerAccount()">
+              <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="ldg-from" onchange="loadLedgerAccount()"><input type="text" id="ldg-from-display" class="dt-picker-input" placeholder="From date" readonly></div>
+              <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="ldg-to" onchange="loadLedgerAccount()"><input type="text" id="ldg-to-display" class="dt-picker-input" placeholder="To date" readonly></div>
             </div>
           </div>
           <div class="table-wrap">
@@ -1885,7 +1899,10 @@
             <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
               <div class="form-group-inline" style="margin-bottom:0">
                 <label>Report Date</label>
-                <input class="form-input" type="date" id="sr-date" style="padding:9px 12px" oninput="renderStockReport()">
+                <div class="dt-picker-wrap dt-boxed">
+                  <input type="hidden" id="sr-date" onchange="renderStockReport()">
+                  <input type="text" id="sr-date-display" class="dt-picker-input" placeholder="Report date" readonly>
+                </div>
               </div>
               <div id="sr-all-filters" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
                 <div class="form-group-inline" style="margin-bottom:0">
@@ -3113,11 +3130,11 @@
       <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
         <div class="form-group-inline" style="margin-bottom:0;flex:1">
           <label>From Date</label>
-          <input class="form-input" type="date" id="ws-from" style="padding:9px 12px">
+          <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="ws-from"><input type="text" id="ws-from-display" class="dt-picker-input" placeholder="From date" readonly></div>
         </div>
         <div class="form-group-inline" style="margin-bottom:0;flex:1">
           <label>To Date</label>
-          <input class="form-input" type="date" id="ws-to" style="padding:9px 12px">
+          <div class="dt-picker-wrap dt-boxed"><input type="hidden" id="ws-to"><input type="text" id="ws-to-display" class="dt-picker-input" placeholder="To date" readonly></div>
         </div>
         <div style="display:flex;align-items:flex-end;gap:8px">
           <button class="btn btn-accent btn-sm" onclick="generateWarehouseSummary()"><i class="fa fa-warehouse"></i> Generate</button>

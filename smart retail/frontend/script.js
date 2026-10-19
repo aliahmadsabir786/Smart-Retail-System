@@ -6222,6 +6222,8 @@ async function printAllSlipsA4(mode) {
     _slipsLoaded = true;
   } catch (_) { /* offline: print what is already loaded */ }
   const dateFilter     = document.getElementById('ss-date')?.value||'';
+  const timeFromF      = document.getElementById('ss-time-from')?.value||'';
+  const timeToF        = document.getElementById('ss-time-to')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
   const invoiceFilter  = (document.getElementById('ss-invoice')?.value||'').toLowerCase().trim();
@@ -6235,7 +6237,7 @@ async function printAllSlipsA4(mode) {
   const slips = _slipsCache.filter(b =>
     !_isPosTerminalSale(b) &&   // POS Terminal bills live under POS Terminal → POS Bills
     (statusFilter ? b.status === statusFilter : (b.status!=='returned' && b.status!=='cancelled')) &&
-    (!dateFilter     || (b.created_at||'').slice(0,10) === dateFilter) &&
+    _ssMatchDateTime(b, dateFilter, timeFromF, timeToF) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
     (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
                         ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
@@ -7585,6 +7587,7 @@ async function renderStockReport() {
   const today = new Date().toISOString().split('T')[0];
   const srDate = document.getElementById('sr-date');
   if (srDate && !srDate.value) srDate.value = today;
+  if (typeof syncDtDisplay === 'function') syncDtDisplay('sr-date');
   const reportDate = srDate?.value || today;
   const catFilter   = document.getElementById('sr-cat')?.value || '';
   const stockFilter = document.getElementById('sr-stockfilter')?.value || '';
@@ -8737,11 +8740,23 @@ let _osBookingsCache = [];
   window.wireModernDateTimeInputs = function(){
     [['os-date-from','date'], ['os-date-to','date'], ['os-time-from','time'], ['os-time-to','time'],
      ['col-date-from','date'], ['col-date-to','date'], ['col-time-from','time'], ['col-time-to','time'],
-     ['bk-date-filter','date'], ['ss-date','date'], ['sr-date-from','date'], ['sr-date-to','date']].forEach(([id,type]) => {
+     ['bk-date-filter','date'], ['ss-date','date'], ['ss-time-from','time'], ['ss-time-to','time'], ['sr-date','date'], ['sr-date-from','date'], ['sr-date-to','date'],
+     ['rpt-from','date'], ['rpt-to','date'], ['ldg-from','date'], ['ldg-to','date'], ['ws-from','date'], ['ws-to','date'],
+     ['pr-date-from','date'], ['pr-date-to','date'], ['pb-date','date']].forEach(([id,type]) => {
       const hidden  = document.getElementById(id);
       const display = document.getElementById(id+'-display');
       if (!hidden || !display || display.dataset.dtWired) return;
       display.dataset.dtWired = '1';
+      // Any code that sets hidden.value = '...' (defaults, Clear buttons) now
+      // refreshes the visible text automatically.
+      try {
+        const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+        Object.defineProperty(hidden, 'value', {
+          configurable: true,
+          get() { return desc.get.call(this); },
+          set(v) { desc.set.call(this, v); syncDtDisplay(id); },
+        });
+      } catch (e) {}
       syncDtDisplay(id);
       display.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -9694,9 +9709,25 @@ function saveSssSettings() {
   toast('Summary Sheet settings saved!', 'success');
 }
 
+// Date + time-of-day match for a slip, in the user's LOCAL time zone
+// (created_at is UTC; slicing it gave the wrong day/time for Pakistan).
+function _ssMatchDateTime(b, date, tFrom, tTo) {
+  if (!date && !tFrom && !tTo) return true;
+  const d = new Date(b.created_at);
+  if (isNaN(d)) return false;
+  const p2 = n => String(n).padStart(2, '0');
+  if (date && `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}` !== date) return false;
+  const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  if (tFrom && hm < tFrom) return false;
+  if (tTo && hm > tTo) return false;
+  return true;
+}
+
 // ── SALES SLIP SEARCH with username/invoice/area filter ──
 window.renderSaleSlips = async function(forceRefresh) {
   const dateFilter     = document.getElementById('ss-date')?.value||'';
+  const timeFromF      = document.getElementById('ss-time-from')?.value||'';
+  const timeToF        = document.getElementById('ss-time-to')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
   const nameFilter     = (document.getElementById('ss-name')?.value||'').toLowerCase().trim();
   const invoiceFilter  = (document.getElementById('ss-invoice')?.value||'').toLowerCase().trim();
@@ -9716,7 +9747,7 @@ window.renderSaleSlips = async function(forceRefresh) {
   const slips = _slipsCache.filter(b =>
     !_isPosTerminalSale(b) &&   // POS Terminal bills live under POS Terminal → POS Bills
     (statusFilter ? b.status === statusFilter : b.status !== 'cancelled') &&
-    (!dateFilter     || (b.created_at||'').slice(0,10) === dateFilter) &&
+    _ssMatchDateTime(b, dateFilter, timeFromF, timeToF) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
     (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
                         ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
@@ -11459,11 +11490,11 @@ document.addEventListener('DOMContentLoaded', function() {
 // were removed here — the real implementations above (using _slipsCache /
 // SalesAPI) are now the only definitions, so they're no longer clobbered.
 window.clearSaleSlipsFilters = function() {
-  ['ss-date','ss-status','ss-name','ss-area','ss-invoice','ss-username'].forEach(id => {
+  ['ss-date','ss-time-from','ss-time-to','ss-status','ss-name','ss-area','ss-invoice','ss-username'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  syncDtDisplay('ss-date');
+  syncDtDisplay('ss-date'); syncDtDisplay('ss-time-from'); syncDtDisplay('ss-time-to');
   renderSaleSlips();
 };
 

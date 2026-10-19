@@ -2393,6 +2393,10 @@ body.sidebar-open { overflow: hidden; }
   transition: background .15s;
 }
 .dt-time-input { width: 78px; }
+/* Standalone picker (not inside a filter strip): looks like a normal form input */
+.dt-picker-wrap.dt-boxed { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 0 4px; align-items: center; }
+.dt-picker-wrap.dt-boxed .dt-picker-input { width: 120px; font-size: 13px; padding: 9px 8px; }
+.dt-picker-wrap.dt-boxed:hover { border-color: var(--accent); }
 .dt-picker-input::placeholder { color: var(--text-muted); }
 .dt-picker-input:hover, .dt-picker-input.dt-active { background: var(--accent-glow); color: var(--accent); }
 

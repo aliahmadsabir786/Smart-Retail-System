@@ -49,8 +49,8 @@
   const t12 = (t) => { if (!t) return ''; let [h, m] = t.split(':'); h = +h; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return `${pad(h)}:${m} ${ap}`; };
   const money = (n) => 'Rs.' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const role = () => ((typeof currentUser !== 'undefined' && currentUser && currentUser.role) || (TokenStore.getUser() || {}).role || '');
-  const isAdmin = () => ['super_admin', 'admin'].includes(role());
-  const isManager = () => ['super_admin', 'admin', 'manager'].includes(role());
+  const isAdmin = () => ['super_admin', 'admin', 'manager'].includes(role());  // managers have the same edit access as admins here
+  const isManager = isAdmin;
   const results = (d) => (d && d.results) || d || [];
   const qs = (o) => Object.entries(o).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   const fail = (e) => toast((e && e.message) || 'Something went wrong', 'error');

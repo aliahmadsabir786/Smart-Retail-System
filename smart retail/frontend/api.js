@@ -248,6 +248,9 @@ const CustomersAPI = {
   // General cash collection against the customer's running balance — not
   // tied to a specific invoice (e.g. daily credit-collection rounds).
   collectPayment(id, data) { return apiRequest(`/customers/${id}/collect-payment/`, { method: 'POST', body: data }); },
+  // Clears ONLY the advance/credit on the ledger (one dated row) — invoices & payments stay.
+  clearAdvance(id, data) { return apiRequest(`/customers/${id}/clear-advance/`, { method: 'POST', body: data }); },
+  undoClearAdvance(id, cid) { return apiRequest(`/customers/${id}/advance-clearances/${cid}/`, { method: 'DELETE' }); },
   bulkCreate(items) { return apiRequest('/customers/bulk-create/', { method: 'POST', body: { items } }); },
 };
 

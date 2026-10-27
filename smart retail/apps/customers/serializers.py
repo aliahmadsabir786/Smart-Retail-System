@@ -31,3 +31,11 @@ class CollectPaymentSerializer(serializers.Serializer):
     method = serializers.ChoiceField(choices=Payment.Method.choices, default=Payment.Method.CASH)
     reference = serializers.CharField(required=False, allow_blank=True, default="")
     date = serializers.DateTimeField(required=False, source="occurred_on")
+
+
+class ClearAdvanceSerializer(serializers.Serializer):
+    """POST /customers/{id}/clear-advance/ — amount omitted = clear the whole advance."""
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), required=False)
+    method = serializers.ChoiceField(choices=Payment.Method.choices, default=Payment.Method.CASH)
+    note = serializers.CharField(required=False, allow_blank=True, default="", max_length=200)
+    date = serializers.DateTimeField(required=False, source="occurred_on")

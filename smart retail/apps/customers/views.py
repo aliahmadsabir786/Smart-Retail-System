@@ -7,7 +7,7 @@ from django.db import transaction as db_transaction
 from apps.core.permissions import IsManagerOrAbove
 from . import services
 from .models import Customer, CustomerGroup
-from .serializers import CustomerSerializer, CustomerGroupSerializer, CollectPaymentSerializer
+from .serializers import CustomerSerializer, CustomerGroupSerializer, CollectPaymentSerializer, ClearAdvanceSerializer
 
 
 class CustomerGroupViewSet(viewsets.ModelViewSet):
@@ -120,3 +120,42 @@ class CustomerViewSet(viewsets.ModelViewSet):
             payment.refresh_from_db(fields=["created_at"])
 
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="clear-advance")
+    def clear_advance(self, request, pk=None):
+        """POST /customers/{id}/clear-advance/ — clears the customer's
+        advance / credit (all of it, or `amount`) as its own ledger row.
+        Invoices and payments stay untouched — NOT a ledger wipe."""
+        from apps.settings.models import CompanySettings
+        company = CompanySettings.load()
+        if company.general_auth_enabled:
+            supplied = request.data.get("auth_password") or ""
+            if not supplied:
+                return Response({"detail": "General Auth password is required.", "code": "general_auth_required"},
+                                status=status.HTTP_403_FORBIDDEN)
+            if not company.check_general_auth_password(supplied):
+                return Response({"detail": "Incorrect General Auth password.", "code": "general_auth_invalid"},
+                                status=status.HTTP_403_FORBIDDEN)
+
+        customer = self.get_object()
+        serializer = ClearAdvanceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        v = serializer.validated_data
+        try:
+            row = services.clear_customer_advance(
+                customer, amount=v.get("amount"), method=v.get("method", "cash"),
+                note=v.get("note", ""), user=request.user, occurred_on=v.get("occurred_on"))
+        except ValueError as exc:
+            return Response({"detail": str(exc), "code": "advance_clear_invalid"}, status=status.HTTP_400_BAD_REQUEST)
+        ledger = services.get_customer_ledger(customer)
+        return Response({"success": True, "id": row.id, "amount": str(row.amount),
+                          "remaining": ledger["remaining"]}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["delete"], url_path=r"advance-clearances/(?P<clearance_id>\d+)")
+    def undo_clear_advance(self, request, pk=None, clearance_id=None):
+        """DELETE /customers/{id}/advance-clearances/{cid}/ — undo a mistaken clearance."""
+        customer = self.get_object()
+        deleted, _ = customer.advance_clearances.filter(pk=clearance_id).delete()
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)

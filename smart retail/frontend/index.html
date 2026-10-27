@@ -1756,6 +1756,7 @@
               </div>
               <div style="display:flex;gap:8px">
                 <button class="btn btn-accent btn-sm" onclick="openLedgerEntryModal()"><i class="fa fa-hand-holding-dollar"></i> Collect Payment</button>
+                <button class="btn btn-ghost btn-sm" id="ldg-clear-advance-btn" style="display:none;color:var(--yellow)" onclick="openClearAdvanceModal()"><i class="fa fa-eraser"></i> Clear Advance</button>
                 <button class="btn btn-ghost btn-sm" onclick="printLedgerA4()"><i class="fa fa-print"></i> Print A4</button>
               </div>
             </div>
@@ -3291,6 +3292,42 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('ledger-entry-modal')">Cancel</button>
       <button class="btn btn-accent" onclick="saveLedgerEntry()"><i class="fa fa-save"></i> Collect Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Clear Advance Modal — clears only the advance/credit, never the whole ledger -->
+<div class="modal-overlay" id="clear-advance-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🧹 Clear Advance / Credit</div>
+      <button class="modal-close" onclick="closeModal('clear-advance-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--accent-glow);border:1px solid rgba(234,108,77,.2);border-radius:8px;padding:10px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+        Clears only the advance balance of <strong id="ca-cust-name" style="color:var(--text-primary)">the customer</strong> (money returned / adjusted). Invoices and payments in the ledger are <strong>not</strong> touched — it is added as its own dated row.
+      </div>
+      <div id="ca-advance-hint" style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:10px"></div>
+      <div class="form-row">
+        <div class="form-group-inline"><label>Date *</label><input class="form-input" type="date" id="ca-date" style="padding:9px 12px"></div>
+        <div class="form-group-inline"><label>Amount to Clear *</label><input class="form-input" type="number" id="ca-amount" step="0.01" min="0.01" style="padding:9px 12px"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group-inline">
+          <label>Method</label>
+          <select class="form-input" id="ca-method" style="padding:9px 12px">
+            <option value="cash">Cash (returned)</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="mobile_wallet">Mobile Wallet</option>
+            <option value="other">Other / Adjustment</option>
+          </select>
+        </div>
+        <div class="form-group-inline"><label>Note</label><input class="form-input" id="ca-note" placeholder="e.g. refunded in cash"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('clear-advance-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveClearAdvance()"><i class="fa fa-eraser"></i> Clear Advance</button>
     </div>
   </div>
 </div>

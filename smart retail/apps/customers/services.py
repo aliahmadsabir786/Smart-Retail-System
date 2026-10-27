@@ -53,7 +53,11 @@ def get_customer_ledger(customer):
         .select_related("sale")
         .order_by("created_at", "id")
     )
-    running_paid = sum((p.amount for p in payments), Decimal("0"))
+    # Advance cleared (refunded / written off) goes the opposite way: it
+    # shrinks "paid" so the leftover advance drops back toward zero.
+    clearances = list(customer.advance_clearances.order_by("created_at", "id"))
+    cleared_total = sum((c.amount for c in clearances), Decimal("0"))
+    running_paid = sum((p.amount for p in payments), Decimal("0")) - cleared_total
 
     # Build every invoice/return/payment as a (date, tiebreak, delta, row)
     # transaction, sort them chronologically, then walk that single list
@@ -88,6 +92,14 @@ def get_customer_ledger(customer):
         txns.append((p.created_at, p.id, 2, -p.amount, {
             "type": "payment", "id": p.id, "reference": reference,
             "description": description, "method": p.method,
+        }))
+
+    for c in clearances:
+        txns.append((c.created_at, c.id, 3, c.amount, {
+            "type": "advance_cleared", "id": c.id,
+            "reference": c.note or "Advance Cleared",
+            "description": f"Advance cleared ({c.method})" + (f" — {c.note}" if c.note else ""),
+            "method": c.method,
         }))
 
     txns.sort(key=lambda t: (t[0], t[2], t[1]))
@@ -151,9 +163,43 @@ def get_all_customer_balances():
         for r in Payment.objects.filter(sale__isnull=True, customer__isnull=False).values("customer").annotate(t=Sum("amount"))
     }
 
+    from apps.customers.models import AdvanceClearance
+    cleared = {
+        r["customer"]: r["t"]
+        for r in AdvanceClearance.objects.values("customer").annotate(t=Sum("amount"))
+    }
+
     out = {}
-    for cid in set(owed) | set(invoice_paid) | set(direct_paid):
+    for cid in set(owed) | set(invoice_paid) | set(direct_paid) | set(cleared):
         o = owed.get(cid) or Decimal("0")
-        paid = (invoice_paid.get(cid) or Decimal("0")) + (direct_paid.get(cid) or Decimal("0"))
+        paid = (invoice_paid.get(cid) or Decimal("0")) + (direct_paid.get(cid) or Decimal("0")) - (cleared.get(cid) or Decimal("0"))
         out[cid] = {"amount_owed": str(o), "total_paid": str(paid), "remaining": str(max(Decimal("0"), o - paid))}
     return out
+
+
+def clear_customer_advance(customer, amount=None, method="cash", note="", user=None, occurred_on=None):
+    """
+    Clears (all or part of) the advance / credit on a customer's ledger by
+    recording an AdvanceClearance row. Invoices and payments are untouched —
+    only the advance is brought down. Raises ValueError when there is no
+    advance, or when more than the advance is asked for.
+    """
+    from django.db import transaction
+    from apps.customers.models import AdvanceClearance
+
+    with transaction.atomic():
+        remaining = Decimal(get_customer_ledger(customer)["remaining"])
+        advance = -remaining if remaining < 0 else Decimal("0")
+        if advance <= 0:
+            raise ValueError("This customer has no advance balance to clear.")
+        amount = advance if amount is None else Decimal(amount)
+        if amount <= 0:
+            raise ValueError("Amount must be greater than 0.")
+        if amount > advance:
+            raise ValueError(f"Only Rs.{advance:.2f} advance is available — can't clear more than that.")
+        row = AdvanceClearance.objects.create(
+            customer=customer, amount=amount, method=method or "cash", note=note or "", cleared_by=user)
+        if occurred_on:
+            AdvanceClearance.objects.filter(pk=row.pk).update(created_at=occurred_on)
+            row.refresh_from_db()
+        return row

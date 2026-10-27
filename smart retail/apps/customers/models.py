@@ -57,3 +57,25 @@ class Customer(BaseModel):
 
     def can_purchase_on_credit(self, amount):
         return self.available_credit >= amount
+
+
+class AdvanceClearance(BaseModel):
+    """
+    Money handed back to a customer (or written off) to clear an advance /
+    credit sitting on their ledger — WITHOUT touching their invoices or
+    payments. It shows up in the ledger as its own dated row and brings the
+    advance back toward zero; the rest of the ledger stays exactly as is.
+    """
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="advance_clearances")
+    amount = models.DecimalField(max_digits=12, decimal_places=2,
+                                 validators=[MinValueValidator(Decimal("0.01"))])
+    method = models.CharField(max_length=20, default="cash")
+    note = models.CharField(max_length=200, blank=True)
+    cleared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        db_table = "customer_advance_clearance"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.customer} — advance cleared {self.amount}"

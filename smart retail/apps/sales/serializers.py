@@ -91,6 +91,9 @@ class SaleSerializer(serializers.ModelSerializer):
                     .values_list("id", "total_amount", "paid_amount"))
             credit = (Payment.objects.filter(customer_id=sale.customer_id, sale__isnull=True)
                       .aggregate(t=Sum("amount"))["t"] or Decimal("0"))
+            from apps.customers.models import AdvanceClearance
+            credit -= (AdvanceClearance.objects.filter(customer_id=sale.customer_id)
+                       .aggregate(t=Sum("amount"))["t"] or Decimal("0"))
             table, owed_before = {}, Decimal("0")
             for sid, total, paid in rows:
                 table[sid] = owed_before - credit          # credit still unused before this bill

@@ -6739,10 +6739,12 @@ async function loadLedgerAccount() {
     document.getElementById('ldg-table-card').style.display='none';
     document.getElementById('ldg-daily-card').style.display='none';
     document.getElementById('ldg-all-accounts').style.display='';
+    _ldgAdvance = 0; const cab = document.getElementById('ldg-clear-advance-btn'); if (cab) cab.style.display = 'none';
     return;
   }
   const entity = _ledgerAccountCache.find(x=>x.id===id);
   if (!entity) return;
+  if (type !== 'customer') { _ldgAdvance = 0; const b = document.getElementById('ldg-clear-advance-btn'); if (b) b.style.display = 'none'; }
 
   const ledger = type==='customer' ? await CustomersAPI.ledger(id) : await SuppliersAPI.ledger(id);
   let entries = ledger.entries;
@@ -6774,16 +6776,21 @@ async function loadLedgerAccount() {
     document.getElementById('ldg-total-credit').textContent = 'Rs.'+totalPaid.toFixed(2);
     document.getElementById('ldg-net-balance').textContent  = 'Rs.'+Math.abs(remaining).toFixed(2);
     document.getElementById('ldg-net-balance').className = 'stat-value '+(remaining>0?'text-red':'text-green');
+    _ldgAdvance = remaining < 0 ? Math.round(-remaining*100)/100 : 0;
+    const caBtn = document.getElementById('ldg-clear-advance-btn');
+    if (caBtn) caBtn.style.display = _ldgAdvance > 0 ? '' : 'none';
 
     document.getElementById('ldg-thead-row').innerHTML =
       '<th>Date</th><th>Description</th><th>Reference</th><th>Amount</th><th>Balance</th><th>Actions</th>';
 
     document.getElementById('ldg-tbody').innerHTML = entries.length
       ? entries.map(r=>{
-          const isInvoice = r.type === 'invoice';
+          const isInvoice = r.type === 'invoice' || r.type === 'advance_cleared';
           const amtSign = isInvoice ? '+' : '-';
-          const amtClass = isInvoice ? 'text-red' : 'text-green';
-          const editBtn = r.type === 'payment'
+          const amtClass = r.type === 'advance_cleared' ? 'text-yellow' : (isInvoice ? 'text-red' : 'text-green');
+          const editBtn = r.type === 'advance_cleared'
+            ? `<button class="btn btn-ghost btn-xs" title="Undo this advance clearance" onclick="undoClearAdvance(${id}, ${r.id})"><i class="fa fa-rotate-left"></i></button>`
+            : r.type === 'payment'
             ? `<button class="btn btn-ghost btn-xs" title="Edit this payment" onclick="openPaymentEditModal(${JSON.stringify(r).replace(/'/g,"&#39;").replace(/"/g,'&quot;')})"><i class="fa fa-pen"></i></button>`
             : '';
           return `
@@ -7062,6 +7069,71 @@ async function saveLedgerEntry() {
   }
 }
 
+// ── Clear Advance / Credit — clears ONLY the advance, not the whole ledger ──
+let _ldgAdvance = 0;
+function openClearAdvanceModal() {
+  const id = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
+  if (!id || _ldgAdvance <= 0) { toast('This customer has no advance balance to clear', 'warning'); return; }
+  const entity = _ledgerAccountCache.find(x => x.id === id);
+  document.getElementById('ca-cust-name').textContent = entity ? entity.name : 'the customer';
+  document.getElementById('ca-advance-hint').textContent = 'Advance available: Rs.' + _ldgAdvance.toFixed(2);
+  document.getElementById('ca-date').value = new Date().toISOString().slice(0, 10);
+  const amt = document.getElementById('ca-amount');
+  amt.value = _ldgAdvance.toFixed(2); amt.max = _ldgAdvance.toFixed(2);
+  document.getElementById('ca-method').value = 'cash';
+  document.getElementById('ca-note').value = '';
+  openModal('clear-advance-modal');
+}
+
+let _caSaving = false;
+async function saveClearAdvance() {
+  const custId = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
+  if (!custId || _caSaving) return;
+  const amount = parseFloat(document.getElementById('ca-amount').value);
+  const date = document.getElementById('ca-date').value;
+  if (!date) { toast('Please pick a date', 'warning'); return; }
+  if (!amount || amount <= 0) { toast('Amount must be greater than 0', 'warning'); return; }
+  if (amount > _ldgAdvance + 0.001) { toast('Only Rs.' + _ldgAdvance.toFixed(2) + ' advance is available', 'warning'); return; }
+
+  let authPassword = '';
+  try {
+    const cs = await SettingsAPI.getCompany();
+    _companySettingsCache = cs;
+    if (cs && cs.general_auth_enabled) {
+      authPassword = await askGeneralAuth();
+      if (authPassword === null) return;
+    }
+  } catch (_) {}
+
+  _caSaving = true;
+  try {
+    const body = {
+      amount: amount.toFixed(2),
+      method: document.getElementById('ca-method').value,
+      note: document.getElementById('ca-note').value || '',
+      date: date + 'T12:00:00',
+    };
+    if (authPassword) body.auth_password = authPassword;
+    await CustomersAPI.clearAdvance(custId, body);
+    closeModal('clear-advance-modal');
+    _slipsLoaded = false;
+    toast('Advance cleared — rest of the ledger is unchanged', 'success');
+    await loadLedgerAccount();
+  } catch (err) {
+    toast(err.message || 'Could not clear advance', 'error');
+  } finally { _caSaving = false; }
+}
+
+async function undoClearAdvance(custId, clearanceId) {
+  if (!(await confirmModal('This advance clearance will be removed and the advance will show on the ledger again.', { title: 'Undo Advance Clearance?', confirmText: 'Undo' }))) return;
+  try {
+    await CustomersAPI.undoClearAdvance(custId, clearanceId);
+    _slipsLoaded = false;
+    toast('Advance clearance undone', 'success');
+    await loadLedgerAccount();
+  } catch (err) { toast(err.message || 'Could not undo', 'error'); }
+}
+
 // ── Edit / delete a real payment, straight from its ledger row ──────────
 function openPaymentEditModal(entry) {
   document.getElementById('pe-payment-id').value = entry.id;
@@ -7148,7 +7220,7 @@ async function printLedgerA4() {
   if (type === 'customer') {
     const amountOwed = Number(ledger.amount_owed||0), totalPaid = Number(ledger.total_paid||0), remaining = Number(ledger.remaining||0);
     const rows = ledger.entries.map(e=>{
-      const isInvoice = e.type === 'invoice';
+      const isInvoice = e.type === 'invoice' || e.type === 'advance_cleared';
       return `<tr>
       <td>${e.date.slice(0,10)}</td><td>${e.description}</td><td style="font-family:monospace">${e.reference||'—'}</td>
       <td style="text-align:right;color:${isInvoice?'#dc2626':'#16a34a'};font-weight:700">${isInvoice?'+':'-'}Rs.${Number(e.amount).toFixed(2)}</td>

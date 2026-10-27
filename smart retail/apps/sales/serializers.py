@@ -85,15 +85,24 @@ class SaleSerializer(serializers.ModelSerializer):
         table = cache.get(sale.customer_id)
         if table is None:
             from django.db.models import Sum
-            rows = (Sale.objects.filter(customer_id=sale.customer_id)
-                    .exclude(status__in=[Sale.Status.DRAFT, Sale.Status.CANCELLED, Sale.Status.RETURNED])
-                    .order_by("created_at", "id")
-                    .values_list("id", "total_amount", "paid_amount"))
-            credit = (Payment.objects.filter(customer_id=sale.customer_id, sale__isnull=True)
-                      .aggregate(t=Sum("amount"))["t"] or Decimal("0"))
-            from apps.customers.models import AdvanceClearance
-            credit -= (AdvanceClearance.objects.filter(customer_id=sale.customer_id)
+            rows = list(Sale.objects.filter(customer_id=sale.customer_id)
+                        .exclude(status__in=[Sale.Status.DRAFT, Sale.Status.CANCELLED, Sale.Status.RETURNED])
+                        .order_by("created_at", "id")
+                        .values_list("id", "total_amount", "paid_amount"))
+            general = (Payment.objects.filter(customer_id=sale.customer_id, sale__isnull=True)
                        .aggregate(t=Sum("amount"))["t"] or Decimal("0"))
+            specific = (Payment.objects.filter(sale_id__in=[r[0] for r in rows])
+                        .aggregate(t=Sum("amount"))["t"] or Decimal("0"))
+            # collect_customer_payment() ALREADY pushes a General Collection
+            # into the invoices' own paid_amount (oldest first). Counting the
+            # whole general total as spare "credit" again double-counted it and
+            # showed a fake huge "Previous Advance / Credit". Only the part
+            # that was NOT absorbed by any invoice is genuine leftover credit.
+            absorbed = max(Decimal("0"), sum((r[2] for r in rows), Decimal("0")) - specific)
+            credit = max(Decimal("0"), general - absorbed)
+            from apps.customers.models import AdvanceClearance
+            credit = max(Decimal("0"), credit - (AdvanceClearance.objects.filter(customer_id=sale.customer_id)
+                                                 .aggregate(t=Sum("amount"))["t"] or Decimal("0")))
             table, owed_before = {}, Decimal("0")
             for sid, total, paid in rows:
                 table[sid] = owed_before - credit          # credit still unused before this bill

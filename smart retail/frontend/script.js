@@ -7073,7 +7073,7 @@ async function saveLedgerEntry() {
 let _ldgAdvance = 0;
 function openClearAdvanceModal() {
   const id = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
-  if (!id || _ldgAdvance <= 0) { toast('Is customer ka koi advance balance nahi hai (ledger mein Advance / Credit 0 hai)', 'warning'); return; }
+  if (!id || _ldgAdvance <= 0) { toast('Ther is No Advance Balance of that Customer )', 'warning'); return; }
   const entity = _ledgerAccountCache.find(x => x.id === id);
   document.getElementById('ca-cust-name').textContent = entity ? entity.name : 'the customer';
   document.getElementById('ca-advance-hint').textContent = 'Advance available: Rs.' + _ldgAdvance.toFixed(2);

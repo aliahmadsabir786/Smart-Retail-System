@@ -120,21 +120,24 @@ class Sale(BaseModel):
         settings_row = CompanySettings.objects.first()
         prefix = (settings_row.invoice_prefix if settings_row else "INV-") or "INV-"
 
-        # all_objects (not the soft-delete-filtered default manager) so a
-        # deleted invoice's number still counts — its row still occupies
-        # that unique invoice_number in the database.
-        last_number = (
-            Sale.all_objects.filter(invoice_number__startswith=prefix)
-            .order_by("-id")
-            .values_list("invoice_number", flat=True)
-            .first()
-        )
-        next_seq = 1
-        if last_number:
-            suffix = last_number[len(prefix):]
+        # Only LIVE invoices decide the next number, so when the latest
+        # invoice (e.g. 763) is deleted/voided, the next new one is 763
+        # again instead of jumping to 764. A voided invoice's row is only
+        # soft-deleted and still occupies the unique invoice_number, so if
+        # it holds the number we are about to reuse, that dead row is
+        # renamed out of the way first.
+        numbers = Sale.objects.filter(invoice_number__startswith=prefix).values_list("invoice_number", flat=True)
+        top = 0
+        for n in numbers:
+            suffix = n[len(prefix):]
             if suffix.isdigit():
-                next_seq = int(suffix) + 1
+                top = max(top, int(suffix))
+        next_seq = top + 1
 
+        candidate = f"{prefix}{next_seq:03d}"
+        for dead in Sale.all_objects.filter(invoice_number=candidate, is_deleted=True):
+            dead.invoice_number = f"{candidate}~void{dead.pk}"[:30]
+            dead.save(update_fields=["invoice_number"])
         return f"{prefix}{next_seq:03d}"
 
 

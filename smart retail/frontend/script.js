@@ -6778,7 +6778,7 @@ async function loadLedgerAccount() {
     document.getElementById('ldg-net-balance').className = 'stat-value '+(remaining>0?'text-red':'text-green');
     _ldgAdvance = remaining < 0 ? Math.round(-remaining*100)/100 : 0;
     const caBtn = document.getElementById('ldg-clear-advance-btn');
-    if (caBtn) caBtn.style.display = _ldgAdvance > 0 ? '' : 'none';
+    if (caBtn) { caBtn.style.display = ''; caBtn.style.opacity = _ldgAdvance > 0 ? '1' : '.55'; }
 
     document.getElementById('ldg-thead-row').innerHTML =
       '<th>Date</th><th>Description</th><th>Reference</th><th>Amount</th><th>Balance</th><th>Actions</th>';
@@ -7073,7 +7073,7 @@ async function saveLedgerEntry() {
 let _ldgAdvance = 0;
 function openClearAdvanceModal() {
   const id = parseInt(document.getElementById('ldg-account-select')?.value) || 0;
-  if (!id || _ldgAdvance <= 0) { toast('This customer has no advance balance to clear', 'warning'); return; }
+  if (!id || _ldgAdvance <= 0) { toast('Is customer ka koi advance balance nahi hai (ledger mein Advance / Credit 0 hai)', 'warning'); return; }
   const entity = _ledgerAccountCache.find(x => x.id === id);
   document.getElementById('ca-cust-name').textContent = entity ? entity.name : 'the customer';
   document.getElementById('ca-advance-hint').textContent = 'Advance available: Rs.' + _ldgAdvance.toFixed(2);

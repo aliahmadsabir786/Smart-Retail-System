@@ -108,7 +108,7 @@ class TestReportsAPI:
         assert response["Content-Type"] == "text/csv"
         assert b"Invoice #" in response.content
 
-    def test_inventory_report_has_total_row_for_quantity_and_stock_value(self, api_client, manager, sale_setup):
+    def test_inventory_report_opening_sold_remaining_and_cost(self, api_client, manager, sale_setup):
         # 20 units stocked in, 3 sold in sale_setup -> 17 left, cost_price 10.00/unit.
         api_client.force_authenticate(manager)
         url = reverse("reports:inventory-report")
@@ -119,13 +119,37 @@ class TestReportsAPI:
         assert len(results) == 2
 
         item_row = results[0]
-        assert item_row["quantity"] == 17
+        assert item_row["opening"] == 0          # everything happened inside the (open) range
+        assert item_row["purchased"] == 20
+        assert item_row["sold"] == 3
+        assert item_row["remaining"] == 17
+        assert item_row["opening"] + item_row["purchased"] - item_row["sold"] + item_row["adjustments"] == item_row["remaining"]
         assert Decimal(item_row["stock_value"]) == Decimal("170.00")
+        assert item_row["ledger_check"] == "OK"
 
         total_row = results[-1]
         assert total_row["product"] == "TOTAL"
-        assert total_row["quantity"] == "17"
+        assert total_row["remaining"] == "17"
+        assert total_row["sold"] == "3"
         assert Decimal(total_row["stock_value"]) == Decimal("170.00")
+
+    def test_inventory_report_opening_stock_respects_date_range(self, api_client, manager, sale_setup):
+        # Range starting tomorrow: all 17 units are already on hand at the start,
+        # nothing moves inside the range.
+        from datetime import date, timedelta
+        api_client.force_authenticate(manager)
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        response = api_client.get(reverse("reports:inventory-report"), {"date_from": tomorrow})
+        row = response.data["results"][0]
+        assert (row["opening"], row["purchased"], row["sold"], row["remaining"]) == (17, 0, 0, 17)
+
+    def test_inventory_report_flags_stock_changed_outside_ledger(self, api_client, manager, sale_setup):
+        from apps.inventory.models import StockItem
+        warehouse, product = sale_setup
+        StockItem.objects.filter(product=product, warehouse=warehouse).update(quantity=50)  # bypasses the ledger
+        api_client.force_authenticate(manager)
+        row = api_client.get(reverse("reports:inventory-report")).data["results"][0]
+        assert row["ledger_check"] == "MISMATCH (+33)"
 
     def test_tax_report_has_total_row(self, api_client, manager, sale_setup):
         # sale_setup: 3 units at 25.00, no tax configured on the item -> subtotal

@@ -3386,6 +3386,47 @@ async function _findOrCreateExpenseCategory(name) {
   return created.id;
 }
 
+// Fills the category suggestions in the Add Expense form (free typing still allowed).
+async function _loadExpenseCategoryOptions(force) {
+  try {
+    if (force || !_expenseCategoryCache.length) {
+      const data = await ExpensesAPI.categories();
+      _expenseCategoryCache = data.results || data;
+    }
+  } catch (_) { /* suggestions are optional */ }
+  const list = document.getElementById('exp-cat-list');
+  if (list) list.innerHTML = _expenseCategoryCache
+    .filter(c => c.is_active !== false)
+    .map(c => `<option value="${_p3Esc(c.name)}"></option>`).join('');
+}
+
+async function openExpenseCategoryModal() {
+  document.getElementById('exp-newcat-name').value = '';
+  await _loadExpenseCategoryOptions(true);
+  const names = _expenseCategoryCache.map(c => _p3Esc(c.name)).join(', ');
+  document.getElementById('exp-cat-existing').innerHTML = names ? `Existing: ${names}` : '';
+  openModal('expense-cat-modal');
+  setTimeout(() => document.getElementById('exp-newcat-name').focus(), 50);
+}
+
+async function saveExpenseCategory() {
+  const name = document.getElementById('exp-newcat-name').value.trim();
+  if (!name) { toast('Category name required!', 'error'); return; }
+  try {
+    await _loadExpenseCategoryOptions(true);
+    if (_expenseCategoryCache.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+      toast('This category already exists', 'warning');
+      return;
+    }
+    await _findOrCreateExpenseCategory(name);
+    await _loadExpenseCategoryOptions(true);
+    closeModal('expense-cat-modal');
+    toastDone('add', 'Expense Category', name);
+  } catch (err) {
+    toast(err.message || 'Failed to add category', 'error');
+  }
+}
+
 // ═══════════════════════════════════════════════════════
 // EXPENSES — 3D EXPLODED PIE (pure SVG, no library)
 // Extruded pie with tilted top face, side walls, drop shadow, exploded
@@ -3781,6 +3822,8 @@ function openExpenseModal() {
   document.getElementById('exp-date').value=new Date().toISOString().split('T')[0];
   document.getElementById('exp-desc').value='';
   document.getElementById('exp-ref').value='';
+  document.getElementById('exp-cat').value='';
+  _loadExpenseCategoryOptions();
   openModal('expense-modal');
 }
 
@@ -3794,6 +3837,7 @@ function editExpense(id) {
   document.getElementById('exp-date').value=e.expense_date;
   document.getElementById('exp-desc').value=e.description || '';
   document.getElementById('exp-ref').value='';
+  _loadExpenseCategoryOptions();
   openModal('expense-modal');
 }
 
@@ -3801,7 +3845,8 @@ async function saveExpense() {
   const amount=parseFloat(document.getElementById('exp-amount').value);
   if(!amount) { toast('Amount required!','error'); return; }
   const editId=parseInt(document.getElementById('exp-edit-id').value);
-  const categoryName = document.getElementById('exp-cat').value;
+  const categoryName = document.getElementById('exp-cat').value.trim();
+  if (!categoryName) { toast('Category required!', 'error'); return; }
   const description = document.getElementById('exp-desc').value;
   const ref = document.getElementById('exp-ref').value;
 
@@ -4367,7 +4412,7 @@ async function generateReport() {
       ? rows.map(row => {
           const isTotal = _isTotalRow(row, allColumns);
           const style = isTotal ? ' style="font-weight:800;border-top:2px solid var(--border)"' : '';
-          return `<tr${style}>${columns.map(c => `<td>${row[c]}</td>`).join('')}</tr>`;
+          return `<tr${style}>${columns.map(c => (c === 'ledger_check' && String(row[c]).startsWith('MISMATCH')) ? `<td style="color:var(--red);font-weight:800">${row[c]}</td>` : `<td>${row[c]}</td>`).join('')}</tr>`;
         }).join('')
       : `<tr><td colspan="${columns.length||1}" style="text-align:center;color:var(--text-muted);padding:20px">No data for the selected range</td></tr>`;
   } catch (err) {
@@ -4655,7 +4700,8 @@ const _REPORT_NUMERIC_COLS = new Set([
   'subtotal', 'discount_amount', 'tax_amount', 'total_amount', 'paid_amount',
   'amount', 'quantity', 'reorder_level', 'stock_value', 'total_orders',
   'total_spent', 'outstanding_balance', 'loyalty_points', 'total_purchased',
-  'outstanding_payable', 'cost_of_sale', 'profit',
+  'outstanding_payable', 'cost_of_sale', 'profit', 'entries',
+  'opening', 'purchased', 'sold', 'adjustments', 'remaining', 'cost_price',
 ]);
 // Column keys that are identifiers/codes — monospace, left-aligned, so they
 // read like an invoice/PO number rather than prose.

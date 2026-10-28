@@ -7,6 +7,9 @@ class StockItemAdmin(admin.ModelAdmin):
     list_display = ["product", "variant", "warehouse", "quantity"]
     list_filter = ["warehouse"]
     search_fields = ["product__name", "product__sku"]
+    # Quantity must only change through apps.inventory.services (which writes
+    # the ledger row) - editing it here would create stock with no record.
+    readonly_fields = ["quantity"]
 
 
 @admin.register(StockTransaction)

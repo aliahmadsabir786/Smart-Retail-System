@@ -90,19 +90,99 @@ def purchase_report(date_from=None, date_to=None):
     return rows, columns
 
 
-def inventory_report():
+def inventory_report(date_from=None, date_to=None):
+    """
+    Stock Report built from the append-only stock ledger (StockTransaction),
+    one row per product / variant / warehouse:
+
+        Opening + Purchased - Sold + Adjustments = Remaining
+        Remaining x Cost Price                   = Stock Value (remaining cost)
+
+    * Opening    - quantity on hand at the START of date_from (0-movement rows
+                   before the first ledger entry show 0).
+    * Purchased  - stock received in the range: purchases, manual stock-in,
+                   transfers in.
+    * Sold       - NET sales in the range (sales minus sale returns, so an
+                   edited / voided / returned invoice never inflates it).
+    * Adjustments- everything else, signed: stock-count adjustments (+/-),
+                   returns to supplier, manual stock-out, transfers out.
+    * Remaining  - quantity on hand at the END of date_to (today if blank).
+    * Ledger Check - compares the live StockItem quantity with the sum of the
+                   ledger. "OK" means every unit is explained by a recorded
+                   movement; "MISMATCH (+N)" means the stock was changed
+                   outside the ledger (e.g. edited directly in the admin /
+                   database), so the figures for that row should not be trusted.
+
+    Cost uses Product.cost_price (last purchase cost) for every unit - it is
+    not FIFO / weighted-average.
+    """
+    from collections import defaultdict
+    from apps.inventory.models import StockTransaction
+    from apps.products.models import Product, ProductVariant
+    from apps.warehouse.models import Warehouse
+
+    T = StockTransaction.TransactionType
+    plus = {T.STOCK_IN, T.ADJUSTMENT_INCREASE, T.TRANSFER_IN, T.SALE_RETURN, T.PURCHASE}
+    signed = lambda t, q: q if t in plus else -q  # noqa: E731 - every other type reduces stock
+    received_types = (T.PURCHASE, T.STOCK_IN, T.TRANSFER_IN)
+
+    def by_key(qs):
+        out = defaultdict(lambda: defaultdict(int))
+        for r in qs.values("product_id", "variant_id", "warehouse_id", "transaction_type").annotate(q=Sum("quantity")):
+            out[(r["product_id"], r["variant_id"], r["warehouse_id"])][r["transaction_type"]] += int(r["q"] or 0)
+        return out
+
+    def net(types):
+        return sum(signed(t, q) for t, q in types.items())
+
+    ledger = StockTransaction.objects.all()
+    all_moves = by_key(ledger)
+    period = by_key(_date_filter(ledger, "created_at", date_from, date_to))
+    after = by_key(ledger.filter(created_at__date__gt=date_to)) if date_to else {}
+    current = {(r["product_id"], r["variant_id"], r["warehouse_id"]): r["quantity"]
+               for r in StockItem.objects.values("product_id", "variant_id", "warehouse_id", "quantity")}
+
+    keys = set(current) | set(period)
+    products = Product.objects.in_bulk({k[0] for k in keys})
+    warehouses = Warehouse.objects.in_bulk({k[2] for k in keys})
+    variants = ProductVariant.objects.in_bulk({k[1] for k in keys if k[1]})
+
     columns = [
         ("sku", "SKU"), ("product", "Product"), ("warehouse", "Warehouse"),
-        ("quantity", "Quantity"), ("reorder_level", "Reorder Level"), ("stock_value", "Stock Value"),
+        ("opening", "Opening Stock"), ("purchased", "Purchased / In"), ("sold", "Sold (Net)"),
+        ("adjustments", "Adjustments / Out"), ("remaining", "Remaining Stock"),
+        ("cost_price", "Cost Price"), ("stock_value", "Remaining Cost"), ("ledger_check", "Ledger Check"),
     ]
-    rows = [
-        {
-            "sku": item.product.sku, "product": item.product.name, "warehouse": item.warehouse.name,
-            "quantity": item.quantity, "reorder_level": item.product.reorder_level,
-            "stock_value": str(item.quantity * item.product.cost_price),
-        }
-        for item in StockItem.objects.select_related("product", "warehouse")
-    ]
+    rows = []
+    for key in keys:
+        pid, vid, wid = key
+        product = products.get(pid)
+        if product is None:
+            continue
+        moves = period.get(key, {})
+        purchased = sum(moves.get(t, 0) for t in received_types)
+        sold = moves.get(T.SALE, 0) - moves.get(T.SALE_RETURN, 0)
+        adjustments = (moves.get(T.ADJUSTMENT_INCREASE, 0) - moves.get(T.ADJUSTMENT_DECREASE, 0)
+                       - moves.get(T.PURCHASE_RETURN, 0) - moves.get(T.STOCK_OUT, 0)
+                       - moves.get(T.TRANSFER_OUT, 0))
+        remaining = current.get(key, 0) - net(after.get(key, {}))
+        opening = remaining - (purchased - sold + adjustments)
+        if not any((opening, purchased, sold, adjustments, remaining)):
+            continue
+
+        diff = current.get(key, 0) - net(all_moves.get(key, {}))
+        variant = variants.get(vid)
+        name = product.name + (f" ({' / '.join(x for x in (variant.color, variant.size) if x) or variant.sku})" if variant else "")
+        cost = product.cost_price
+        rows.append({
+            "sku": variant.sku if variant else product.sku, "product": name,
+            "warehouse": warehouses[wid].name if wid in warehouses else "",
+            "opening": opening, "purchased": purchased, "sold": sold, "adjustments": adjustments,
+            "remaining": remaining, "cost_price": str(cost),
+            "stock_value": str((Decimal(remaining) * cost).quantize(Decimal("0.01"))),
+            "ledger_check": "OK" if diff == 0 else f"MISMATCH ({diff:+d})",
+        })
+    rows.sort(key=lambda r: (r["product"].lower(), r["warehouse"]))
     return rows, columns
 
 
@@ -172,12 +252,23 @@ def tax_report(date_from=None, date_to=None):
 
 
 def expense_report(date_from=None, date_to=None):
+    """
+    Category-wise Expense Report. Every approved expense in the date range is
+    summed per category (all dates combined), so the report reads e.g.
+    Other = 5,000 / Transport = 2,500 / Marketing = 1,200 instead of listing
+    each expense separately. The view appends a grand TOTAL row.
+    """
     qs = _date_filter(Expense.objects.filter(status=Expense.Status.APPROVED), "expense_date", date_from, date_to, is_datetime=False)
-    columns = [("date", "Date"), ("title", "Title"), ("category", "Category"), ("amount", "Amount")]
+    columns = [("category", "Category"), ("entries", "No. of Expenses"), ("amount", "Total Amount")]
+    grouped = (
+        qs.values("category__name")
+        .annotate(total=Sum("amount"), entries=Count("id"))
+        .order_by("category__name")
+    )
     rows = [
-        {"date": e.expense_date.strftime("%Y-%m-%d"), "title": e.title, "category": e.category.name,
-         "amount": str(e.amount)}
-        for e in qs.select_related("category")
+        {"category": g["category__name"], "entries": str(g["entries"]),
+         "amount": str((g["total"] or Decimal("0")).quantize(Decimal("0.01")))}
+        for g in grouped
     ]
     return rows, columns
 

@@ -1419,6 +1419,7 @@
             <p>Track and categorize all business expenses</p>
           </div>
           <div class="page-header-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openExpenseCategoryModal()"><i class="fa fa-tags"></i> Add Category</button>
             <button class="btn btn-accent btn-sm" onclick="openExpenseModal()"><i class="fa fa-plus"></i> Add Expense</button>
           </div>
         </div>
@@ -2584,6 +2585,26 @@
   </div>
 </div>
 
+<!-- Expense Category Modal -->
+<div class="modal-overlay" id="expense-cat-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <div class="modal-title">Add Expense Category</div>
+      <button class="modal-close" onclick="closeModal('expense-cat-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group-inline"><label>Category Name *</label>
+        <input class="form-input" id="exp-newcat-name" placeholder="e.g. Fuel, Packaging, Internet" onkeydown="if(event.key==='Enter')saveExpenseCategory()">
+      </div>
+      <div id="exp-cat-existing" style="margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('expense-cat-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveExpenseCategory()"><i class="fa fa-save"></i> Save Category</button>
+    </div>
+  </div>
+</div>
+
 <!-- Expense Modal -->
 <div class="modal-overlay" id="expense-modal">
   <div class="modal">
@@ -2595,10 +2616,8 @@
       <input type="hidden" id="exp-edit-id">
       <div class="form-row">
         <div class="form-group-inline"><label>Category *</label>
-          <select class="form-input" id="exp-cat">
-            <option>Rent</option><option>Electricity</option><option>Salary</option>
-            <option>Transport</option><option>Maintenance</option><option>Marketing</option><option>Other</option>
-          </select>
+          <input class="form-input" id="exp-cat" list="exp-cat-list" placeholder="Select or type a new category" autocomplete="off">
+          <datalist id="exp-cat-list"></datalist>
         </div>
         <div class="form-group-inline"><label>Amount ($) *</label><input class="form-input" type="number" id="exp-amount" placeholder="0.00" step="0.01"></div>
       </div>

@@ -101,14 +101,15 @@ class PurchaseReportView(_DateRangeReportView):
         return rows, columns, "Purchase Report"
 
 
-class InventoryReportView(BaseReportView):
+class InventoryReportView(_DateRangeReportView):
     report_slug = "inventory_report"
-    total_columns = ["quantity", "stock_value"]
+    total_columns = ["opening", "purchased", "sold", "adjustments", "remaining", "stock_value"]
     total_label_column = "product"
-    total_integer_columns = ["quantity"]
+    total_integer_columns = ["opening", "purchased", "sold", "adjustments", "remaining"]
 
     def get_data(self, request):
-        rows, columns = services.inventory_report()
+        date_from, date_to = self._date_range(request)
+        rows, columns = services.inventory_report(date_from, date_to)
         return rows, columns, "Inventory Report"
 
 
@@ -160,6 +161,9 @@ class TaxReportView(_DateRangeReportView):
 
 class ExpenseReportView(_DateRangeReportView):
     report_slug = "expense_report"
+    total_columns = ["entries", "amount"]
+    total_label_column = "category"
+    total_integer_columns = ["entries"]
 
     def get_data(self, request):
         date_from, date_to = self._date_range(request)

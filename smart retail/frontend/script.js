@@ -700,6 +700,14 @@ async function animatedPrint(kind, area) {
     await playPrintAnim(kind);
     if (area) area.style.display = 'block';
     await new Promise(r => setTimeout(r, 60));    // let the print layout render
+    // Images (company logo, invoice QR) must be loaded or they print as an empty gap.
+    const imgs = area ? Array.from(area.querySelectorAll('img')) : [];
+    if (imgs.length) {
+      await Promise.race([
+        Promise.all(imgs.map(im => (im.complete ? 1 : new Promise(r => { im.onload = im.onerror = r; })))),
+        new Promise(r => setTimeout(r, 2500)),
+      ]);
+    }
     window.print();
     return true;
   } finally {
@@ -6052,6 +6060,7 @@ function _adaptSaleForSlipPrint(sale) {
     // to the cent, instead of drifting from a second, independent
     // calculation.
     totalAmount: Number(sale.total_amount),
+    verifyPath: sale.verify_path || '',
   };
 }
 
@@ -6108,6 +6117,10 @@ function buildSlipA4Html(rawSale) {
           ${ntn ? `<div><span style="color:#555">NTN No:</span> <strong>${ntn}</strong></div>` : ''}
         </div>
       </div>
+      ${(b.verifyPath && s.show_invoice_qr !== false) ? `<div style="margin-left:auto;flex-shrink:0;text-align:center">
+        <img src="${window.location.origin}${b.verifyPath}qr.png" alt="Scan to verify" style="width:22mm;height:22mm;display:block">
+        <div style="font-size:7px;color:#000;margin-top:1px;line-height:1.2">Scan to verify invoice</div>
+      </div>` : ''}
     </div>
 
     <!-- ═══ BILL TO + INVOICE DETAILS ═══ -->
@@ -6523,6 +6536,7 @@ async function renderSettings() {
   setVal('set-receipt-header', s.invoice_header_note);
   setVal('set-receipt-footer', s.invoice_footer_note);
   setChecked('set-show-tax', s.show_tax_on_receipt);
+  setChecked('set-show-qr', s.show_invoice_qr !== false);
   setVal('set-ntn', s.tax_id||'');
   setVal('set-dist-name', s.distributor_name);
   setVal('set-dist-phone', s.distributor_phone);
@@ -6580,6 +6594,7 @@ async function saveSettings() {
     invoice_header_note: g('set-receipt-header'),
     invoice_footer_note: g('set-receipt-footer'),
     show_tax_on_receipt: g('set-show-tax') === 'yes',
+    show_invoice_qr: g('set-show-qr') !== 'no',
     tax_id: g('set-ntn'),
     distributor_name: g('set-dist-name'),
     distributor_phone: g('set-dist-phone'),

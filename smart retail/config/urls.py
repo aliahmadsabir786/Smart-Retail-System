@@ -8,6 +8,7 @@ from drf_spectacular.views import (
     SpectacularRedocView,
 )
 from . import views as frontend_views
+from apps.sales import public_views as sales_public_views
 
 api_v1_patterns = [
     path("auth/", include("apps.authentication.urls")),
@@ -43,6 +44,10 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+
+    # Public invoice verification — opened by scanning the QR code on a sale slip.
+    path("verify/<str:invoice_number>/<str:signature>/", sales_public_views.verify_invoice, name="verify-invoice"),
+    path("verify/<str:invoice_number>/<str:signature>/qr.png", sales_public_views.verify_qr, name="verify-invoice-qr"),
 
     # ── Frontend (single-server setup) ──────────────────────────────
     # Serves /frontend/index.html at the root, and its JS/CSS assets

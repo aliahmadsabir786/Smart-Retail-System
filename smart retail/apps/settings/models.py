@@ -21,6 +21,8 @@ class CompanySettings(models.Model):
     invoice_header_note = models.TextField(blank=True, default="Thank you for shopping with us!")
     invoice_footer_note = models.TextField(blank=True, default="Thank you for your business!")
     show_tax_on_receipt = models.BooleanField(default=True)
+    # Prints the "Scan to verify invoice" QR code on A4 sale slips. Off = no QR on new prints.
+    show_invoice_qr = models.BooleanField(default=True)
 
     low_stock_notification_enabled = models.BooleanField(default=True)
     low_stock_threshold = models.PositiveIntegerField(default=10)

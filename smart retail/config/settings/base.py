@@ -323,6 +323,14 @@ PASSWORD_RESET_TIMEOUT = config("PASSWORD_RESET_TIMEOUT", default=3600, cast=int
 # FRONTEND_URL env var.
 FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:8000")
 
+# Public address of this site, used ONLY inside the QR code on sale slips.
+# Leave empty to use whatever address the request came in on (fine on the
+# deployed site). Locally the request address is 127.0.0.1, which a phone
+# cannot open - set this to an address the phone can reach, e.g.
+#   PUBLIC_BASE_URL=http://192.168.1.10:8000      (your PC's LAN IP)
+#   PUBLIC_BASE_URL=https://your-app.up.railway.app
+PUBLIC_BASE_URL = config("PUBLIC_BASE_URL", default="").strip().rstrip("/")
+
 # ------------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------------

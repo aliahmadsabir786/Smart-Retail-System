@@ -51,6 +51,8 @@ class SaleSerializer(serializers.ModelSerializer):
     previous_balance = serializers.SerializerMethodField()
     previous_balance_at_booking = serializers.DecimalField(
         source="previous_balance", max_digits=12, decimal_places=2, read_only=True)
+    # Signed public link (path only) that the QR code on the printed slip points to.
+    verify_path = serializers.SerializerMethodField()
 
     class Meta:
         model = Sale
@@ -61,9 +63,13 @@ class SaleSerializer(serializers.ModelSerializer):
             "total_amount", "paid_amount", "due_amount", "previous_balance", "previous_balance_at_booking",
             "status", "payment_status",
             "is_credit", "notes",
-            "items", "payments", "created_at",
+            "items", "payments", "created_at", "verify_path",
         ]
         read_only_fields = fields
+
+    def get_verify_path(self, sale):
+        from .verification import verify_path
+        return verify_path(sale.invoice_number)
 
     def get_previous_balance(self, sale):
         """Live "Previous Balance" for this invoice = what is STILL unpaid on the

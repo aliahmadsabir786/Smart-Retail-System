@@ -1,3 +1,5 @@
+import base64
+import mimetypes
 from decimal import Decimal
 
 from django.http import Http404, HttpResponse
@@ -43,6 +45,19 @@ def _cnic(value):
     if len(parts) == 3:
         return f"{parts[0]}-{'*' * len(parts[1])}-{parts[2]}"
     return value[:5] + "*" * max(len(value) - 6, 0) + value[-1:]
+
+
+def _logo_html(company):
+    """Company logo embedded straight into the page (no separate image request)."""
+    try:
+        if not company.logo:
+            return ""
+        mime = mimetypes.guess_type(company.logo.name)[0] or "image/png"
+        with company.logo.open("rb") as fh:
+            data = base64.b64encode(fh.read()).decode()
+        return f'<img class="logo" src="data:{mime};base64,{data}" alt="">'
+    except Exception:
+        return ""
 
 
 def _money(value):
@@ -100,7 +115,8 @@ def verify_invoice(request, invoice_number, signature):
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#fff;margin:0;padding:48px 20px;color:#222;text-align:center}}
 .wrap{{max-width:380px;margin:0 auto}}
-h1{{font-size:28px;font-weight:600;margin:22px 0 22px}}
+.logo{{max-width:120px;max-height:90px;display:block;margin:0 auto 14px}}
+h1{{font-size:28px;font-weight:700;margin:22px 0 22px;color:#dc2626}}
 .company{{font-size:18px;font-weight:700;margin:0 0 4px}}
 .sub{{font-size:14px;color:#555;margin:0 0 22px}}
 .row{{font-size:15px;line-height:1.6;margin:0 0 6px;color:#333}}
@@ -110,8 +126,9 @@ h1{{font-size:28px;font-weight:600;margin:22px 0 22px}}
 hr{{border:0;border-top:1px solid #e5e5e5;margin:26px 0 18px}}
 .foot{{font-size:13px;font-weight:700;letter-spacing:.02em;color:#333;text-transform:uppercase}}
 </style></head><body><div class="wrap">
+{_logo_html(company)}
 {_ICON}
-<h1>Invoice verified</h1>
+<h1>Verified Invoice</h1>
 <p class="company">{escape(company.company_name)}</p>
 <p class="sub">This bill was issued by the company above.</p>
 {note_html}

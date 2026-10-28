@@ -30,6 +30,21 @@ def _get_sale(invoice_number, signature):
         raise Http404
 
 
+# CNIC is shown MASKED on this public page (35202-*******-1) because anyone who
+# holds or photographs the slip can open it. Set to False to show the full number.
+MASK_CNIC = True
+
+
+def _cnic(value):
+    value = (value or "").strip()
+    if not value or not MASK_CNIC:
+        return value
+    parts = value.split("-")
+    if len(parts) == 3:
+        return f"{parts[0]}-{'*' * len(parts[1])}-{parts[2]}"
+    return value[:5] + "*" * max(len(value) - 6, 0) + value[-1:]
+
+
 def _money(value):
     return f"Rs. {Decimal(value):,.2f}"
 
@@ -68,6 +83,16 @@ def verify_invoice(request, invoice_number, signature):
     note = _STATUS_NOTE.get(sale.status)
     note_html = (f'<div class="note" style="color:{note[1]}">{escape(note[0])}</div>') if note else ""
 
+    cust = sale.customer
+    if cust:
+        cust_html = f'<p class="row">Customer: <b>{escape(cust.name)}</b></p>'
+        if cust.cnic:
+            cust_html += f'<p class="row">CNIC: <b>{escape(_cnic(cust.cnic))}</b></p>'
+        if cust.address:
+            cust_html += f'<p class="row">Address: <b>{escape(cust.address)}</b></p>'
+    else:
+        cust_html = '<p class="row">Customer: <b>Walk-in</b></p>'
+
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Invoice {escape(sale.invoice_number)} - verified</title>
@@ -92,6 +117,7 @@ hr{{border:0;border-top:1px solid #e5e5e5;margin:26px 0 18px}}
 {note_html}
 <p class="row">Invoice No: <b>{escape(sale.invoice_number)}</b></p>
 <p class="row">Date: <b>{sale.created_at:%d %b %Y, %I:%M %p}</b></p>
+{cust_html}
 <div class="amount">{_money(sale.total_amount)}</div>
 <hr>
 <p class="foot">All sales are final<br>and ONLY CASH</p>

@@ -1,3 +1,13 @@
+/* Interform Mono (Arterfak Project) — used on the sale slip. Put the font files in frontend/fonts/ */
+@font-face { font-family: 'Interform Mono'; font-weight: 400; font-style: normal; font-display: swap;
+  src: local('Interform Mono Regular'), local('Interform-Regular'), url('fonts/Interform-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'Interform Mono'; font-weight: 500; font-style: normal; font-display: swap;
+  src: local('Interform Mono Medium'), local('Interform-Medium'), url('fonts/Interform-Medium.ttf') format('truetype'); }
+@font-face { font-family: 'Interform Mono'; font-weight: 600; font-style: normal; font-display: swap;
+  src: local('Interform Mono SemiBold'), local('Interform-SemiBold'), url('fonts/Interform-SemiBold.ttf') format('truetype'); }
+@font-face { font-family: 'Interform Mono'; font-weight: 700; font-style: normal; font-display: swap;
+  src: local('Interform Mono Bold'), local('Interform-Bold'), url('fonts/Interform-Bold.ttf') format('truetype'); }
+
 :root {
   --bg-primary: #0a0c10;
   --bg-secondary: #0f1218;

@@ -6096,7 +6096,7 @@ function buildSlipA4Html(rawSale) {
   return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px;zoom:${fontScale}">
     <!-- ═══ MAIN HEADER ═══ -->
     <div style="display:flex;align-items:flex-start;gap:10px;border-bottom:2px solid #000;padding-bottom:4mm;margin-bottom:3mm">
-      ${ssSettings.showCompanyLogo ? `<div style="width:60px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid #ddd;border-radius:5px;overflow:hidden;background:#f9f9f9;padding:3px">
+      ${ssSettings.showCompanyLogo ? `<div style="width:60px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
         ${logoBlock}
       </div>` : ''}
       <div>

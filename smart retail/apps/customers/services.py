@@ -1,6 +1,11 @@
 from decimal import Decimal
 
 
+def _money(value):
+    """Totals are always returned with 2 decimals ("0.00", not "0")."""
+    return str(Decimal(value).quantize(Decimal("0.01")))
+
+
 def get_customer_ledger(customer):
     """
     Builds a full statement of account for a customer: every invoice that
@@ -129,9 +134,9 @@ def get_customer_ledger(customer):
         entries.append(entry)
 
     return {
-        "amount_owed": str(amount_owed),
-        "total_paid": str(running_paid),
-        "remaining": str(amount_owed - running_paid),
+        "amount_owed": _money(amount_owed),
+        "total_paid": _money(running_paid),
+        "remaining": _money(amount_owed - running_paid),
         "entries": entries,
     }
 

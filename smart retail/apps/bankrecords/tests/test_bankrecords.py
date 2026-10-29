@@ -133,7 +133,11 @@ class TestApi:
             recipient_name="Ali", amount="50000"), format="json")
         assert r.status_code == 201, r.content
         pk = r.json()["id"]
-        assert c.patch(f"/api/v1/bank-records/activities/{pk}/", {"notes": "x"}, format="json").status_code == 200
+        # Changing a completed record without a reason is refused (audit rule)...
+        assert c.patch(f"/api/v1/bank-records/activities/{pk}/", {"notes": "x"}, format="json").status_code == 400
+        # ...and accepted once a reason is given.
+        assert c.patch(f"/api/v1/bank-records/activities/{pk}/", {"notes": "x", "change_reason": "typo"},
+                       format="json").status_code == 200
         assert c.post(f"/api/v1/bank-records/activities/{pk}/status/",
                       {"status": "cancelled", "reason": "r"}, format="json").status_code == 200
 

@@ -1,6 +1,6 @@
 import logging
 from rest_framework.views import exception_handler
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, Throttled
 from rest_framework import status
 
 logger = logging.getLogger("apps")
@@ -76,6 +76,19 @@ def custom_exception_handler(exc, context):
     back to DRF's default 500 handling.
     """
     response = exception_handler(exc, context)
+
+    if isinstance(exc, Throttled) and response is not None:
+        # 429 - DRF already added the Retry-After header.
+        wait = int(exc.wait or 1)
+        response.data = {
+            "success": False,
+            "error": {
+                "code": "rate_limit_exceeded",
+                "message": f"Rate limit exceeded. Too many requests - try again in {wait} seconds.",
+                "details": {"retry_after": wait},
+            },
+        }
+        return response
 
     if response is not None:
         error_code = getattr(exc, "default_code", "error")

@@ -12,6 +12,8 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets, filters as drf_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from apps.core.permissions import IsAdminOrAbove
+from apps.core.ratelimit import LoginAccountThrottle, get_client_ip
+from rest_framework.settings import api_settings
 
 from .models import User, UserActivityLog
 from .serializers import (
@@ -53,8 +55,8 @@ class LogoutInputSerializer(serializers.Serializer):
 
 
 def _client_ip(request):
-    xff = request.META.get("HTTP_X_FORWARDED_FOR")
-    return xff.split(",")[0].strip() if xff else request.META.get("REMOTE_ADDR")
+    # Was: first X-Forwarded-For entry, which the client controls (spoofable).
+    return get_client_ip(request)
 
 
 def _log_activity(user, action, request, **metadata):
@@ -71,7 +73,7 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
-    throttle_scope = "auth"
+    throttle_scope = "register"
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -94,7 +96,8 @@ class LoginView(TokenObtainPairView):
     """POST /api/v1/auth/login/ — JWT login with role/profile claims embedded."""
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
-    throttle_scope = "auth"
+    throttle_scope = "login"  # 5/min per IP, plus 20/hour per account (LoginAccountThrottle)
+    throttle_classes = [*api_settings.DEFAULT_THROTTLE_CLASSES, LoginAccountThrottle]
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
@@ -135,6 +138,7 @@ class LogoutView(APIView):
 class CustomTokenRefreshView(TokenRefreshView):
     """POST /api/v1/auth/refresh/ — rotates refresh token (ROTATE_REFRESH_TOKENS=True)."""
     permission_classes = [permissions.AllowAny]
+    throttle_scope = "token_refresh"
 
 
 class ChangePasswordView(generics.GenericAPIView):

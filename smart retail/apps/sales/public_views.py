@@ -10,6 +10,8 @@ from django.views.decorators.http import require_GET
 from apps.products.utils.barcode_utils import generate_qr_code_image
 from apps.settings.models import CompanySettings
 
+from apps.core.ratelimit import rate_limited
+
 from .models import Sale
 from .verification import is_valid_signature, verify_url
 
@@ -131,6 +133,7 @@ _ICON = (
 )
 
 
+@rate_limited("verify")  # outermost, so a 429 is never wrapped by the cache decorators below
 @require_GET
 @cache_control(no_store=True)
 def verify_invoice(request, invoice_number, signature):
@@ -187,6 +190,7 @@ hr{{border:0;border-top:1px solid #e5e5e5;margin:26px 0 18px}}
     return HttpResponse(html)
 
 
+@rate_limited("verify")  # outermost: a 429 must never get the 24h public cache header
 @require_GET
 @cache_control(max_age=86400, public=True)
 def verify_qr(request, invoice_number, signature):

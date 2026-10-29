@@ -104,6 +104,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.core.middleware.RequestLoggingMiddleware",
+    "apps.core.middleware.RateLimitHeadersMiddleware",
     "apps.core.middleware.ExceptionLoggingMiddleware",
     "apps.audit.middleware.CurrentUserMiddleware",
 ]
@@ -221,13 +222,27 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Rate limiting - see apps/core/ratelimit.py. Order: anonymous clients,
+    # logged-in users, then per-view scopes (throttle_scope = "...").
     "DEFAULT_THROTTLE_CLASSES": (
-        "rest_framework.throttling.ScopedRateThrottle",
+        "apps.core.ratelimit.AnonThrottle",
+        "apps.core.ratelimit.UserThrottle",
+        "apps.core.ratelimit.ScopedThrottle",
     ),
     "DEFAULT_THROTTLE_RATES": {
+        "anon": config("RATE_LIMIT_ANON", default="100/hour"),
+        "user": config("RATE_LIMIT_USER", default="3000/hour"),
+        "login": config("RATE_LIMIT_LOGIN", default="5/min"),
+        "login_account": config("RATE_LIMIT_LOGIN_ACCOUNT", default="20/hour"),
+        "register": config("RATE_LIMIT_REGISTER", default="5/hour"),
+        "token_refresh": config("RATE_LIMIT_TOKEN_REFRESH", default="30/min"),
+        "password_reset": config("RATE_LIMIT_PASSWORD_RESET", default="5/hour"),
+        "verify": config("RATE_LIMIT_VERIFY", default="60/min"),
         "auth": "10/min",
-        "password_reset": "5/hour",
     },
+    # How many reverse proxies sit in front of the app (0 = none; X-Forwarded-For
+    # is then ignored). Must match the real deployment - see README/notes.
+    "NUM_PROXIES": config("RATE_LIMIT_NUM_PROXIES", default=0, cast=int),
     "EXCEPTION_HANDLER": "apps.core.exceptions.custom_exception_handler",
     "DEFAULT_VERSIONING_CLASS": "rest_framework.versioning.URLPathVersioning",
     "DEFAULT_VERSION": "v1",
@@ -267,6 +282,7 @@ SPECTACULAR_SETTINGS = {
 # ------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://localhost:5500,http://127.0.0.1:5500", cast=Csv())
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ["Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"]
 
 # ------------------------------------------------------------------
 # Cache (Redis)
@@ -276,6 +292,31 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
 }
+
+# Separate cache used ONLY for rate-limit counters. With RATELIMIT_REDIS_URL set
+# the counters live in Redis and are shared by every server/worker (needed in
+# production - in-memory counters are per-process, so N workers = N x the limit).
+# Unset = in-memory (fine for local development).
+RATELIMIT_REDIS_URL = config("RATELIMIT_REDIS_URL", default="")
+if RATELIMIT_REDIS_URL:
+    CACHES["throttle"] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": RATELIMIT_REDIS_URL,
+        "KEY_PREFIX": "ratelimit",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "SOCKET_CONNECT_TIMEOUT": 2,
+            "SOCKET_TIMEOUT": 2,
+            # If Redis is unreachable, let requests through (and log) instead of
+            # taking the whole site down with 500 errors.
+            "IGNORE_EXCEPTIONS": True,
+        },
+    }
+else:
+    CACHES["throttle"] = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "throttle",
+    }
 # ------------------------------------------------------------------
 # Celery
 # ------------------------------------------------------------------

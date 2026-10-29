@@ -72,13 +72,23 @@ class TestUserManagementCRUD:
         target.refresh_from_db()
         assert target.role == Role.MANAGER
 
-    def test_delete_is_soft_deactivate_not_hard_delete(self, admin_client):
+    def test_delete_removes_the_account(self, admin_client):
+        # DELETE really removes the user (see UserManagementViewSet docstring);
+        # blocking someone's login without deleting them is a PATCH of is_active.
         target = User.objects.create_user(
             email="softdelete@test.com", password="Pass123!",
             first_name="S", last_name="D", role=Role.CASHIER,
         )
         response = admin_client.delete(f"/api/v1/auth/users/{target.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(pk=target.id).exists()
+
+    def test_deactivate_via_patch_keeps_the_account(self, admin_client):
+        target = User.objects.create_user(
+            email="deactivate@test.com", password="Pass123!",
+            first_name="S", last_name="D", role=Role.CASHIER,
+        )
+        response = admin_client.patch(f"/api/v1/auth/users/{target.id}/", {"is_active": False})
+        assert response.status_code == status.HTTP_200_OK
         target.refresh_from_db()
         assert target.is_active is False
-        assert User.objects.filter(pk=target.id).exists()  # still exists in DB

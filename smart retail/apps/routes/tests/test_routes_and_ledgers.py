@@ -61,7 +61,7 @@ class TestSupplyRoute:
 
 
 class TestCustomerLedger:
-    def test_ledger_shows_only_payments_with_running_remaining(self, warehouse, product):
+    def test_ledger_lists_invoice_and_payment_with_running_remaining(self, warehouse, product):
         customer = Customer.objects.create(name="Ledger Cust", credit_limit=Decimal("1000"))
         inv_services.stock_in(product, warehouse, 20)
 
@@ -75,12 +75,16 @@ class TestCustomerLedger:
         customer.refresh_from_db()
         ledger = customer_services.get_customer_ledger(customer)
 
-        # Invoice itself is NOT a line item — it's folded into amount_owed.
+        # The statement lists the invoice, then the payment, each with the
+        # balance right after that line.
         assert ledger["amount_owed"] == "50.00"
-        assert len(ledger["entries"]) == 1
-        assert ledger["entries"][0]["type"] == "payment"
-        assert ledger["entries"][0]["amount"] == "20.00"
-        assert ledger["entries"][0]["remaining"] == "30.00"
+        assert len(ledger["entries"]) == 2
+        assert ledger["entries"][0]["type"] == "invoice"
+        assert ledger["entries"][0]["amount"] == "50.00"
+        assert ledger["entries"][0]["remaining"] == "50.00"
+        assert ledger["entries"][1]["type"] == "payment"
+        assert ledger["entries"][1]["amount"] == "20.00"
+        assert ledger["entries"][1]["remaining"] == "30.00"
         assert ledger["total_paid"] == "20.00"
         assert Decimal(ledger["remaining"]) == customer.outstanding_balance == Decimal("30.00")
 

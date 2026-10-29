@@ -4,6 +4,7 @@ from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
+from apps.core.ratelimit import TrackedThrottleMixin
 from rest_framework.views import APIView
 from apps.core.permissions import IsAdminOrAbove, IsSuperAdmin
 from .models import CompanySettings
@@ -52,7 +53,7 @@ class PublicCompanyBrandingView(APIView):
         return Response({"name": s.company_name or "", "logo": logo_url})
 
 
-class GeneralAuthThrottle(SimpleRateThrottle):
+class GeneralAuthThrottle(TrackedThrottleMixin, SimpleRateThrottle):
     """Slows down password guessing on the General Auth check (per user)."""
     scope = "general_auth"
     rate = "10/min"

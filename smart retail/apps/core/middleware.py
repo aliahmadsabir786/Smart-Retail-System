@@ -45,3 +45,20 @@ class ExceptionLoggingMiddleware:
             request.method, request.get_full_path(), exception,
         )
         return None
+
+
+class RateLimitHeadersMiddleware:
+    """Adds X-RateLimit-Limit / -Remaining / -Reset to responses of throttled DRF views."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        state = getattr(request, "_ratelimit", None)
+        if state and "X-RateLimit-Limit" not in response:
+            limit, remaining, reset = state
+            response["X-RateLimit-Limit"] = str(limit)
+            response["X-RateLimit-Remaining"] = str(remaining)
+            response["X-RateLimit-Reset"] = str(reset)
+        return response

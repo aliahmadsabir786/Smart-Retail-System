@@ -47,17 +47,62 @@ def _cnic(value):
     return value[:5] + "*" * max(len(value) - 6, 0) + value[-1:]
 
 
-def _logo_html(company):
-    """Company logo embedded straight into the page (no separate image request)."""
+def _logo_data_uri(company):
+    """Company logo as a data: URI so it is embedded in the page itself."""
     try:
         if not company.logo:
             return ""
         mime = mimetypes.guess_type(company.logo.name)[0] or "image/png"
         with company.logo.open("rb") as fh:
-            data = base64.b64encode(fh.read()).decode()
-        return f'<img class="logo" src="data:{mime};base64,{data}" alt="">'
+            return f"data:{mime};base64," + base64.b64encode(fh.read()).decode()
     except Exception:
         return ""
+
+
+def _star(cx, cy, r=7):
+    import math
+    pts = []
+    for i in range(10):
+        ang = -math.pi / 2 + i * math.pi / 5
+        rad = r if i % 2 == 0 else r * 0.45
+        pts.append(f"{cx + rad * math.cos(ang):.1f},{cy + rad * math.sin(ang):.1f}")
+    return f'<polygon points="{" ".join(pts)}" fill="#dc2626"/>'
+
+
+def _stamp_html(company):
+    """Red round 'VERIFIED' stamp. The company logo sits in the middle; with no
+    logo uploaded, the middle shows the word VERIFIED on a banner instead."""
+    logo = _logo_data_uri(company)
+    if logo:
+        centre = (f'<rect x="62" y="92" width="176" height="116" rx="10" fill="#fff"/>'
+                  f'<image xlink:href="{logo}" x="70" y="98" width="160" height="104" '
+                  f'preserveAspectRatio="xMidYMid meet"/>')
+    else:
+        centre = ('<rect x="30" y="118" width="240" height="64" rx="6" fill="#dc2626"/>'
+                  '<text x="150" y="166" text-anchor="middle" font-size="42" font-weight="900" '
+                  'fill="#fff" font-family="Arial Black,Arial,sans-serif">VERIFIED</text>')
+    stars = "".join(_star(x, 80, 7) for x in (122, 150, 178)) + "".join(_star(x, 222, 7) for x in (122, 150, 178))
+    txt = ('font-family="Arial Black,Arial,sans-serif" font-size="38" font-weight="900" '
+           'fill="#dc2626" letter-spacing="3"')
+    return f"""<svg class="stamp" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<defs>
+<path id="arcTop" d="M 44,150 A 106,106 0 0 1 256,150"/>
+<path id="arcBot" d="M 20,150 A 130,130 0 0 0 280,150"/>
+<filter id="rough"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" result="n"/>
+<feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.6 2.2" result="m"/>
+<feComposite in="SourceGraphic" in2="m" operator="in"/></filter>
+</defs>
+<g transform="rotate(-12 150 150)">
+<g filter="url(#rough)">
+<circle cx="150" cy="150" r="144" fill="none" stroke="#dc2626" stroke-width="7"/>
+<circle cx="150" cy="150" r="96" fill="none" stroke="#dc2626" stroke-width="3"/>
+<text {txt}><textPath xlink:href="#arcTop" startOffset="50%" text-anchor="middle">VERIFIED</textPath></text>
+<text {txt}><textPath xlink:href="#arcBot" startOffset="50%" text-anchor="middle">VERIFIED</textPath></text>
+{_star(30, 150, 8)}{_star(270, 150, 8)}
+{stars}
+</g>
+{centre}
+</g></svg>"""
 
 
 def _money(value):
@@ -115,8 +160,8 @@ def verify_invoice(request, invoice_number, signature):
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#fff;margin:0;padding:48px 20px;color:#222;text-align:center}}
 .wrap{{max-width:380px;margin:0 auto}}
-.logo{{max-width:120px;max-height:90px;display:block;margin:0 auto 14px}}
-h1{{font-size:28px;font-weight:700;margin:22px 0 22px;color:#dc2626}}
+.stamp{{width:230px;height:230px;display:block;margin:26px auto 0;opacity:.92}}
+.gap{{height:22px}}
 .company{{font-size:18px;font-weight:700;margin:0 0 4px}}
 .sub{{font-size:14px;color:#555;margin:0 0 22px}}
 .row{{font-size:15px;line-height:1.6;margin:0 0 6px;color:#333}}
@@ -126,9 +171,8 @@ h1{{font-size:28px;font-weight:700;margin:22px 0 22px;color:#dc2626}}
 hr{{border:0;border-top:1px solid #e5e5e5;margin:26px 0 18px}}
 .foot{{font-size:13px;font-weight:700;letter-spacing:.02em;color:#333;text-transform:uppercase}}
 </style></head><body><div class="wrap">
-{_logo_html(company)}
 {_ICON}
-<h1>Verified Invoice</h1>
+<div class="gap"></div>
 <p class="company">{escape(company.company_name)}</p>
 <p class="sub">This bill was issued by the company above.</p>
 {note_html}
@@ -138,6 +182,7 @@ hr{{border:0;border-top:1px solid #e5e5e5;margin:26px 0 18px}}
 <div class="amount">{_money(sale.total_amount)}</div>
 <hr>
 <p class="foot">All sales are final<br>and ONLY CASH</p>
+{_stamp_html(company)}
 </div></body></html>"""
     return HttpResponse(html)
 

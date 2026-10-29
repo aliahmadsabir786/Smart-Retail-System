@@ -160,7 +160,7 @@ def verify_invoice(request, invoice_number, signature):
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#fff;margin:0;padding:48px 20px;color:#222;text-align:center}}
 .wrap{{max-width:380px;margin:0 auto}}
-.stamp{{width:230px;height:230px;display:block;margin:26px auto 0;opacity:.92}}
+.stamp{{width:150px;height:150px;display:block;margin:18px auto 0;opacity:.92}}
 .gap{{height:22px}}
 .company{{font-size:18px;font-weight:700;margin:0 0 4px}}
 .sub{{font-size:14px;color:#555;margin:0 0 22px}}

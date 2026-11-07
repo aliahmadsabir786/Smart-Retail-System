@@ -3,6 +3,7 @@ from django.utils import timezone
 from rest_framework import viewsets, filters, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django_filters import rest_framework as df_filters
 from django_filters.rest_framework import DjangoFilterBackend
 
 from apps.core.exceptions import InvalidTransitionException
@@ -62,6 +63,24 @@ class PaymentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class SaleFilter(df_filters.FilterSet):
+    """Filters for GET /sales/.
+
+    created_after / created_before take full ISO datetimes (the frontend sends
+    the user's LOCAL day boundaries converted to UTC), so a "from date - to
+    date" range in Pakistan time lines up exactly with the server's UTC
+    timestamps. Without these the Sale Slips screen could only ever see the
+    newest page of invoices and older months were unreachable.
+    """
+    created_after = df_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="gte")
+    created_before = df_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="lte")
+
+    class Meta:
+        model = Sale
+        fields = ["status", "payment_status", "warehouse", "customer",
+                  "created_after", "created_before"]
+
+
 class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
                    mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     """
@@ -78,7 +97,7 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
     )
     permission_classes = [IsCashierOrAbove]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["status", "payment_status", "warehouse", "customer"]
+    filterset_class = SaleFilter
     search_fields = ["invoice_number", "customer__name"]
     ordering_fields = ["created_at", "total_amount"]
 

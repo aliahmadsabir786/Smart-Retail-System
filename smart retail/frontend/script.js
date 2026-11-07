@@ -714,7 +714,41 @@ async function animatedPrint(kind, area) {
     _printAnimBusy = false;
   }
 }
+// ── Login rate-limit countdown ─────────────────────────────────────────────
+// When the server answers 429 (too many login attempts) we show
+// "Login Limit Reached - try again later" under the form with a live countdown
+// (seconds, or minutes + seconds when the wait is long) and keep Sign In
+// disabled until the wait is over.
+let _loginCooldownTimer = null;
+function _fmtLoginWait(sec) {
+  if (sec < 60) return `${sec} second${sec === 1 ? '' : 's'}`;
+  const m = Math.floor(sec / 60), r = sec % 60;
+  return r ? `${m} min ${String(r).padStart(2, '0')} sec` : `${m} min`;
+}
+function _startLoginCooldown(seconds) {
+  const errorBox = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+  if (_loginCooldownTimer) clearInterval(_loginCooldownTimer);
+  const until = Date.now() + Math.max(1, Math.ceil(seconds)) * 1000;
+  btn.disabled = true;
+  const tick = () => {
+    const left = Math.ceil((until - Date.now()) / 1000);
+    if (left <= 0) {
+      clearInterval(_loginCooldownTimer);
+      _loginCooldownTimer = null;
+      errorBox.style.display = 'none';
+      btn.disabled = false;
+      return;
+    }
+    errorBox.innerHTML = '<strong>Login Limit Reached</strong> &mdash; Try again later.<br>' +
+      '<i class="fa fa-clock"></i> You can try again in <strong>' + _fmtLoginWait(left) + '</strong>';
+    errorBox.style.display = 'block';
+  };
+  tick();
+  _loginCooldownTimer = setInterval(tick, 1000);
+}
 async function doLogin() {
+  if (_loginCooldownTimer) return;   // still locked out - ignore clicks / Enter
   const email = document.getElementById('l-user').value.trim();
   const password = document.getElementById('l-pass').value.trim();
   const errorBox = document.getElementById('login-error');
@@ -731,11 +765,16 @@ async function doLogin() {
     loader = null;
   } catch (err) {
     if (loader) { loader.cancel(); loader = null; }
-    errorBox.textContent = err.message || 'Invalid email or password';
-    errorBox.style.display = 'block';
-    toast(err.message || 'Login failed', 'error');
+    if (err.status === 429) {
+      const wait = Number(err.data && err.data.error && err.data.error.details && err.data.error.details.retry_after) || 60;
+      _startLoginCooldown(wait);
+    } else {
+      errorBox.textContent = err.message || 'Invalid email or password';
+      errorBox.style.display = 'block';
+      toast(err.message || 'Login failed', 'error');
+    }
   } finally {
-    btn.disabled = false;
+    if (!_loginCooldownTimer) btn.disabled = false;
     btn.innerHTML = '<i class="fa fa-sign-in-alt"></i> Sign In';
   }
 }
@@ -921,7 +960,7 @@ function navigate(page) {
   // etc.) — a no-op for pages that don't have any of those ids, and safe
   // to call repeatedly (each field only gets wired once).
   wireModernDateTimeInputs();
-  ['bk-date-filter', 'ss-date', 'sr-date-from', 'sr-date-to'].forEach(id => syncDtDisplay(id));
+  ['bk-date-filter', 'ss-date-from', 'ss-date-to', 'sr-date-from', 'sr-date-to'].forEach(id => syncDtDisplay(id));
   document.getElementById('notif-panel').classList.add('hidden');
   // Close sidebar on mobile after navigation
   closeSidebarMobile();
@@ -6275,12 +6314,15 @@ async function printSingleSlipA4(id) {
 
 async function printAllSlipsA4(mode) {
   // Re-load first so every printed Previous Balance / Net Payable is live.
+  const dateFrom       = document.getElementById('ss-date-from')?.value||'';
+  const dateTo         = document.getElementById('ss-date-to')?.value||'';
+  const dateFilter     = dateFrom && dateTo ? (dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`)
+                       : dateFrom ? `From ${dateFrom}` : dateTo ? `Up to ${dateTo}` : '';
   try {
-    const fresh = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
-    _slipsCache = fresh.results || fresh;
+    _slipsCache = await _ssFetchSlips(dateFrom, dateTo);
+    _slipsRangeKey = dateFrom + '|' + dateTo;
     _slipsLoaded = true;
   } catch (_) { /* offline: print what is already loaded */ }
-  const dateFilter     = document.getElementById('ss-date')?.value||'';
   const timeFromF      = document.getElementById('ss-time-from')?.value||'';
   const timeToF        = document.getElementById('ss-time-to')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
@@ -6296,7 +6338,7 @@ async function printAllSlipsA4(mode) {
   const slips = _slipsCache.filter(b =>
     !_isPosTerminalSale(b) &&   // POS Terminal bills live under POS Terminal → POS Bills
     (statusFilter ? b.status === statusFilter : (b.status!=='returned' && b.status!=='cancelled')) &&
-    _ssMatchDateTime(b, dateFilter, timeFromF, timeToF) &&
+    _ssMatchDateTime(b, dateFrom, dateTo, timeFromF, timeToF) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
     (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
                         ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
@@ -8891,7 +8933,7 @@ let _osBookingsCache = [];
   window.wireModernDateTimeInputs = function(){
     [['os-date-from','date'], ['os-date-to','date'], ['os-time-from','time'], ['os-time-to','time'],
      ['col-date-from','date'], ['col-date-to','date'], ['col-time-from','time'], ['col-time-to','time'],
-     ['bk-date-filter','date'], ['ss-date','date'], ['ss-time-from','time'], ['ss-time-to','time'], ['sr-date','date'], ['sr-date-from','date'], ['sr-date-to','date'],
+     ['bk-date-filter','date'], ['ss-date-from','date'], ['ss-date-to','date'], ['ss-time-from','time'], ['ss-time-to','time'], ['sr-date','date'], ['sr-date-from','date'], ['sr-date-to','date'],
      ['rpt-from','date'], ['rpt-to','date'], ['ldg-from','date'], ['ldg-to','date'], ['ws-from','date'], ['ws-to','date'],
      ['pr-date-from','date'], ['pr-date-to','date'], ['pb-date','date']].forEach(([id,type]) => {
       const hidden  = document.getElementById(id);
@@ -9860,23 +9902,54 @@ function saveSssSettings() {
   toast('Summary Sheet settings saved!', 'success');
 }
 
-// Date + time-of-day match for a slip, in the user's LOCAL time zone
+// Date-range + time-of-day match for a slip, in the user's LOCAL time zone
 // (created_at is UTC; slicing it gave the wrong day/time for Pakistan).
-function _ssMatchDateTime(b, date, tFrom, tTo) {
-  if (!date && !tFrom && !tTo) return true;
+// dFrom / dTo are YYYY-MM-DD; either may be blank (= no limit on that side).
+function _ssMatchDateTime(b, dFrom, dTo, tFrom, tTo) {
+  if (!dFrom && !dTo && !tFrom && !tTo) return true;
   const d = new Date(b.created_at);
   if (isNaN(d)) return false;
   const p2 = n => String(n).padStart(2, '0');
-  if (date && `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}` !== date) return false;
+  const day = `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+  if (dFrom && day < dFrom) return false;
+  if (dTo && day > dTo) return false;
   const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
   if (tFrom && hm < tFrom) return false;
   if (tTo && hm > tTo) return false;
   return true;
 }
 
+// Loads slips from the server for the chosen From/To date range. The old code
+// only ever fetched the newest 200 invoices, so anything older than that
+// (e.g. last month) never reached the screen. With a date range we ask the
+// server for exactly that range and walk through every page of it.
+let _slipsRangeKey = null;
+async function _ssFetchSlips(dFrom, dTo) {
+  const params = { ordering: '-created_at' };
+  const startLocal = d => { const [y,m,dd] = d.split('-').map(Number); return new Date(y, m-1, dd, 0, 0, 0, 0); };
+  const endLocal   = d => { const [y,m,dd] = d.split('-').map(Number); return new Date(y, m-1, dd, 23, 59, 59, 999); };
+  if (dFrom) params.created_after  = startLocal(dFrom).toISOString();
+  if (dTo)   params.created_before = endLocal(dTo).toISOString();
+
+  // No dates chosen → just the latest slips (fast default).
+  if (!dFrom && !dTo) {
+    const data = await SalesAPI.list({ ...params, page_size: 200 });
+    return data.results || data;
+  }
+  let all = [];
+  for (let page = 1; page <= 50; page++) {
+    const data = await SalesAPI.list({ ...params, page_size: 500, page });
+    const rows = data.results || data;
+    all = all.concat(rows);
+    if (!data.next || !rows.length) break;
+  }
+  return all;
+}
+
 // ── SALES SLIP SEARCH with username/invoice/area filter ──
 window.renderSaleSlips = async function(forceRefresh) {
-  const dateFilter     = document.getElementById('ss-date')?.value||'';
+  const dateFrom       = document.getElementById('ss-date-from')?.value||'';
+  const dateTo         = document.getElementById('ss-date-to')?.value||'';
   const timeFromF      = document.getElementById('ss-time-from')?.value||'';
   const timeToF        = document.getElementById('ss-time-to')?.value||'';
   const statusFilter   = document.getElementById('ss-status')?.value||'';
@@ -9889,16 +9962,19 @@ window.renderSaleSlips = async function(forceRefresh) {
   // refreshed, e.g. after saving a new sale) — every filter change after
   // that runs instantly against the cached list instead of round-tripping
   // to the backend on every keystroke.
-  if (!_slipsLoaded || forceRefresh === true) {
-    const data = await SalesAPI.list({ page_size: 200, ordering: '-created_at' });
-    _slipsCache = data.results || data;
-    _slipsLoaded = true;
+  const rangeKey = dateFrom + '|' + dateTo;
+  if (!_slipsLoaded || forceRefresh === true || rangeKey !== _slipsRangeKey) {
+    try {
+      _slipsCache = await _ssFetchSlips(dateFrom, dateTo);
+      _slipsRangeKey = rangeKey;
+      _slipsLoaded = true;
+    } catch (e) { console.error(e); toast('Could not load sale slips','error'); return; }
   }
 
   const slips = _slipsCache.filter(b =>
     !_isPosTerminalSale(b) &&   // POS Terminal bills live under POS Terminal → POS Bills
     (statusFilter ? b.status === statusFilter : b.status !== 'cancelled') &&
-    _ssMatchDateTime(b, dateFilter, timeFromF, timeToF) &&
+    _ssMatchDateTime(b, dateFrom, dateTo, timeFromF, timeToF) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
     (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
                         ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
@@ -11641,11 +11717,11 @@ document.addEventListener('DOMContentLoaded', function() {
 // were removed here — the real implementations above (using _slipsCache /
 // SalesAPI) are now the only definitions, so they're no longer clobbered.
 window.clearSaleSlipsFilters = function() {
-  ['ss-date','ss-time-from','ss-time-to','ss-status','ss-name','ss-area','ss-invoice','ss-username'].forEach(id => {
+  ['ss-date-from','ss-date-to','ss-time-from','ss-time-to','ss-status','ss-name','ss-area','ss-invoice','ss-username'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  syncDtDisplay('ss-date'); syncDtDisplay('ss-time-from'); syncDtDisplay('ss-time-to');
+  syncDtDisplay('ss-date-from'); syncDtDisplay('ss-date-to'); syncDtDisplay('ss-time-from'); syncDtDisplay('ss-time-to');
   renderSaleSlips();
 };
 

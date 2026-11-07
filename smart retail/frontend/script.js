@@ -9902,20 +9902,34 @@ function saveSssSettings() {
   toast('Summary Sheet settings saved!', 'success');
 }
 
-// Date-range + time-of-day match for a slip, in the user's LOCAL time zone
-// (created_at is UTC; slicing it gave the wrong day/time for Pakistan).
-// dFrom / dTo are YYYY-MM-DD; either may be blank (= no limit on that side).
+// A slip's "effective" day: the Booking Date typed on the booking form (saved
+// in notes as "(date: YYYY-MM-DD)") when present, otherwise the day it was
+// created in the user's LOCAL time zone (created_at is UTC).
+function _ssEffectiveDay(b) {
+  const m = /\(date:\s*(\d{4}-\d{2}-\d{2})\)\s*$/.exec(String(b.notes || ''));
+  if (m) return m[1];
+  const d = new Date(b.created_at);
+  if (isNaN(d)) return '';
+  const p2 = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+}
+
+// Date-range + time-of-day match. dFrom / dTo are YYYY-MM-DD; either may be
+// blank (= no limit on that side). Time-of-day uses the creation time (local).
 function _ssMatchDateTime(b, dFrom, dTo, tFrom, tTo) {
   if (!dFrom && !dTo && !tFrom && !tTo) return true;
-  const d = new Date(b.created_at);
-  if (isNaN(d)) return false;
-  const p2 = n => String(n).padStart(2, '0');
-  const day = `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+  const day = _ssEffectiveDay(b);
+  if ((dFrom || dTo) && !day) return false;
   if (dFrom && day < dFrom) return false;
   if (dTo && day > dTo) return false;
-  const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
-  if (tFrom && hm < tFrom) return false;
-  if (tTo && hm > tTo) return false;
+  if (tFrom || tTo) {
+    const d = new Date(b.created_at);
+    if (isNaN(d)) return false;
+    const p2 = n => String(n).padStart(2, '0');
+    const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+    if (tFrom && hm < tFrom) return false;
+    if (tTo && hm > tTo) return false;
+  }
   return true;
 }
 
@@ -9928,8 +9942,8 @@ async function _ssFetchSlips(dFrom, dTo) {
   const params = { ordering: '-created_at' };
   const startLocal = d => { const [y,m,dd] = d.split('-').map(Number); return new Date(y, m-1, dd, 0, 0, 0, 0); };
   const endLocal   = d => { const [y,m,dd] = d.split('-').map(Number); return new Date(y, m-1, dd, 23, 59, 59, 999); };
-  if (dFrom) params.created_after  = startLocal(dFrom).toISOString();
-  if (dTo)   params.created_before = endLocal(dTo).toISOString();
+  if (dFrom) { params.date_from = dFrom; params.created_after  = startLocal(dFrom).toISOString(); }
+  if (dTo)   { params.date_to   = dTo;   params.created_before = endLocal(dTo).toISOString(); }
 
   // No dates chosen → just the latest slips (fast default).
   if (!dFrom && !dTo) {
@@ -10000,7 +10014,7 @@ window.renderSaleSlips = async function(forceRefresh) {
     const hasDisc = Number(b.discount_amount) > 0;
     return `<tr>
       <td class="td-mono" data-label="Invoice" style="font-weight:700">${b.invoice_number}</td>
-      <td data-label="Date" style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
+      <td data-label="Date" style="font-size:12px">${_ssEffectiveDay(b)}</td>
       <td data-label="Customer" style="font-weight:600">${b.customer_name||'Walk-in'}
         ${b.served_by_name ? `<div style="font-size:10px;color:var(--text-muted)"><i class="fa fa-user-tag"></i> ${b.served_by_name}</div>` : ''}
       </td>

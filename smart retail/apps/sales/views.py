@@ -3,6 +3,9 @@ from django.utils import timezone
 from rest_framework import viewsets, filters, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.db.models import Q
+from django.db.models.functions import Right
+from django.utils.dateparse import parse_date, parse_datetime
 from django_filters import rest_framework as df_filters
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -66,19 +69,52 @@ class PaymentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets
 class SaleFilter(df_filters.FilterSet):
     """Filters for GET /sales/.
 
-    created_after / created_before take full ISO datetimes (the frontend sends
-    the user's LOCAL day boundaries converted to UTC), so a "from date - to
-    date" range in Pakistan time lines up exactly with the server's UTC
-    timestamps. Without these the Sale Slips screen could only ever see the
-    newest page of invoices and older months were unreachable.
-    """
-    created_after = df_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="gte")
-    created_before = df_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="lte")
+    Date range for the Sale Slips screen
+    ------------------------------------
+    An Order Booking stores the date picked in the "Booking Date" field inside
+    `notes` as  "... (date: YYYY-MM-DD)". That date can differ from created_at
+    (back-dated bookings, or UTC vs Pakistan time around midnight), so the
+    slip's *effective* date is:
 
+        • the booking date from notes, when the notes carry one, else
+        • created_at (frontend sends the user's LOCAL day boundaries as ISO
+          datetimes in created_after / created_before).
+
+    date_from / date_to (YYYY-MM-DD) + created_after / created_before select
+    slips whose effective date falls inside the range.
+    """
     class Meta:
         model = Sale
-        fields = ["status", "payment_status", "warehouse", "customer",
-                  "created_after", "created_before"]
+        fields = ["status", "payment_status", "warehouse", "customer"]
+
+    BOOK_DATE_RE = r"\(date: [0-9]{4}-[0-9]{2}-[0-9]{2}\)$"
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        q = self.data
+        d_from = parse_date(q.get("date_from") or "")
+        d_to = parse_date(q.get("date_to") or "")
+        c_from = parse_datetime(q.get("created_after") or "")
+        c_to = parse_datetime(q.get("created_before") or "")
+        if not (d_from or d_to or c_from or c_to):
+            return queryset
+
+        has_book_date = Q(notes__regex=self.BOOK_DATE_RE)
+        queryset = queryset.annotate(_book_tail=Right("notes", 11))
+
+        book = has_book_date
+        if d_from:
+            book &= Q(_book_tail__gte=f"{d_from.isoformat()})")
+        if d_to:
+            book &= Q(_book_tail__lte=f"{d_to.isoformat()})")
+
+        created = ~has_book_date
+        if c_from:
+            created &= Q(created_at__gte=c_from)
+        if c_to:
+            created &= Q(created_at__lte=c_to)
+
+        return queryset.filter(book | created)
 
 
 class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,

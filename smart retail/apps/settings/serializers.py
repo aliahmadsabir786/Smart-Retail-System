@@ -15,7 +15,7 @@ class CompanySettingsSerializer(serializers.ModelSerializer):
         model = CompanySettings
         fields = [
             "company_name", "logo", "address", "phone", "email", "website", "tax_id",
-            "default_currency", "default_tax_percent", "invoice_prefix",
+            "default_currency", "default_tax_percent", "invoice_prefix", "account_prefix",
             "invoice_header_note", "invoice_footer_note", "show_tax_on_receipt", "show_invoice_qr",
             "low_stock_notification_enabled", "low_stock_threshold",
             "auto_backup_enabled", "backup_frequency_days",

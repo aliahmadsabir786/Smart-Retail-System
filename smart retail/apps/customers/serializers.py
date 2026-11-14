@@ -17,10 +17,10 @@ class CustomerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Customer
-        fields = ["id", "user", "group", "group_name", "name", "cnic", "email", "phone", "address", "city",
+        fields = ["id", "account_no", "user", "group", "group_name", "name", "cnic", "email", "phone", "address", "city",
                   "loyalty_points", "credit_limit", "outstanding_balance", "available_credit",
                   "is_active", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "account_no", "created_at", "updated_at"]
 
 
 class CollectPaymentSerializer(serializers.Serializer):

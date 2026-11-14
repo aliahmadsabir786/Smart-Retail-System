@@ -18,6 +18,9 @@ class CompanySettings(models.Model):
     default_tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
     invoice_prefix = models.CharField(max_length=10, default="INV-")
+    # Customer account numbers are shown as {account_prefix}{4-digit id}, e.g. BCC-0001.
+    # Set per company so two companies never end up with the same account number.
+    account_prefix = models.CharField(max_length=10, default="ACC-")
     invoice_header_note = models.TextField(blank=True, default="Thank you for shopping with us!")
     invoice_footer_note = models.TextField(blank=True, default="Thank you for your business!")
     show_tax_on_receipt = models.BooleanField(default=True)

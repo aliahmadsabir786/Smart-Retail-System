@@ -242,6 +242,7 @@ const CustomersAPI = {
   update(id, data) { return apiRequest(`/customers/${id}/`, { method: 'PATCH', body: data }); },
   remove(id) { return apiRequest(`/customers/${id}/`, { method: 'DELETE' }); },
   groups() { return apiRequest('/customers/groups/'); },
+  nextAccountNo() { return apiRequest('/customers/next-account-no/'); },
   ledger(id) { return apiRequest(`/customers/${id}/ledger/`); },
   // Real balance (invoices minus ALL payments incl. advances) for every customer at once.
   balances() { return apiRequest('/customers/balances/'); },

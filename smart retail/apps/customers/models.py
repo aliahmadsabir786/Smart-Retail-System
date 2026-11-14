@@ -41,6 +41,10 @@ class Customer(BaseModel):
     outstanding_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"),
                                                help_text="Total unpaid amount across all invoices")
 
+    # Fixed once when the customer is created: {company account prefix at that time}{4-digit id}.
+    # Changing the prefix in Settings only affects customers created afterwards.
+    account_no = models.CharField(max_length=20, blank=True, default="", db_index=True)
+
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -50,6 +54,14 @@ class Customer(BaseModel):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.account_no and self.pk:
+            from apps.settings.models import CompanySettings
+            prefix = (CompanySettings.load().account_prefix or "ACC-")
+            self.account_no = f"{prefix}{self.pk:04d}"
+            Customer.objects.filter(pk=self.pk).update(account_no=self.account_no)
 
     @property
     def available_credit(self):

@@ -21,8 +21,18 @@ class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["group", "is_active"]
-    search_fields = ["name", "email", "phone"]
+    search_fields = ["name", "email", "phone", "account_no"]
     ordering_fields = ["name", "outstanding_balance", "created_at"]
+
+    @action(detail=False, methods=["get"], url_path="next-account-no")
+    def next_account_no(self, request):
+        """GET /customers/next-account-no/ — the account number the NEXT new customer will get
+        (current Settings prefix + next id). Used by the Add Customer form preview."""
+        from django.db.models import Max
+        from apps.settings.models import CompanySettings
+        prefix = CompanySettings.load().account_prefix or "ACC-"
+        nxt = (Customer.objects.aggregate(m=Max("id"))["m"] or 0) + 1
+        return Response({"account_no": f"{prefix}{nxt:04d}"})
 
     @action(detail=False, methods=["post"], url_path="bulk-create")
     def bulk_create(self, request):

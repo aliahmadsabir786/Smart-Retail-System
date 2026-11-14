@@ -3054,7 +3054,7 @@ async function renderCustomers(page) {
   renderPaginationBar('customers-pagination', _custPage, totalPages, totalCount, _custPageSize, (p) => renderCustomers(p));
   document.getElementById('customers-table').innerHTML = filtered.map(c=>`
     <tr>
-      <td><span class="badge badge-purple" style="font-family:var(--mono)">ACC-${String(c.id).padStart(4,'0')}</span></td>
+      <td><span class="badge badge-purple" style="font-family:var(--mono)">${accNo(c.id, c.account_no)}</span></td>
       <td class="td-mono">CUST-${String(c.id).padStart(3,'0')}</td>
       <td class="fw-700">${c.name}</td>
       <td>${c.phone||'—'}</td>
@@ -3096,8 +3096,14 @@ function openCustomerModal() {
   const statusEl = document.getElementById('cust-cnic-status');
   if (errEl) errEl.style.display = 'none';
   if (statusEl) statusEl.textContent = '';
-  document.getElementById('cust-acc').value = 'ACC-' + String((_customerCache.length||0)+1).padStart(4,'0');
+  const accEl = document.getElementById('cust-acc');
+  accEl.value = accNo((_customerCache.length||0)+1);
   openModal('customer-modal');
+  // Ask the server for the real next number (current Settings prefix + next id) so the
+  // field is never stale or wrong. The final number is fixed by the server on save.
+  CustomersAPI.nextAccountNo().then(r => {
+    if (r && r.account_no && !document.getElementById('cust-edit-id').value) accEl.value = r.account_no;
+  }).catch(() => {});
 }
 
 function editCustomer(id) {
@@ -3111,14 +3117,16 @@ function editCustomer(id) {
   document.getElementById('cust-email').value      = c.email || '';
   document.getElementById('cust-address').value    = c.address || '';
   document.getElementById('cust-points').value     = c.loyalty_points || 0;
-  document.getElementById('cust-acc').value        = 'ACC-' + String(c.id).padStart(4,'0');
+  document.getElementById('cust-acc').value        = accNo(c.id, c.account_no);
   document.getElementById('cust-prev-balance').value = c.outstanding_balance || 0;
   const cnicEl = document.getElementById('cust-cnic');
   if (cnicEl) { cnicEl.value = c.cnic || ''; }
   openModal('customer-modal');
 }
 
+let _custSaving = false;   // blocks a second click while the first save is still running
 async function saveCustomer() {
+  if (_custSaving) return;
   const name = document.getElementById('cust-name').value.trim();
   if (!name) { toast('Customer name is required!', 'error'); return; }
 
@@ -3148,6 +3156,7 @@ async function saveCustomer() {
     outstanding_balance: parseFloat(document.getElementById('cust-prev-balance').value) || 0,
   };
 
+  _custSaving = true;
   try {
     let created = null;
     if (editId) {
@@ -3173,6 +3182,8 @@ async function saveCustomer() {
     if (typeof updatePosCustomers === 'function') updatePosCustomers();
   } catch (err) {
     toast(err.message || 'Failed to save customer', 'error');
+  } finally {
+    _custSaving = false;
   }
 }
 
@@ -5098,7 +5109,7 @@ async function onBookingCustomerChange() {
     calcBookingTotals();
     return;
   }
-  const acc = 'ACC-'+String(cust.id).padStart(4,'0');
+  const acc = accNo(cust.id, cust.account_no);
   document.getElementById('bk-acc-display').value = acc;
   document.getElementById('bk-acc-search').value = acc;
   if (searchEl) searchEl.value = `${cust.name} (${acc})`;
@@ -5138,7 +5149,7 @@ function _bkEsc(s) {
 
 function _bkCustDropRows(list) {
   return list.map(c => {
-    const acc = 'ACC-'+String(c.id).padStart(4,'0');
+    const acc = accNo(c.id, c.account_no);
     // Address under the name (falls back to city) so two customers with the
     // same/similar name can be told apart right in the dropdown.
     const addr = String(c.address || c.city || '').replace(/\s+/g, ' ').trim();
@@ -5167,7 +5178,7 @@ function _bkCustMatches(lc, extraIds) {
   const rank = (c) => {
     const name = (c.name||'').toLowerCase();
     const phone = (c.phone||'').toLowerCase(), email = (c.email||'').toLowerCase();
-    const acc = ('acc-'+String(c.id).padStart(4,'0'));
+    const acc = accNo(c.id, c.account_no).toLowerCase();
     if (name.startsWith(lc)) return 0;   // starts-with → top of the list
     if (name.includes(lc) || phone.includes(lc) || email.includes(lc) || acc.includes(lc)) return 1;
     if (extraIds && extraIds.has(c.id)) return 2;
@@ -5894,7 +5905,7 @@ async function renderBookingList() {
           <td class="td-mono" data-label="Invoice" style="color:var(--cyan)">${b.invoice_number}</td>
           <td data-label="Date" style="font-size:12px">${(b.created_at||'').slice(0,10)}</td>
           <td class="fw-700" data-label="Customer">${b.customer_name||'Walk-in'}</td>
-          <td data-label="Account No"><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</span></td>
+          <td data-label="Account No"><span class="badge badge-purple" style="font-family:var(--mono);font-size:11px">${b.customer?(accNo(b.customer, b.customer_account_no)):'—'}</span></td>
           <td data-label="Items">${b.items.length} item(s)</td>
           <td class="fw-700 text-green" data-label="Amount">Rs.${Number(b.total_amount).toFixed(2)}</td>
           <td data-label="Prev Balance" class="${Number(b.previous_balance) < 0 ? 'text-green' : 'text-red'}">${Number(b.previous_balance) < 0 ? '(Advance) ' : ''}Rs.${Math.abs(Number(b.previous_balance)).toFixed(2)}</td>
@@ -5937,7 +5948,7 @@ function viewSlipDetail(id) {
   document.getElementById('order-detail-body').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">CUSTOMER</div><div style="font-weight:600">${b.customer_name||'Walk-in'}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">ACCOUNT NO</div><div style="font-weight:700;color:var(--purple);font-family:var(--mono)">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">ACCOUNT NO</div><div style="font-weight:700;color:var(--purple);font-family:var(--mono)">${b.customer?(accNo(b.customer, b.customer_account_no)):'—'}</div></div>
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">DATE</div><div style="font-weight:600">${(b.created_at||'').slice(0,10)}</div></div>
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">INVOICE</div><div style="font-weight:700;color:var(--cyan);font-family:var(--mono)">${b.invoice_number}</div></div>
       <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">PAYMENT</div><div style="font-weight:600">${(b.payments[0]?.method)||'—'}</div></div>
@@ -6072,7 +6083,7 @@ function _adaptSaleForSlipPrint(sale) {
     customerName: sale.customer_name || 'Walk-in',
     customerCnic: sale.customer_cnic || '',
     customerAddress: sale.customer_address || '',
-    accountNo: sale.customer ? ('ACC-'+String(sale.customer).padStart(4,'0')) : '—',
+    accountNo: sale.customer ? (accNo(sale.customer, sale.customer_account_no)) : '—',
     paymentMethod: (sale.payments[0]?.method) || '—',
     createdBy: '',
     items: (sale.items||[])
@@ -6104,7 +6115,50 @@ function _adaptSaleForSlipPrint(sale) {
 }
 
 // ── BUILD A4 HTML for a single booking ──────────────────
-function buildSlipA4Html(rawSale) {
+// ── BizFlow Labs footer (printed at the very end of every invoice) ──────────
+// Put the real BizFlow Labs Facebook page link here. While it is empty the Facebook
+// icon and name are still printed, just without a link.
+const BIZFLOW_FACEBOOK_URL = '';
+const BIZFLOW_WHATSAPP_NO  = '+923140620796';
+const BIZFLOW_LOGO_SRC = 'data:image/png;base64,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';
+
+// The "Order Booking (date: …)" text the app stores in notes is internal — never print it.
+// Anything the user typed as a real note is still printed.
+function _slipPrintNote(notes) {
+  return String(notes || '')
+    .replace(/^Order Booking\s*(—\s*)?/, '')
+    .replace(/\s*\(date:[^)]*\)\s*$/, '')
+    .trim();
+}
+
+function _bizflowFooterHtml() {
+  const fbIcon = '<svg width="20" height="20" viewBox="0 0 24 24" style="display:block"><path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>';
+  const waIcon = '<svg width="20" height="20" viewBox="0 0 24 24" style="display:block"><circle cx="12" cy="12" r="12" fill="#25D366"/><path d="M12 4.5a7.5 7.5 0 0 0-6.4 11.4L4.5 19.5l3.7-1a7.5 7.5 0 1 0 3.8-14z" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M9.2 8.3c.2-.4.5-.4.7-.4h.5c.2 0 .4 0 .5.4l.7 1.6c.1.2 0 .4-.1.6l-.4.5c-.1.1-.1.3 0 .5.5.9 1.3 1.6 2.3 2 .2.1.4 0 .5-.1l.6-.7c.2-.2.4-.2.6-.1l1.5.7c.2.1.3.3.2.6-.2.8-1 1.4-1.9 1.4-2.8-.2-5-2.5-5.4-4.4-.1-.7.1-1.3.4-1.9z" fill="#fff"/></svg>';
+  const fbInner = `${fbIcon}<span style="margin-left:6px">BizFlow Labs</span>`;
+  const fb = BIZFLOW_FACEBOOK_URL
+    ? `<a href="${BIZFLOW_FACEBOOK_URL}" style="color:#000;text-decoration:none;display:inline-flex;align-items:center">${fbInner}</a>`
+    : fbInner;
+  // margin-top:auto pushes this to the bottom of the page (the invoice is a flex column).
+  return `<div class="bizflow-footer slip-atomic-block" style="margin-top:auto;margin-bottom:-6mm;padding-top:5mm">
+      <div style="display:flex;align-items:center;gap:8px;font-size:9px;color:#000;margin-bottom:2.5mm">
+        <span style="flex:1;border-top:1px solid #000"></span>
+        <span style="white-space:nowrap">Invoicing Company</span>
+        <span style="flex:1;border-top:1px solid #000"></span>
+      </div>
+      <div style="display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:center;gap:28px;width:100%;color:#000">
+        <span style="display:flex;align-items:center"><img src="${BIZFLOW_LOGO_SRC}" style="height:6mm;width:auto;display:block" alt="BizFlow Labs"></span>
+        <span style="display:flex;align-items:center;font-size:12px;font-weight:700">${fb}</span>
+        <span style="display:flex;align-items:center;font-size:12px;font-weight:700">${waIcon}<span style="margin-left:6px">${BIZFLOW_WHATSAPP_NO}</span></span>
+      </div>
+    </div>`;
+}
+
+// "Print 2 on One Page" shrinks everything on each invoice by this factor, on top of
+// the Sale Slip font-size setting, so the half-page invoices don't look oversized.
+// 1 = same size as a single invoice, 0.8 = 20% smaller. Change this one number to taste.
+const TWO_UP_FONT_SCALE = 0.8;
+
+function buildSlipA4Html(rawSale, zoomMultiplier) {
   const b = rawSale.invoice_number ? _adaptSaleForSlipPrint(rawSale) : rawSale;
 
   const s = (typeof _companySettingsCache !== 'undefined' && _companySettingsCache) || {};
@@ -6130,7 +6184,7 @@ function buildSlipA4Html(rawSale) {
   // real "change it in Settings, not in code" control instead of having
   // to hunt down and hand-edit every explicit font-size value in this
   // template one by one.
-  const fontScale = Number(ssSettings.fontScale) || 1;
+  const fontScale = (Number(ssSettings.fontScale) || 1) * (Number(zoomMultiplier) || 1);
 
   // Independent of fontScale above — this ONLY bumps the "Product Name"
   // cell text in the items table (the actual name in each row), not the
@@ -6141,7 +6195,7 @@ function buildSlipA4Html(rawSale) {
   const productNameFontScale = Number(ssSettings.productNameFontScale) || 1;
   const productNameFontSize = (9.5 * productNameFontScale).toFixed(2);
 
-  return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px;zoom:${fontScale}">
+  return `<div class="a4-doc" style="page-break-before:always;margin:0;padding:10mm 12mm;box-sizing:border-box;font-size:11px;zoom:${fontScale};--slip-zoom:${fontScale};display:flex !important;flex-direction:column;min-height:calc((100vh - 1mm) / ${fontScale})">
     <!-- ═══ MAIN HEADER ═══ -->
     <div style="display:flex;align-items:flex-start;gap:10px;border-bottom:2px solid #000;padding-bottom:4mm;margin-bottom:3mm">
       ${ssSettings.showCompanyLogo ? `<div style="width:60px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -6284,7 +6338,7 @@ function buildSlipA4Html(rawSale) {
       </div>
     </div>
 
-    ${b.notes?`<div class="slip-atomic-block" style="margin-bottom:3mm;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:9.5px;color:#000"><strong>Notes:</strong> ${b.notes}</div>`:''}
+    ${_slipPrintNote(b.notes)?`<div class="slip-atomic-block" style="margin-bottom:3mm;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:9.5px;color:#000"><strong>Notes:</strong> ${_slipPrintNote(b.notes)}</div>`:''}
 
     
     <!-- ═══ FOOTER ═══ -->
@@ -6293,7 +6347,31 @@ function buildSlipA4Html(rawSale) {
       <span>SmartRetail ERP — Order Booking System</span>
       <span>${b.invoice} · Printed: ${new Date().toLocaleString()}</span>
     </div>
+    ${_bizflowFooterHtml()}
   </div>`;
+}
+
+// style.css has a GLOBAL "@page { margin: 12mm 0 0 0 }" (breathing room for page 2+ of
+// long reports). For invoices that is wrong: every invoice is exactly one page, so on
+// page 2, 3, 4... the invoice started 12mm LOWER than on page 1 — which is also what
+// pushed its footer onto yet another page. With "2 pages per sheet" it showed as the
+// left invoice starting higher than the right one. @page can't be overridden with a
+// new <style> tag (the browser keeps using the original rule), so we change the
+// original rule itself while the invoices print, and put it back afterwards.
+// Returns a function that restores the previous margins.
+function _setPageMargins(value) {
+  const saved = [];
+  for (const sheet of document.styleSheets) {
+    let rules;
+    try { rules = sheet.cssRules; } catch (_) { continue; }
+    for (const r of rules) {
+      if (r.type === CSSRule.PAGE_RULE) {
+        saved.push([r, r.style.getPropertyValue('margin'), r.style.getPropertyPriority('margin')]);
+        r.style.setProperty('margin', value, 'important');
+      }
+    }
+  }
+  return () => saved.forEach(([r, v, pr]) => r.style.setProperty('margin', v, pr));
 }
 
 async function printSingleSlipA4(id) {
@@ -6308,8 +6386,9 @@ async function printSingleSlipA4(id) {
   if (_isPosTerminalSale(b)) { printThermalSlip(b, { reprint: true }); return; }   // POS Terminal bill → 73mm slip
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = buildSlipA4Html(b);
+  const restoreMargins = _setPageMargins('0');
   await animatedPrint('slip', printArea);
-  setTimeout(() => { printArea.style.display = 'none'; }, 1200);
+  setTimeout(() => { printArea.style.display = 'none'; restoreMargins(); }, 1200);
 }
 
 async function printAllSlipsA4(mode) {
@@ -6341,7 +6420,7 @@ async function printAllSlipsA4(mode) {
     _ssMatchDateTime(b, dateFrom, dateTo, timeFromF, timeToF) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
     (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
-                        ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
+                        accNo(b.customer||'', b.customer_account_no).toLowerCase().includes(invoiceFilter)) &&
     (!usernameFilter || (b.served_by_name||'').toLowerCase().includes(usernameFilter)) &&
     (!areaFilter     || (b.customer_address||'').toLowerCase().includes(areaFilter))
   );
@@ -6369,7 +6448,7 @@ async function printAllSlipsA4(mode) {
 
     const cellHtml = (b) => {
       const map = {
-        showAccountNo:     `<td style="padding:6px 9px;font-family:monospace;color:#5b21b6">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>`,
+        showAccountNo:     `<td style="padding:6px 9px;font-family:monospace;color:#5b21b6">${b.customer?(accNo(b.customer, b.customer_account_no)):'—'}</td>`,
         showItems:         `<td style="padding:6px 9px;text-align:center">${b.items.length}</td>`,
         showBillAmt:       `<td style="padding:6px 9px;text-align:right">Rs.${Number(b.total_amount).toFixed(2)}</td>`,
         showPrevBalance:   `<td style="padding:6px 9px;text-align:right;color:#dc2626">Rs.${Number(b.due_amount).toFixed(2)}</td>`,
@@ -6451,8 +6530,8 @@ async function printAllSlipsA4(mode) {
     // of it, so the printed text stays at its real, legible size.
     let pairHtml = '';
     for (let i = 0; i < slips.length; i += 2) {
-      const left = buildSlipA4Html(slips[i]);
-      const right = slips[i + 1] ? buildSlipA4Html(slips[i + 1]) : '<div class="a4-doc" style="visibility:hidden"></div>';
+      const left = buildSlipA4Html(slips[i], TWO_UP_FONT_SCALE);
+      const right = slips[i + 1] ? buildSlipA4Html(slips[i + 1], TWO_UP_FONT_SCALE) : '<div class="a4-doc" style="visibility:hidden"></div>';
       pairHtml += `<div class="a4-landscape-pair">${left}${right}</div>`;
     }
     html = pairHtml;
@@ -6472,9 +6551,37 @@ async function printAllSlipsA4(mode) {
   if (mode === 'landscape2up') {
     landscapeStyleTag = document.createElement('style');
     landscapeStyleTag.id = 'temp-landscape-page-style';
-    landscapeStyleTag.textContent = '@page { size: A4 landscape; margin: 8mm; }';
+    // FIXED-HEIGHT layout (no vh): A4 landscape is 210mm tall, minus 8mm margin
+    // top + 4mm bottom = 198mm printable. Each pair is locked to 196mm (2mm safety),
+    // so the BizFlow footer sits at the very end of the sheet and is shrunk (zoom .75) so it stays quiet,
+    // so it can NEVER spill onto a 2nd sheet. Both invoices stretch to that same
+    // height: header stays at the top, BizFlow footer sits at the bottom of the
+    // sheet, in the same place on both halves — exactly like a normal full invoice.
+    // (100vh was the bug: in print it is not exactly the printable height, and
+    //  each invoice's own inline min-height of ~100vh made the pair taller than
+    //  the sheet, pushing the footer onto the next page.)
+    // `zoom` multiplies any height set on the element, so divide by --slip-zoom.
+    // !important on @page also beats style.css's 12mm top margin for page 2+.
+    landscapeStyleTag.textContent =
+      '@page { size: A4 landscape; margin: 8mm 8mm 4mm !important; } @page :first { margin: 8mm 8mm 4mm !important; } ' +
+      '@media print { ' +
+        'html, body { height: auto !important; } ' +
+        '.a4-landscape-pair { display: flex !important; align-items: stretch !important; gap: 8mm; ' +
+          'height: 196mm !important; min-height: 0 !important; max-height: 196mm !important; overflow-x: visible !important; overflow-y: clip !important; ' +
+          'box-sizing: border-box; break-inside: avoid !important; page-break-inside: avoid !important; ' +
+          'break-before: auto !important; page-break-before: auto !important; } ' +
+        '.a4-landscape-pair .a4-doc { display: flex !important; flex-direction: column; ' +
+          'height: calc(196mm / var(--slip-zoom, 1)) !important; min-height: 0 !important; ' +
+          'max-height: calc(196mm / var(--slip-zoom, 1)) !important; padding-bottom: 2.5mm !important; overflow-x: visible !important; overflow-y: clip !important; ' +
+          'box-sizing: border-box; margin: 0 !important; } ' +
+        '.a4-landscape-pair .a4-doc .bizflow-footer { margin-bottom: 0 !important; padding-top: 2mm !important; zoom: 0.75; } ' +
+      '}';
     document.head.appendChild(landscapeStyleTag);
   }
+
+  // Same top position on EVERY page/invoice (see _setPageMargins). Summary sheet keeps
+  // the normal page rules; 2-on-1 landscape uses 8mm all round, normal invoices 0.
+  const restoreMargins = (mode === 'summary') ? null : _setPageMargins(mode === 'landscape2up' ? '8mm 8mm 4mm' : '0');
 
   // Printer animation plays first (it also gives the browser time to fully
   // render all slip HTML), then the print dialog opens.
@@ -6482,6 +6589,7 @@ async function printAllSlipsA4(mode) {
   setTimeout(() => {
     printArea.style.display = 'none';
     if (landscapeStyleTag) landscapeStyleTag.remove();
+    if (restoreMargins) restoreMargins();
   }, 1500);
 }
 
@@ -6521,6 +6629,15 @@ async function printAllSlipsA4(mode) {
 // SYSTEM SETTINGS
 // ═══════════════════════════════════════════════════════
 let _companySettingsCache = null;
+
+// Customer account number = company's account prefix (Settings) + 4-digit id, e.g. BCC-0001.
+// `stored` = the account_no saved on the customer (fixed when created); only used as a
+// fallback preview when it is missing.
+function accNo(id, stored) {
+  if (stored) return stored;
+  const p = ((typeof _companySettingsCache !== 'undefined' && _companySettingsCache && _companySettingsCache.account_prefix) || 'ACC-');
+  return p + String(id).padStart(4, '0');
+}
 
 async function renderBackupsList() {
   const tbody = document.getElementById('backups-tbody');
@@ -6575,6 +6692,7 @@ async function renderSettings() {
   setVal('set-taxrate', s.default_tax_percent);
   setVal('set-lowstock', s.low_stock_threshold);
   setVal('set-invoice-prefix', s.invoice_prefix);
+  setVal('set-account-prefix', s.account_prefix);
   setVal('set-receipt-header', s.invoice_header_note);
   setVal('set-receipt-footer', s.invoice_footer_note);
   setChecked('set-show-tax', s.show_tax_on_receipt);
@@ -6633,6 +6751,7 @@ async function saveSettings() {
     default_currency: g('set-currency'),
     low_stock_threshold: parseInt(g('set-lowstock'))||10,
     invoice_prefix: g('set-invoice-prefix') || 'INV-',
+    account_prefix: g('set-account-prefix').trim() || 'ACC-',
     invoice_header_note: g('set-receipt-header'),
     invoice_footer_note: g('set-receipt-footer'),
     show_tax_on_receipt: g('set-show-tax') === 'yes',
@@ -7033,7 +7152,7 @@ async function renderAllAccountsSummary() {
   document.getElementById('ldg-all-tbody').innerHTML = items.map(x=>{
     const balance = type==='customer' ? Number(x.outstanding_balance) : Number(x.outstanding_payable);
     return `<tr>
-      <td><span class="badge badge-purple" style="font-family:var(--mono)">ACC-${String(x.id).padStart(4,'0')}</span></td>
+      <td><span class="badge badge-purple" style="font-family:var(--mono)">${accNo(x.id, x.account_no)}</span></td>
       <td class="fw-700">${x.name}</td>
       <td>${x.phone||'—'}</td>
       <td class="text-red fw-700">Rs.${balance>0?balance.toFixed(2):'0.00'}</td>
@@ -7427,7 +7546,7 @@ async function renderBalanceSheet() {
 
   const custReceivables = (custData.results||custData)
     .filter(c=>Number(c.outstanding_balance)>0)
-    .map(c=>({ name:c.name, acc:'ACC-'+String(c.id).padStart(4,'0'), bal:Number(c.outstanding_balance) }));
+    .map(c=>({ name:c.name, acc:accNo(c.id, c.account_no), bal:Number(c.outstanding_balance) }));
   const totalReceivable = custReceivables.reduce((s,x)=>s+x.bal,0);
 
   const supPayables = (supData.results||supData)
@@ -7537,7 +7656,7 @@ async function printBalanceSheetA4() {
 
   const custReceivables = (custData.results||custData)
     .filter(c=>Number(c.outstanding_balance)>0)
-    .map(c=>({ name:c.name, acc:'ACC-'+String(c.id).padStart(4,'0'), bal:Number(c.outstanding_balance) }));
+    .map(c=>({ name:c.name, acc:accNo(c.id, c.account_no), bal:Number(c.outstanding_balance) }));
   const supPayables = (supData.results||supData)
     .filter(s=>Number(s.outstanding_payable)>0)
     .map(s=>({ name:s.name, bal:Number(s.outstanding_payable) }));
@@ -9184,7 +9303,7 @@ function exportOrderSummaryCsv() {
 
   const headers = ['Invoice','Date','Customer','Account','Username','Subtotal','Tax','Discount','Total','Paid','Status'];
   const dataRows = bookings.map(b => [
-    b.invoice_number, (b.created_at||'').slice(0,10), b.customer_name||'Walk-in', b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'', b.served_by_name||'',
+    b.invoice_number, (b.created_at||'').slice(0,10), b.customer_name||'Walk-in', b.customer?(accNo(b.customer, b.customer_account_no)):'', b.served_by_name||'',
     Number(b.subtotal).toFixed(2), Number(b.tax_amount).toFixed(2), Number(b.discount_amount).toFixed(2),
     Number(b.total_amount).toFixed(2), Number(b.paid_amount).toFixed(2), b.status
   ]);
@@ -9991,7 +10110,7 @@ window.renderSaleSlips = async function(forceRefresh) {
     _ssMatchDateTime(b, dateFrom, dateTo, timeFromF, timeToF) &&
     (!nameFilter     || (b.customer_name||'').toLowerCase().includes(nameFilter)) &&
     (!invoiceFilter  || (b.invoice_number||'').toLowerCase().includes(invoiceFilter) ||
-                        ('acc-'+String(b.customer||'').padStart(4,'0')).toLowerCase().includes(invoiceFilter)) &&
+                        accNo(b.customer||'', b.customer_account_no).toLowerCase().includes(invoiceFilter)) &&
     (!usernameFilter || (b.served_by_name||'').toLowerCase().includes(usernameFilter)) &&
     (!areaFilter     || (b.customer_address||'').toLowerCase().includes(areaFilter))
   );
@@ -10018,7 +10137,7 @@ window.renderSaleSlips = async function(forceRefresh) {
       <td data-label="Customer" style="font-weight:600">${b.customer_name||'Walk-in'}
         ${b.served_by_name ? `<div style="font-size:10px;color:var(--text-muted)"><i class="fa fa-user-tag"></i> ${b.served_by_name}</div>` : ''}
       </td>
-      <td class="td-mono" data-label="Account">${b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—'}</td>
+      <td class="td-mono" data-label="Account">${b.customer?(accNo(b.customer, b.customer_account_no)):'—'}</td>
       <td data-label="Items" style="text-align:center">${b.items?.length||0}</td>
       <td class="fw-700 td-mono" data-label="Amount">Rs.${Number(b.subtotal).toFixed(2)}
         ${hasTax ? `<div style="font-size:10px;color:var(--yellow)">+Rs.${Number(b.tax_amount).toFixed(2)} tax</div>` : ''}
@@ -10313,7 +10432,7 @@ function getUsernameCollectionRows(username, fromDT, toDT) {
   const byCustomer = {};
   bookings.forEach(b => {
     const key = b.customer || b.customer_name;
-    if (!byCustomer[key]) byCustomer[key] = { customerId: b.customer || null, customerName: b.customer_name||'Walk-in', accountNo: b.customer?('ACC-'+String(b.customer).padStart(4,'0')):'—', username: b.served_by_name||username, invoices: [], totalBill: 0, discAmt: 0, taxAmt: 0, received: 0 };
+    if (!byCustomer[key]) byCustomer[key] = { customerId: b.customer || null, customerName: b.customer_name||'Walk-in', accountNo: b.customer?(accNo(b.customer, b.customer_account_no)):'—', username: b.served_by_name||username, invoices: [], totalBill: 0, discAmt: 0, taxAmt: 0, received: 0 };
     byCustomer[key].invoices.push(b.invoice_number);
     byCustomer[key].totalBill += Number(b.total_amount);
     byCustomer[key].discAmt  += Number(b.discount_amount);
@@ -10341,7 +10460,7 @@ async function renderCollection() {
     CustomersAPI.balances().catch(() => null),
   ]);
   _colBalances = (balData && balData.balances) || {};
-  _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: 'ACC-'+String(c.id).padStart(4,'0') }));
+  _colCustomerCache = (custData.results || custData).map(c => ({ ...c, name: c.name, phone: c.phone, accountNo: accNo(c.id, c.account_no) }));
   // Exclude both cancelled AND fully-returned sales — a bill that was voided
   // (e.g. edited from cash to credit, which cancels/returns the old invoice
   // and creates a fresh one) must disappear from Collection entirely, not
